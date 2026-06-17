@@ -1,0 +1,14 @@
+{
+  "verible.arguments": [
+    "--flagfile=.rules.verible_format",
+    "--file_list_path=verible.filelist"
+  ],
+  "[systemverilog]": {
+    "editor.defaultFormatter": "chipsalliance.verible",
+    "editor.formatOnSave": true
+  },
+  "[verilog]": {
+    "editor.defaultFormatter": "chipsalliance.verible",
+    "editor.formatOnSave": true
+  }
+}

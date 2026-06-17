@@ -215,12 +215,27 @@ If Bender is added later, commit both `Bender.yml` and `Bender.lock`.
 ## Formatting And Lint
 
 - Use Verible as the preferred formatter and style/lint tool.
+- Keep formatter options in `.rules.verible_format`.
+- Configure VSCode's `chipsalliance.verible` extension through
+  `.vscode/settings.json`.
 - Keep formatting changes separate from functional RTL changes when practical.
 - Do not reformat third-party IP.
 - Treat lint warnings as design feedback; waive only with a short documented
   reason.
 - Add assertions for non-obvious protocol assumptions when the design starts to
   use ready/valid interfaces, pipeline flushes, or hazard forwarding.
+
+Command-line formatting:
+
+```sh
+verible-verilog-format --flagfile=.rules.verible_format --inplace rtl/core/units/alu.sv
+```
+
+Command-line format check:
+
+```sh
+verible-verilog-format --flagfile=.rules.verible_format --verify rtl/core/units/alu.sv
+```
 
 ## Comments
 
@@ -245,4 +260,3 @@ If Bender is added later, commit both `Bender.yml` and `Bender.lock`.
   generated output.
 - Do not manually edit generated files unless the edit is explicitly temporary
   and clearly marked.
-
