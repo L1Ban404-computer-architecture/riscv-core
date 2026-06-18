@@ -1,15 +1,14 @@
 # Verible formatter flags for project-owned SystemVerilog RTL.
 #
-# This file is consumed by:
-#   verible-verilog-format --flagfile=.rules.verible_format <file>
-#   verible-verilog-ls --flagfile=.rules.verible_format
+# Keep these choices aligned with docs/rtl-style.md. Run from the repository
+# root, for example:
+#   verible-verilog-format --flagfile=.rules.verible_format --inplace rtl/core/riscv_core.sv
 #
-# Keep these choices aligned with docs/rtl-style.md.
+# Do not reformat third-party IP under third_party/ip/.
 
 --column_limit=100
 --indentation_spaces=2
 --wrap_spaces=4
---line_terminator=auto
 
 --formal_parameters_indentation=indent
 --named_parameter_indentation=indent
@@ -26,8 +25,6 @@
 --struct_union_members_alignment=flush-left
 --enum_assignment_statement_alignment=flush-left
 
---alignment_group_boundary=blank-lines
 --compact_indexing_and_selections=true
 --try_wrap_long_lines=true
 --wrap_end_else_clauses=false
-

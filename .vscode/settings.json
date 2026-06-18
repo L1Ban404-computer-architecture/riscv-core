@@ -1,14 +1,8 @@
 {
-  "verible.arguments": [
-    "--flagfile=.rules.verible_format",
-    "--file_list_path=verible.filelist"
-  ],
-  "[systemverilog]": {
-    "editor.defaultFormatter": "chipsalliance.verible",
-    "editor.formatOnSave": true
+  "files.associations": {
+    "*.sv": "systemverilog",
+    "*.svh": "systemverilog"
   },
-  "[verilog]": {
-    "editor.defaultFormatter": "chipsalliance.verible",
-    "editor.formatOnSave": true
-  }
+  "slang.path": "/home/ban/.local/riscv-core-tools/opt/slang-server/current/slang-server",
+  "systemverilogFormatter.commandLineArguments": "--flagfile=/home/ban/riscv-core/.rules.verible_format"
 }

@@ -1,0 +1,16 @@
+{
+  "build": ".slang/riscv_core.f",
+  "buildRelativePaths": false,
+  "builds": [
+    {
+      "name": "riscv_core",
+      "glob": ".slang/riscv_core.f"
+    }
+  ],
+  "index": [
+    {
+      "dirs": ["rtl"],
+      "excludeDirs": []
+    }
+  ]
+}
