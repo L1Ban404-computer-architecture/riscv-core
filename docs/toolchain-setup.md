@@ -4,7 +4,7 @@
 
 ## 本次配置所用的主机
 
-- 日期：2026-06-17
+- 日期：2026-06-18
 - 操作系统：Ubuntu 24.04.4 LTS，WSL2
 - 内核：Linux 5.15.167.4-microsoft-standard-WSL2
 - 架构：x86_64
@@ -20,7 +20,7 @@
 | Verilator | `5.049 devel rev v5.048-279-ga534a1d1b (mod)`，来自 OSS CAD Suite | `$RISCV_CORE_TOOLS/opt/oss-cad-suite/current/bin/verilator` |
 | Yosys | `0.66+103`，git `e2903c4a5`，来自 OSS CAD Suite | `$RISCV_CORE_TOOLS/opt/oss-cad-suite/current/bin/yosys` |
 | SymbiYosys | `SBY v0.66-4-gd3e72d2`，来自 OSS CAD Suite | `$RISCV_CORE_TOOLS/opt/oss-cad-suite/current/bin/sby` |
-| Verible | `v0.0-4080-ga0a8d8eb` | `$RISCV_CORE_TOOLS/opt/verible/v0.0-4080-ga0a8d8eb` |
+| slang-server | `0.2.6+4341a9e` | `$RISCV_CORE_TOOLS/opt/slang-server/v0.2.6` |
 | RISC-V GNU Toolchain | 发布版本 `2026.06.06`，`riscv64-unknown-elf-gcc 16.1.0`，binutils `2.46` | `$RISCV_CORE_TOOLS/opt/riscv-gnu-toolchain/2026.06.06-riscv64-elf-ubuntu-24.04-gcc` |
 | 用于 cocotb 的 Python | Python `3.12.3` 虚拟环境 | `$RISCV_CORE_TOOLS/python/cocotb-venv` |
 | cocotb | `2.0.1` | `$RISCV_CORE_TOOLS/python/cocotb-venv` |
@@ -43,9 +43,9 @@ $HOME/.local/riscv-core-tools/
     riscv-gnu-toolchain/
       2026.06.06-riscv64-elf-ubuntu-24.04-gcc/
       current -> 2026.06.06-riscv64-elf-ubuntu-24.04-gcc
-    verible/
-      v0.0-4080-ga0a8d8eb/
-      current -> v0.0-4080-ga0a8d8eb
+    slang-server/
+      v0.2.6/
+      current -> v0.2.6
   python/
     cocotb-venv/
   src/
@@ -58,7 +58,7 @@ $HOME/.local/riscv-core-tools/
 | `$RISCV_CORE_TOOLS` | 6.2G |
 | `$RISCV_CORE_TOOLS/downloads` | 1.2G |
 | OSS CAD Suite 安装 | 2.4G |
-| Verible 安装 | 42M |
+| slang-server 安装 | 13M |
 | RISC-V GNU Toolchain 安装 | 2.5G |
 | cocotb 虚拟环境 | 29M |
 
@@ -69,7 +69,7 @@ $HOME/.local/riscv-core-tools/
 | 文件 | 来源 URL | SHA256 |
 | --- | --- | --- |
 | `oss-cad-suite-linux-x64-20260617.tgz` | `https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-06-17/oss-cad-suite-linux-x64-20260617.tgz` | `fe28f69db0c5013831292fba4f170568431bb96e685cdf363d73e02980473eb0` |
-| `verible-v0.0-4080-ga0a8d8eb-linux-static-x86_64.tar.gz` | `https://github.com/chipsalliance/verible/releases/download/v0.0-4080-ga0a8d8eb/verible-v0.0-4080-ga0a8d8eb-linux-static-x86_64.tar.gz` | `f75daa70f29dbe9624ffee3738408341cfdadbdaf7e5d714a5bcceb9223953e6` |
+| `slang-server-linux-x64-gcc.tar.gz` | `https://github.com/hudson-trading/slang-server/releases/download/v0.2.6/slang-server-linux-x64-gcc.tar.gz` | `ed807fb6c9fd974a402f7ea04ab15e9a8c9d204303c9b6428af51c06f1ea0b04` |
 | `riscv64-elf-ubuntu-24.04-gcc.tar.xz` | `https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2026.06.06/riscv64-elf-ubuntu-24.04-gcc.tar.xz` | `373862418256887081e0876857076ec7852e71292b7e8c5518cf027fcb2d93b5` |
 | `get-pip.py` | `https://bootstrap.pypa.io/get-pip.py` | `a341e1a43e38001c551a1508a73ff23636a11970b61d901d9a1cad2a18f57055` |
 
@@ -112,8 +112,8 @@ curl -L \
   "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-06-17/oss-cad-suite-linux-x64-20260617.tgz"
 
 curl -L \
-  -o "$RISCV_CORE_TOOLS/downloads/verible-v0.0-4080-ga0a8d8eb-linux-static-x86_64.tar.gz" \
-  "https://github.com/chipsalliance/verible/releases/download/v0.0-4080-ga0a8d8eb/verible-v0.0-4080-ga0a8d8eb-linux-static-x86_64.tar.gz"
+  -o "$RISCV_CORE_TOOLS/downloads/slang-server-linux-x64-gcc.tar.gz" \
+  "https://github.com/hudson-trading/slang-server/releases/download/v0.2.6/slang-server-linux-x64-gcc.tar.gz"
 
 curl -L \
   -o "$RISCV_CORE_TOOLS/downloads/riscv64-elf-ubuntu-24.04-gcc.tar.xz" \
@@ -129,7 +129,7 @@ curl -L \
 ```sh
 sha256sum \
   "$RISCV_CORE_TOOLS/downloads/oss-cad-suite-linux-x64-20260617.tgz" \
-  "$RISCV_CORE_TOOLS/downloads/verible-v0.0-4080-ga0a8d8eb-linux-static-x86_64.tar.gz" \
+  "$RISCV_CORE_TOOLS/downloads/slang-server-linux-x64-gcc.tar.gz" \
   "$RISCV_CORE_TOOLS/downloads/riscv64-elf-ubuntu-24.04-gcc.tar.xz" \
   "$RISCV_CORE_TOOLS/downloads/get-pip.py"
 ```
@@ -141,7 +141,7 @@ sha256sum \
 ```sh
 mkdir -p \
   "$RISCV_CORE_TOOLS/opt/oss-cad-suite/2026-06-17" \
-  "$RISCV_CORE_TOOLS/opt/verible/v0.0-4080-ga0a8d8eb" \
+  "$RISCV_CORE_TOOLS/opt/slang-server/v0.2.6" \
   "$RISCV_CORE_TOOLS/opt/riscv-gnu-toolchain/2026.06.06-riscv64-elf-ubuntu-24.04-gcc"
 
 tar -xzf \
@@ -150,9 +150,8 @@ tar -xzf \
   --strip-components=1
 
 tar -xzf \
-  "$RISCV_CORE_TOOLS/downloads/verible-v0.0-4080-ga0a8d8eb-linux-static-x86_64.tar.gz" \
-  -C "$RISCV_CORE_TOOLS/opt/verible/v0.0-4080-ga0a8d8eb" \
-  --strip-components=1
+  "$RISCV_CORE_TOOLS/downloads/slang-server-linux-x64-gcc.tar.gz" \
+  -C "$RISCV_CORE_TOOLS/opt/slang-server/v0.2.6"
 
 tar -xJf \
   "$RISCV_CORE_TOOLS/downloads/riscv64-elf-ubuntu-24.04-gcc.tar.xz" \
@@ -166,8 +165,8 @@ tar -xJf \
 ln -sfn 2026-06-17 \
   "$RISCV_CORE_TOOLS/opt/oss-cad-suite/current"
 
-ln -sfn v0.0-4080-ga0a8d8eb \
-  "$RISCV_CORE_TOOLS/opt/verible/current"
+ln -sfn v0.2.6 \
+  "$RISCV_CORE_TOOLS/opt/slang-server/current"
 
 ln -sfn 2026.06.06-riscv64-elf-ubuntu-24.04-gcc \
   "$RISCV_CORE_TOOLS/opt/riscv-gnu-toolchain/current"
@@ -234,7 +233,7 @@ cp scripts/env/riscv-core-env.sh \
 ```text
 RISCV_CORE_TOOLS
 RISCV_CORE_OSS_CAD_SUITE
-RISCV_CORE_VERIBLE
+RISCV_CORE_SLANG_SERVER
 RISCV_CORE_RISCV_GNU_TOOLCHAIN
 RISCV
 RISCV_CORE_COCOTB_VENV
@@ -262,7 +261,7 @@ All stage-0 tool checks passed.
 Verilator 5.049 devel rev v5.048-279-ga534a1d1b (mod)
 Yosys 0.66+103 (git sha1 e2903c4a5, Release, Clang /usr/bin/clang++ 18.1.8)
 SBY v0.66-4-gd3e72d2
-Version v0.0-4080-ga0a8d8eb
+slang-server version 0.2.6+4341a9e
 riscv64-unknown-elf-gcc (g6afcc4f6d) 16.1.0
 GNU objcopy (GNU Binutils) 2.46
 Python 3.12.3
@@ -275,5 +274,6 @@ cocotb 2.0.1
 - `riscv64-unknown-elf-objcopy` 从 ELF 文件生成了 Intel HEX 文件。
 - `riscv64-unknown-elf-objdump` 显示了 `elf32-littleriscv` 输出。
 - `verilator --lint-only --sv` 接受了一个小型的 SystemVerilog 模块。
-- `verible-verilog-lint` 也接受了该模块。
+- `slang-server --version` 正常打印版本；VSCode 插件使用
+  `.slang/server.json` 进行项目诊断。
 - `python -c 'import cocotb; print(cocotb.__version__)'` 打印出了 `2.0.1`。

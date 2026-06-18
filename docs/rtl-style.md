@@ -29,8 +29,9 @@ patch and documented.
 
 ## Names
 
-- Use `snake_case` for files, modules, signals, parameters, functions, and
-  tasks.
+- Use `snake_case` for files, modules, signals, functions, tasks, and struct
+  fields.
+- Use `UpperCamelCase` for `parameter` and `localparam` names.
 - Use descriptive names over abbreviated names unless the abbreviation is a
   common hardware term.
 - Match the primary module name to the file name.
@@ -214,10 +215,13 @@ If Bender is added later, commit both `Bender.yml` and `Bender.lock`.
 
 ## Formatting And Lint
 
-- Use Verible as the preferred formatter and style/lint tool.
-- Keep formatter options in `.rules.verible_format`.
-- Configure VSCode's `chipsalliance.verible` extension through
-  `.vscode/settings.json`.
+- Use slang-server as the preferred SystemVerilog syntax, semantic, and lint
+  tool.
+- Keep project source ordering in `.slang/riscv_core.f`.
+- Keep the top module explicit in the slang-server build file so hierarchy
+  views can elaborate the design without extra editor-side selection.
+- Configure VSCode's slang-server extension through `.vscode/settings.json`
+  and `.slang/server.json`.
 - Keep formatting changes separate from functional RTL changes when practical.
 - Do not reformat third-party IP.
 - Treat lint warnings as design feedback; waive only with a short documented
@@ -225,17 +229,10 @@ If Bender is added later, commit both `Bender.yml` and `Bender.lock`.
 - Add assertions for non-obvious protocol assumptions when the design starts to
   use ready/valid interfaces, pipeline flushes, or hazard forwarding.
 
-Command-line formatting:
+Editor diagnostics:
 
-```sh
-verible-verilog-format --flagfile=.rules.verible_format --inplace rtl/core/units/alu.sv
-```
-
-Command-line format check:
-
-```sh
-verible-verilog-format --flagfile=.rules.verible_format --verify rtl/core/units/alu.sv
-```
+VSCode uses `.slang/server.json` to select `.slang/riscv_core.f` as the
+active build for slang-server.
 
 ## Comments
 

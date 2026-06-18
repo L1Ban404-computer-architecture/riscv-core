@@ -74,7 +74,7 @@ riscv-core/
 | --- | --- | --- |
 | RTL 仿真与语法检查 | Verilator | 快速 SystemVerilog 仿真、语法检查、C++ 模型生成 |
 | 波形查看 | GTKWave 或 Surfer | 检查 VCD/FST 波形 |
-| SystemVerilog 格式化与语言支持 | Verible | 代码格式化、风格检查、语法工具、语言服务器 |
+| SystemVerilog 语义检查与语言支持 | slang-server | 语法/语义检查、lint、编辑器 LSP 后端 |
 | 综合与形式验证工具 | OSS CAD Suite | Yosys、SymbiYosys、求解器以及面向 FPGA 的实用工具 |
 | RISC-V 交叉编译器 | RISC-V GNU Toolchain | 将汇编/C 测试构建为 ELF 及内存映像 |
 | Python 测试平台框架 | cocotb | 基于 Python 的协同仿真测试 |
@@ -108,7 +108,7 @@ $RISCV_CORE_TOOLS/
   opt/
     verilator/<version>/
     oss-cad-suite/<version>/
-    verible/<version>/
+    slang-server/<version>/
     riscv-gnu-toolchain/<version>/
   python/
     cocotb-venv/
@@ -133,7 +133,7 @@ export RISCV_CORE_TOOLS="$HOME/.local/riscv-core-tools"
 
 export PATH="$RISCV_CORE_TOOLS/bin:$PATH"
 export PATH="$RISCV_CORE_TOOLS/opt/oss-cad-suite/current/bin:$PATH"
-export PATH="$RISCV_CORE_TOOLS/opt/verible/current/bin:$PATH"
+export PATH="$RISCV_CORE_TOOLS/opt/slang-server/current:$PATH"
 export PATH="$RISCV_CORE_TOOLS/opt/riscv-gnu-toolchain/current/bin:$PATH"
 
 # 若 cocotb 虚拟环境存在，则激活
@@ -206,28 +206,26 @@ $RISCV_CORE_TOOLS/opt/oss-cad-suite/<版本号>/
 
 参考：https://github.com/YosysHQ/oss-cad-suite-build
 
-### 4. Verible
+### 4. slang-server
 
 推荐安装位置：
 
 ```text
-$RISCV_CORE_TOOLS/opt/verible/<版本号>/
+$RISCV_CORE_TOOLS/opt/slang-server/<版本号>/
 ```
 
 推荐方法：
 
-- 下载面向当前主机平台的最新官方发布归档文件。
-- 将其解压至对应版本的安装目录下。
-- 创建符号链接 `opt/verible/current` 指向所选版本。
-- 将 `opt/verible/current/bin` 加入 `PATH`。
+- 下载面向当前主机平台的官方发布归档文件。
+- 将 `slang-server` 可执行文件安装至对应版本目录下。
+- 创建符号链接 `opt/slang-server/current` 指向所选版本。
+- 将 `opt/slang-server/current` 加入 `PATH`。
 
 用例：
 
-- `verible-verilog-format`：代码格式化。
-- `verible-verilog-lint`：风格检查。
-- `verible-verilog-ls`：编辑器语言服务器支持。
+- `slang-server`：VSCode 的 Verilog/SystemVerilog LSP 后端。
 
-参考：https://github.com/chipsalliance/verible
+参考：https://github.com/hudson-trading/slang-server
 
 ### 5. RISC-V GNU Toolchain
 
@@ -315,7 +313,7 @@ $RISCV_CORE_TOOLS/src/riscv-formal/
 检查项：
 
 - `verilator --version`
-- `verible-verilog-format --version`
+- `slang-server --version`
 - `yosys -V`
 - `sby --version`
 - `riscv64-unknown-elf-gcc --version`
