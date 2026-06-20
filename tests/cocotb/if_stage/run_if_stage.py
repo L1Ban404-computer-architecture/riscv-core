@@ -31,11 +31,11 @@ def test_if_stage():
         repo_root / "third_party/ip/common_cells/src/stream_fifo.sv",
         repo_root / "third_party/ip/common_cells/src/fall_through_register.sv",
         repo_root / "rtl/core/pipe/if_stage.sv",
-        repo_root / "tb/cocotb/if_stage/if_stage_tb.sv",
+        repo_root / "tests/cocotb/if_stage/if_stage_tb.sv",
     ]
 
     for name, parameters, test_filter in DEPTH_CONFIGS:
-        build_dir = repo_root / "sim/build/if_stage" / name
+        build_dir = repo_root / "build/cocotb/if_stage" / name
 
         runner.build(
             sources=sources,
@@ -51,7 +51,7 @@ def test_if_stage():
             hdl_toplevel="if_stage_tb",
             test_module="test_if_stage",
             build_dir=build_dir,
-            test_dir=repo_root / "tb/cocotb/if_stage",
+            test_dir=repo_root / "tests/cocotb/if_stage",
             results_xml=build_dir / "results.xml",
             test_filter=test_filter,
         )

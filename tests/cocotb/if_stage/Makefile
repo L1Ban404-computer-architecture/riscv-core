@@ -14,7 +14,7 @@ VERILOG_SOURCES := \
   $(REPO_ROOT)/third_party/ip/common_cells/src/stream_fifo.sv \
   $(REPO_ROOT)/third_party/ip/common_cells/src/fall_through_register.sv \
   $(REPO_ROOT)/rtl/core/pipe/if_stage.sv \
-  $(REPO_ROOT)/tb/cocotb/if_stage/if_stage_tb.sv
+  $(REPO_ROOT)/tests/cocotb/if_stage/if_stage_tb.sv
 
 COMPILE_ARGS += -I$(REPO_ROOT)/third_party/ip/common_cells/include
 COMPILE_ARGS += -Wno-PINCONNECTEMPTY

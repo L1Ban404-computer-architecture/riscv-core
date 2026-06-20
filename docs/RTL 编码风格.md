@@ -1,0 +1,228 @@
+# RTL 编码风格
+
+本文档定义了本 CPU 内核的本地 SystemVerilog 编码风格。它遵循 lowRISC Verilog 编码风格指南的精神，同时将规则聚焦于本代码仓库。
+
+参考：
+
+- https://github.com/lowRISC/style-guides/blob/master/VerilogCodingStyle.md
+
+## 适用范围
+
+这些规则适用于 `rtl/` 下的项目自有 RTL。
+
+`third_party/ip/` 下的第三方 IP 保留其上游风格。不要重新格式化或重写外部 IP，除非该变更作为本地补丁有意进行并已记录在案。
+
+## 语言
+
+- 使用 SystemVerilog。
+- RTL 源文件优先使用 `.sv` 扩展名。
+- 可综合信号使用 `logic`。
+- 组合逻辑使用 `always_comb`。
+- 时序逻辑使用 `always_ff`。
+- 在项目自有 RTL 中避免使用 Verilog 的 `reg` 和 `wire`，除非接口、工具限制或遗留模块要求如此。
+- 将可综合 RTL 与仅用于测试平台的结构分开。
+
+## 命名
+
+- 文件、模块、信号、函数、任务和结构体字段使用 `snake_case`。
+- `parameter` 和 `localparam` 名称使用 `UpperCamelCase`。
+- 使用描述性名称而非缩写，除非该缩写是通用的硬件术语。
+- 主模块名与文件名保持一致。
+- 包名以 `_pkg` 结尾。
+- 类型名以 `_t` 结尾。
+- 若有助于提升可读性，枚举值可使用简短的大写前缀。
+
+示例：
+
+```systemverilog
+module id_stage;
+endmodule
+
+package riscv_core_pkg;
+  typedef enum logic [3:0] {
+    ALU_ADD,
+    ALU_SUB
+  } alu_op_e;
+endpackage
+```
+
+## 端口
+
+- 主时钟输入使用 `clk_i`。
+- 主低电平有效复位输入使用 `rst_ni`。
+- 输入使用 `_i` 后缀。
+- 输出使用 `_o` 后缀。
+- 仅在真正的双向端口上使用 `_io` 后缀。
+- 保持端口顺序一致：
+  1. 时钟和复位。
+  2. 控制输入。
+  3. 数据输入。
+  4. 控制输出。
+  5. 数据输出。
+
+推荐的复位风格：
+
+```systemverilog
+input logic clk_i,
+input logic rst_ni,
+```
+
+## 复位
+
+- 项目自有 RTL 使用低电平有效复位，除非有充分的局部理由不这样做。
+- 低电平有效输入的复位名称必须以 `_ni` 结尾。
+- 在时序块中保持复位行为明确。
+- 在初始内核实现阶段，每个 CPU 内核模块优先使用一个主时钟和一个主复位。
+
+## 时序逻辑
+
+- 寄存器状态使用 `_q`，下一状态值使用 `_d`。
+- 对于带异步低电平有效复位的寄存器，使用 `always_ff @(posedge clk_i or negedge rst_ni)`。
+- 将复位赋值放在最前面。
+- 保持时序块简洁：根据其下一状态信号或明确清晰的本地控制逻辑为寄存器赋值。
+
+示例：
+
+```systemverilog
+always_ff @(posedge clk_i or negedge rst_ni) begin
+  if (!rst_ni) begin
+    pc_q <= '0;
+  end else begin
+    pc_q <= pc_d;
+  end
+end
+```
+
+## 组合逻辑
+
+- 使用 `always_comb`。
+- 在块顶部进行默认赋值。
+- 避免推断出锁存器。
+- 除非有意为之，避免隐式优先级链。
+- 当预期各分支互斥且完备时，使用 `unique case`。
+- 仅在有意使用优先级时使用 `priority case`。
+- 除非类型和工具检查表明省略明显更安全，否则应包含 `default` 分支。
+
+示例：
+
+```systemverilog
+always_comb begin
+  alu_result_o = '0;
+
+  unique case (alu_op_i)
+    ALU_ADD:  alu_result_o = lhs_i + rhs_i;
+    ALU_SUB:  alu_result_o = lhs_i - rhs_i;
+    default:  alu_result_o = '0;
+  endcase
+end
+```
+
+## 参数与常量
+
+- 模块配置使用 `parameter`。
+- 内部常量使用 `localparam`。
+- 在可行的情况下优先使用有类型参数。
+- 将 ISA 级常量、操作码编码、ALU 操作枚举、压缩结构体以及共享控制类型放在 `rtl/include/riscv_core_pkg.sv` 中。
+- 避免将指令编码分散在各级流水线中。
+
+## 包
+
+- 在模块顶部附近显式导入包。
+- 当显式导入更具可读性时，避免在深度共享的文件中使用通配符导入。
+- 保持 `riscv_core_pkg.sv` 专注于内核级定义。
+- 不要使用包来隐藏模块局部的实现细节。
+
+对于小型模块可接受：
+
+```systemverilog
+import riscv_core_pkg::*;
+```
+
+当模块仅需少数几个名称时，优先使用显式导入：
+
+```systemverilog
+import riscv_core_pkg::alu_op_e;
+```
+
+## 结构体与枚举
+
+- 当有助于使流水线阶段边界更清晰时，流水线载荷使用压缩结构体。
+- 在规模大到足以需要一个专用的流水线包之前，将流水线寄存器载荷类型保留在内核包中。
+- 控制选择使用枚举，而不是原始魔数常量。
+- 显式指定所有枚举的基础类型大小。
+
+示例：
+
+```systemverilog
+typedef struct packed {
+  logic [31:0] pc;
+  logic [31:0] instr;
+} if_id_t;
+```
+
+## 流水线风格
+
+- 将 `riscv_core.sv` 作为 CPU 内核的结构化顶层模块。
+- 将各流水线阶段局部行为放在 `rtl/core/pipe/*_stage.sv` 中。
+- 将可复用的执行单元放在 `rtl/core/units/` 中。
+- 保持冒险、停顿、冲刷和前递逻辑明确且易于追踪。
+- 优先选用清晰的流水级载荷名称，而非不相关信号的密集捆绑。
+- 不要将 CPU 内核直接耦合到 SoC 级总线。
+
+## 第三方单元
+
+本项目目前将 PULP `common_cells` 作为子模块纳入 `third_party/ip/common_cells` 下。
+
+- 仅在确实能降低实际复杂性时才实例化第三方单元。
+- 对于简单、稳定的单元，优先直接实例化。
+- 当第三方接口否则会过多地泄漏到内核自有模块中时，使用轻量包装器。
+- 不要为了一致性风格而就地修改第三方源文件。
+- 在 `docs/ip-dependencies.md` 中记录依赖决策。
+
+## 文件列表与依赖工具
+
+在当前的项目规模下，使用项目文件列表维护源文件顺序。尚不需要 Bender。
+
+在以下情况可考虑引入 Bender：
+
+- 添加了更多 PULP IP 依赖。
+- 手动维护编译顺序变得代价高昂。
+- 多个工具需要从同一依赖图生成源文件列表。
+- 必须通过 `common_cells` 的上游包元数据拉取其依赖，而非选择性引用。
+
+若后续引入 Bender，需同时提交 `Bender.yml` 和 `Bender.lock`。
+
+## 格式化与语法检查
+
+- 使用 slang-server 作为首选的 SystemVerilog 语法、语义和语法检查工具。
+- 将项目源文件顺序保持在 `.slang/riscv_core.f` 中。
+- 在 slang-server 构建文件中显式指定顶层模块，以便层次结构视图能够在无需编辑器侧额外选择的情况下展开设计。
+- 通过 `.vscode/settings.json` 和 `.slang/server.json` 配置 VSCode 的 slang-server 扩展。
+- 在实际可行的情况下，将格式化变更与功能性 RTL 变更分开提交。
+- 不要重新格式化第三方 IP。
+- 将语法检查告警视为设计反馈；仅在附有简要书面理由时才进行豁免。
+- 当设计开始使用 ready/valid 接口、流水线冲刷或冒险前递时，为非显而易见的协议假设添加断言。
+
+编辑器诊断：
+
+VSCode 使用 `.slang/server.json` 将 `.slang/riscv_core.f` 选定为 slang-server 的活跃构建配置。
+
+## 注释
+
+- 使用注释来说明意图、协议假设和非显而易见的设计选择。
+- 避免仅仅重复代码的注释。
+- 在接口稳定之前，模块头注释保持简短。
+- 优先使用自描述性命名，而非大段的注释块。
+
+## 包含文件与宏
+
+- 对于常规 RTL 结构，避免使用项目级宏。
+- 优先使用包、参数、枚举和结构体，而非宏。
+- 仅在供应商提供的头文件或经过仔细记录的共享定义中使用包含文件。
+- 若无法避免使用宏，应将宏作用域保持较窄并加上命名空间。
+
+## 生成文件
+
+- 生成的 RTL 应位于手写的内核模块之外。
+- 在生成输出附近记录生成器、输入文件和重新生成命令。
+- 不要手动编辑生成的文件，除非该编辑明确是临时性的并已清晰标注。
