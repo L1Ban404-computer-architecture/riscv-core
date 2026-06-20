@@ -1,0 +1,338 @@
+# ID Stage 设计与验证
+
+本文档说明当前 `id_stage` 的微架构、RV32I 译码范围、寄存器堆行为、
+ID/EX 握手协议，以及对应的模块级 cocotb 验证方案。
+
+## 范围
+
+`id_stage` 位于 IF 和 EX 之间，负责：
+
+- 从 IF/ID payload 中取得 PC 和指令。
+- 提取 `rs1`、`rs2` 和 `rd` 地址。
+- 将 RV32I 指令译码为统一的执行控制信号。
+- 生成 I/S/B/U/J 等格式的立即数。
+- 读取双端口整数寄存器堆。
+- 接收 WB 写回，并处理 WB 与 ID 的同周期读写冲突。
+- 通过一个单入口 ready/valid 寄存器将事务交给 EX。
+- 生成随指令继续流动的 ID debug payload。
+
+ID 不执行 ALU 运算、分支比较或数据访存，也不负责 EX/MEM/WB 之间的数据
+前递。EX 会根据 ID 提供的寄存器地址和值，结合后级写回候选完成前递判断。
+
+## 数据通路
+
+```text
+                         +-----------+
+IF/ID instruction ----->| decoder   |-----> decode_ctrl_bus_t
+        |                +-----------+
+        |                     |
+        |                register addresses
+        |                     v
+        |                +-----------+       WB writeback
+        +--------------->| regfile   |<-------------------+
+        |                +-----------+                    |
+        |                     | rs1/rs2 values             |
+        v                     v                            |
+   +-----------+       +----------------+                  |
+   | imm_gen   |------>| decoded        |                  |
+   +-----------+       | id_ex_bus_t    |                  |
+                       +----------------+                  |
+                                |                          |
+                                v                          |
+                       +-----------------+                 |
+                       | stream_register |----------------> EX
+                       +-----------------+
+```
+
+`decoder` 和 `imm_gen` 是组合逻辑。寄存器堆为组合读、同步写。完整的
+`id_ex_bus_t` 由 `common_cells::stream_register` 在时钟沿保存。
+
+## IF/ID 输入
+
+IF/ID 使用 ready/valid 流接口：
+
+- `if_id_valid_i`：IF 当前提供一条有效指令。
+- `if_id_ready_o`：ID 可以接受当前指令。
+- `if_id_bus_i`：包含 `fetch` 和 IF debug 信息。
+
+当前 IF stage 内部已经维护 fetch FIFO，因此 ID 不再复制一层输入 FIFO。
+ID 的容量由 ID/EX `stream_register` 提供。
+
+## 指令译码
+
+译码逻辑位于 `rtl/core/units/decoder.sv`。输入指令被归一化为：
+
+- `reg_addr_bus_t`：`rs1_addr`、`rs2_addr`、`rd_addr`。
+- `imm_type_e`：仅供 ID 内部的立即数生成器使用。
+- `decode_ctrl_bus_t`：随指令进入 EX 的控制信号。
+
+`imm_type_e` 不进入 ID/EX payload。EX 只接收已经扩展到 XLEN 的最终立即数，
+避免在流水线寄存器中保存没有后续用途的立即数格式编码。
+
+### 支持的指令类别
+
+| Opcode | 当前行为 |
+| --- | --- |
+| `OPC_LUI` | `ALU_PASS_B`，立即数写回。 |
+| `OPC_AUIPC` | ALU 计算 `PC + U-imm`。 |
+| `OPC_JAL` | ALU 计算 `PC + J-imm`，写回 `PC+4`。 |
+| `OPC_JALR` | ALU 计算 `rs1 + I-imm`，写回 `PC+4`；仅 `funct3=000` 合法。 |
+| `OPC_BRANCH` | ALU 形成 `PC + B-imm`，分支类型由 `branch_op` 指示。 |
+| `OPC_LOAD` | ALU 形成地址，支持 LB/LH/LW/LBU/LHU。 |
+| `OPC_STORE` | ALU 形成地址，支持 SB/SH/SW。 |
+| `OPC_OP_IMM` | 支持 RV32I 整数立即数运算及合法 shift 编码。 |
+| `OPC_OP` | 支持 RV32I 整数寄存器运算。 |
+| `OPC_MISC_MEM` | 合法 FENCE 作为顺序存储接口上的空操作退休。 |
+| `OPC_SYSTEM` | 当前标记为非法，等待异常、CSR 和特权控制通路。 |
+
+条件分支支持：
+
+- BEQ、BNE
+- BLT、BGE
+- BLTU、BGEU
+
+整数 ALU 译码支持：
+
+- ADD、SUB
+- SLL、SRL、SRA
+- SLT、SLTU
+- XOR、OR、AND
+- 对应的 RV32I 立即数形式
+
+### 非法指令处理
+
+decoder 默认将 `illegal_instr` 置 1，并将其它控制设置为无副作用值。只有确认
+opcode、`funct3` 和必要的 `funct7` 编码合法后，才清除非法标志。
+
+非法 load、store、shift 和 OP 编码会同时关闭：
+
+- `rd_write`
+- `wb_sel`
+- `mem_cmd` 或 `branch_op` 中对应的副作用
+
+当前 ID 只负责识别非法指令。真正的非法指令异常、trap redirect 和退休行为
+需要后续异常通路实现。
+
+### 未使用的寄存器字段
+
+`reg_addr_bus_t` 直接保留指令位域中的 `rs1`、`rs2` 和 `rd`，包括某些指令
+格式中没有寄存器语义的位域。执行级选择操作数和进行前递判断时，必须结合
+`op_a_sel`、`op_b_sel`、`branch_op`、`mem_cmd` 等控制信号，只对指令实际使用
+的源操作数建立相关性。
+
+## 立即数生成
+
+立即数生成逻辑位于 `rtl/core/units/imm_gen.sv`。
+
+| 类型 | 组成 | 扩展方式 |
+| --- | --- | --- |
+| `IMM_I` | `instr[31:20]` | 符号扩展 |
+| `IMM_S` | `{instr[31:25], instr[11:7]}` | 符号扩展 |
+| `IMM_B` | `{instr[31], instr[7], instr[30:25], instr[11:8], 0}` | 符号扩展 |
+| `IMM_U` | `{instr[31:12], 12'b0}` | 高位立即数 |
+| `IMM_J` | `{instr[31], instr[19:12], instr[20], instr[30:21], 0}` | 符号扩展 |
+| `IMM_Z` | `instr[19:15]` | 零扩展 |
+| `IMM_NONE` | 0 | 无立即数 |
+
+`IMM_Z` 为未来 CSR 立即数操作预留；当前 `OPC_SYSTEM` 尚未启用，因此 decoder
+不会生成该类型。
+
+## 寄存器堆
+
+寄存器堆位于 `rtl/core/units/regfile.sv`，提供：
+
+- 两个组合读端口。
+- 一个同步写端口。
+- x0 硬连为 0。
+- WB 到 ID 的同周期写后读旁路。
+
+写使能条件为：
+
+```systemverilog
+wb_req_i.valid && wb_req_i.data_valid && wb_req_i.rd_addr != ZeroReg
+```
+
+### 复位策略
+
+31 个普通 GPR 不接复位。RISC-V 架构没有规定复位后普通 GPR 的值，不复位阵列
+可以避免为整个寄存器堆引入复位网络，也更有利于后续映射到专用存储结构。
+
+x0 不存储有效状态：读取 x0 总是返回 0，写入 x0 被丢弃。
+
+### WB 同周期旁路
+
+当 WB 在当前时钟沿写入的地址和 ID 读取地址相同时，组合读端口直接返回
+`wb_req_i.wdata`。这使行为不依赖具体寄存器阵列的 read-during-write 语义：
+
+```text
+WB rd == ID rs1/rs2  ->  使用 WB wdata
+其它非零地址         ->  使用寄存器阵列数据
+x0                    ->  0
+```
+
+这条旁路只解决 WB 与 ID 同周期读写问题。EX/MEM 中尚未写回的数据相关由 EX
+前递和停顿逻辑处理。
+
+## ID/EX 握手寄存器
+
+ID/EX 边界使用 `common_cells::stream_register`，类型参数为 `id_ex_bus_t`。
+该单元实现：
+
+```systemverilog
+ready_o = ready_i | ~valid_o;
+```
+
+因此具有以下行为：
+
+- 寄存器为空时可以接受一条新事务。
+- EX 反压时保持 `valid` 和 payload 稳定。
+- EX 消费当前事务的同一周期，可以装入下一条事务。
+- 连续指令之间不产生额外气泡。
+- ready 路径是从 EX 到 IF 的组合路径，valid 和 payload 在 ID/EX 边界寄存。
+
+这里不使用 `fall_through_register`。后者会在空槽时让 valid 和 data 组合穿透，
+不符合 ID/EX 需要明确切断数据路径的流水级边界。
+
+`clr_i` 固定为 0，ID stage 没有单独的 flush 输入。
+
+## Redirect 关系
+
+EX 计算 redirect 时，ID/EX `stream_register` 当前保存的正是正在 EX 中执行的
+分支或跳转指令。这条指令本身必须保持有效，不能被 ID flush。
+
+redirect 同周期的年轻指令由 IF stage 处理：
+
+- IF 将 `if_id_valid_o` 屏蔽为 0。
+- IF flush 自己的 fetch FIFO，并更新目标 PC 和 epoch。
+- 当 EX 接收当前跳转指令时，ID/EX register 看到输入 valid 为 0，因此自然
+  变为空，不会装入错误路径指令。
+
+该机制要求 EX 只在当前有效跳转事务真正执行时产生 redirect，并遵守
+ready/valid 事务语义。
+
+## ID/EX Payload
+
+ID 输出的 `id_ex_bus_t` 包含：
+
+| 字段 | 内容 |
+| --- | --- |
+| `fetch` | 原始 PC 和指令。 |
+| `reg_addr` | `rs1`、`rs2`、`rd` 地址。 |
+| `exec_data.pc` | 当前指令 PC。 |
+| `exec_data.rs1_value` | ID 读取或 WB 旁路后的 rs1 值。 |
+| `exec_data.rs2_value` | ID 读取或 WB 旁路后的 rs2 值。 |
+| `exec_data.imm` | 已扩展到 XLEN 的立即数。 |
+| `ctrl` | ALU、分支、访存和写回控制。 |
+| `debug` | IF debug、寄存器地址和译码控制快照。 |
+
+## 协议断言
+
+ID stage 使用 `common_cells` 断言检查输出接口：
+
+- `IdExStable`：`id_ex_valid_o=1` 且 EX 不 ready 时，payload 必须保持稳定。
+- `IdExValidStable`：有效事务在被 EX 接收前不能撤销 valid。
+
+断言只在 `rst_ni=1` 时有效。
+
+## 验证结构
+
+模块级验证位于 `tests/cocotb/id_stage/`。
+
+| 文件 | 作用 |
+| --- | --- |
+| `id_stage_tb.sv` | 将 packed struct 接口展开为 cocotb 友好的标量端口。 |
+| `test_id_stage.py` | 译码、寄存器堆、立即数和握手测试。 |
+| `run_id_stage.py` | cocotb runner 与 Verilator 构建入口。 |
+| `Makefile` | 测试及 FST/VCD 波形入口。 |
+
+运行 ID stage 测试：
+
+```sh
+make test-id-stage
+```
+
+也可直接运行：
+
+```sh
+python tests/cocotb/id_stage/run_id_stage.py
+```
+
+## 测试覆盖点
+
+### `decode_registers_immediates_and_wb_bypass`
+
+- 写入并读取普通 GPR。
+- 检查 R 型指令的寄存器地址和控制信号。
+- 检查负 I 型立即数的符号扩展。
+- 验证 WB 与 ID 同周期同地址旁路。
+- 验证 rs1 和 rs2 都能读取 x0。
+- 验证写入 x0 被丢弃。
+
+### `control_decode_representative_rv32i_classes`
+
+覆盖代表性的 RV32I 类别：
+
+- LUI、AUIPC
+- BEQ 和负分支偏移
+- LBU、SH
+- SRAI、SUB
+- JAL、JALR
+- 保留 shift 编码和当前不支持的 SYSTEM 指令
+
+测试检查 ALU 操作数选择、ALU 操作、分支类型、访存大小和符号扩展、写回
+来源、立即数以及非法指令的无副作用控制。
+
+### `elastic_register_backpressure_replacement_and_drain`
+
+- EX 反压期间检查 ID/EX valid、PC 和指令保持稳定。
+- 检查满载寄存器同周期 pop/push，不插入气泡。
+- 模拟 IF 撤销输入 valid 后消费当前 EX 指令，检查 register 自然变空。
+
+## 波形
+
+生成 FST 波形：
+
+```sh
+make wave-id-stage
+```
+
+输出位置：
+
+```text
+build/cocotb/id_stage/dump.fst
+```
+
+生成 VCD 波形：
+
+```sh
+make wave-id-stage-vcd
+```
+
+输出位置：
+
+```text
+build/cocotb/id_stage/dump.vcd
+```
+
+也可以在子目录直接执行：
+
+```sh
+make -C tests/cocotb/id_stage wave
+make -C tests/cocotb/id_stage wave-vcd
+```
+
+runner 接受环境变量：
+
+- `WAVES=1`：启用波形。
+- `TRACE_FORMAT=fst`：生成 FST，默认值。
+- `TRACE_FORMAT=vcd`：生成 VCD。
+
+## 已知限制
+
+- SYSTEM、CSR、ECALL 和 EBREAK 尚未实现，当前统一标记为非法指令。
+- `IMM_Z` 已定义但尚未被当前译码使用。
+- 非法指令 trap 尚未实现；ID 当前只输出 `illegal_instr`。
+- ID 不携带独立的源寄存器 read-enable。EX 前递判断必须结合控制信号，避免
+  对没有寄存器语义的指令位域建立伪相关。
+- 普通 GPR 在仿真复位后保持未定义，测试必须先写后读；只有 x0 保证为 0。
+- 当前测试使用代表性指令覆盖，还不是完整的所有合法/非法 funct 编码穷举。

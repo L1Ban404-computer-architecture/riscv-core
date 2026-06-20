@@ -84,7 +84,6 @@ typedef struct packed {
   alu_op_e alu_op;
   op_a_sel_e op_a_sel;
   op_b_sel_e op_b_sel;
-  imm_type_e imm_type;
   branch_op_e branch_op;
   mem_cmd_e mem_cmd;
   mem_size_e mem_size;

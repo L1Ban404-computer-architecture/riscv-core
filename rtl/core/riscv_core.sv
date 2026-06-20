@@ -60,8 +60,8 @@ module riscv_core (
   // redirect、前递和写回旁路
   // ---------------------------------------------------------------------------
   //
-  // redirect 只从 EX 指向 IF，用于丢弃更年轻的前端事务并切换 PC。
-  // 已经进入 EX 及后续阶段的事务不由 redirect 冲刷。
+  // redirect 从 EX 指向 IF，用于丢弃错误路径 fetch。当前 ID/EX 寄存器中的
+  // 正是产生 redirect 的指令；IF 会在同周期屏蔽更年轻事务的 valid。
   redirect_bus_t redirect_bus;
 
   // 写回请求同时承担两个角色：

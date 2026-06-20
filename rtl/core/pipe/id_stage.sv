@@ -3,7 +3,8 @@
 
 import riscv_core_pkg::*;
 
-/* verilator lint_off UNUSEDSIGNAL */
+`include "common_cells/assertions.svh"
+
 module id_stage (
   input logic clk_i,
   input logic rst_ni,
@@ -25,11 +26,90 @@ module id_stage (
   output id_ex_bus_t id_ex_bus_o
 );
 
-  // 占位实现：当前只固定 ready/valid 边界，后续在此加入 decoder、
-  // imm_gen、regfile 以及 id_ex 深度为 1 的事务保持逻辑。
-  assign if_id_ready_o = id_ex_ready_i;
-  assign id_ex_valid_o = 1'b0;
-  assign id_ex_bus_o = '0;
+  reg_addr_bus_t decoded_reg_addr;
+  imm_type_e decoded_imm_type;
+  decode_ctrl_bus_t decoded_ctrl;
+  word_t decoded_imm;
+  word_t rs1_value;
+  word_t rs2_value;
+
+  id_ex_bus_t decoded_id_ex_bus;
+  logic id_ex_input_ready;
+
+  decoder u_decoder (
+    .instr_i(if_id_bus_i.fetch.instr),
+    .reg_addr_o(decoded_reg_addr),
+    .imm_type_o(decoded_imm_type),
+    .ctrl_o(decoded_ctrl)
+  );
+
+  imm_gen u_imm_gen (
+    .instr_i(if_id_bus_i.fetch.instr),
+    .imm_type_i(decoded_imm_type),
+    .imm_o(decoded_imm)
+  );
+
+  regfile u_regfile (
+    .clk_i,
+    .rs1_addr_i(decoded_reg_addr.rs1_addr),
+    .rs2_addr_i(decoded_reg_addr.rs2_addr),
+    .rs1_value_o(rs1_value),
+    .rs2_value_o(rs2_value),
+    .wb_req_i
+  );
+
+  always_comb begin
+    decoded_id_ex_bus = '0;
+    decoded_id_ex_bus.fetch = if_id_bus_i.fetch;
+    decoded_id_ex_bus.reg_addr = decoded_reg_addr;
+    decoded_id_ex_bus.exec_data.pc = if_id_bus_i.fetch.pc;
+    decoded_id_ex_bus.exec_data.rs1_value = rs1_value;
+    decoded_id_ex_bus.exec_data.rs2_value = rs2_value;
+    decoded_id_ex_bus.exec_data.imm = decoded_imm;
+    decoded_id_ex_bus.ctrl = decoded_ctrl;
+    decoded_id_ex_bus.debug.if_debug = if_id_bus_i.debug;
+    decoded_id_ex_bus.debug.reg_addr = decoded_reg_addr;
+    decoded_id_ex_bus.debug.ctrl = decoded_ctrl;
+  end
+
+  // common_cells 的 stream_register 实现单入口双向 ready/valid 握手。
+  // 它在满载且 EX ready 时允许同拍 pop/push，不会在连续事务间插入气泡。
+  assign if_id_ready_o = id_ex_input_ready;
+
+  stream_register #(
+    .T(id_ex_bus_t)
+  ) u_id_ex_register (
+    .clk_i,
+    .rst_ni,
+    .clr_i(1'b0),
+    .testmode_i(1'b0),
+    .valid_i(if_id_valid_i),
+    .ready_o(id_ex_input_ready),
+    .data_i(decoded_id_ex_bus),
+    .valid_o(id_ex_valid_o),
+    .ready_i(id_ex_ready_i),
+    .data_o(id_ex_bus_o)
+  );
+
+  // verilog_format: off
+  `ASSERT_STABLE(
+    IdExStable,
+    id_ex_valid_o,
+    id_ex_ready_i,
+    id_ex_bus_o,
+    id_ex_bus_t'(0),
+    clk_i,
+    !rst_ni,
+    "ID/EX payload must remain stable while valid is waiting for ready."
+  )
+
+  `ASSERT(
+    IdExValidStable,
+    id_ex_valid_o && !id_ex_ready_i |=> id_ex_valid_o,
+    clk_i,
+    !rst_ni,
+    "ID/EX valid must remain asserted until ready."
+  )
+  // verilog_format: on
 
 endmodule
-/* verilator lint_on UNUSEDSIGNAL */

@@ -13,6 +13,7 @@
       "dirs": [
         "rtl/include",
         "rtl/core",
+        "tests/cocotb",
         "third_party/ip/common_cells/src",
         "third_party/ip/common_cells/include"
       ],

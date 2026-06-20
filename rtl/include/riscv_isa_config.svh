@@ -35,7 +35,6 @@ typedef enum logic [3:0] {
   ALU_SRA,
   ALU_OR,
   ALU_AND,
-  ALU_PASS_A,
   ALU_PASS_B
 } alu_op_e;
 
@@ -83,12 +82,11 @@ typedef enum logic [1:0] {
   MEM_SIZE_WORD
 } mem_size_e;
 
-typedef enum logic [2:0] {
+typedef enum logic [1:0] {
   WB_NONE,
   WB_ALU,
   WB_MEM,
-  WB_PC4,
-  WB_IMM
+  WB_PC4
 } wb_sel_e;
 
 `endif

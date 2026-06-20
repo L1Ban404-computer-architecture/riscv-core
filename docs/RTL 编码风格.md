@@ -186,7 +186,12 @@ typedef struct packed {
 
 ## 文件列表与依赖工具
 
-在当前的项目规模下，使用项目文件列表维护源文件顺序。尚不需要 Bender。
+在当前的项目规模下，使用 `.slang/riscv_core.f` 描述顶层、include 路径和
+源文件搜索目录，尚不需要 Bender。
+
+核心 package 和顶层文件显式列出，其余模块通过 Slang 的 `-y/--libdir`
+按模块名自动搜索同名 `.sv` 文件。新增普通 pipeline/unit 模块时，只要遵守
+“模块名与文件名一致”并放入已配置目录，就不需要更新 filelist。
 
 在以下情况可考虑引入 Bender：
 
@@ -200,7 +205,8 @@ typedef struct packed {
 ## 格式化与语法检查
 
 - 使用 slang-server 作为首选的 SystemVerilog 语法、语义和语法检查工具。
-- 将项目源文件顺序保持在 `.slang/riscv_core.f` 中。
+- 在 `.slang/riscv_core.f` 中维护顶层入口和源文件搜索目录；普通模块由
+  `-y/--libdir` 自动发现，避免逐文件维护清单。
 - 在 slang-server 构建文件中显式指定顶层模块，以便层次结构视图能够在无需编辑器侧额外选择的情况下展开设计。
 - 通过 `.vscode/settings.json` 和 `.slang/server.json` 配置 VSCode 的 slang-server 扩展。
 - 在实际可行的情况下，将格式化变更与功能性 RTL 变更分开提交。
