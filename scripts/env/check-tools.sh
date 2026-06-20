@@ -34,6 +34,8 @@ check_cmd sby print_version_line sby --version
 check_cmd slang-server print_version_line slang-server --version
 check_cmd riscv64-unknown-elf-gcc print_version_line riscv64-unknown-elf-gcc --version
 check_cmd riscv64-unknown-elf-objcopy print_version_line riscv64-unknown-elf-objcopy --version
+check_cmd surfer print_version_line surfer --version
+check_cmd surver print_version_line surver --version
 check_cmd python print_version_line python --version
 
 printf '%-32s' "python cocotb import"

@@ -5,6 +5,7 @@ export RISCV_CORE_TOOLS="${RISCV_CORE_TOOLS:-$HOME/.local/riscv-core-tools}"
 export RISCV_CORE_OSS_CAD_SUITE="$RISCV_CORE_TOOLS/opt/oss-cad-suite/current"
 export RISCV_CORE_SLANG_SERVER="$RISCV_CORE_TOOLS/opt/slang-server/current"
 export RISCV_CORE_RISCV_GNU_TOOLCHAIN="$RISCV_CORE_TOOLS/opt/riscv-gnu-toolchain/current"
+export RISCV_CORE_SURFER="$RISCV_CORE_TOOLS/opt/surfer/current"
 export RISCV="$RISCV_CORE_RISCV_GNU_TOOLCHAIN"
 export RISCV_CORE_COCOTB_VENV="$RISCV_CORE_TOOLS/python/cocotb-venv"
 
@@ -38,6 +39,7 @@ riscv_core_prepend_path "$RISCV_CORE_TOOLS/bin"
 riscv_core_prepend_path "$RISCV_CORE_OSS_CAD_SUITE/bin"
 riscv_core_prepend_path "$RISCV_CORE_SLANG_SERVER"
 riscv_core_prepend_path "$RISCV_CORE_RISCV_GNU_TOOLCHAIN/bin"
+riscv_core_prepend_path "$RISCV_CORE_SURFER"
 
 if [ -d "$RISCV_CORE_COCOTB_VENV/bin" ]; then
   riscv_core_prepend_path "$RISCV_CORE_COCOTB_VENV/bin"
