@@ -3,6 +3,7 @@
     "*.sv": "systemverilog",
     "*.svh": "systemverilog"
   },
+  "python.defaultInterpreterPath": "/home/ban/.local/riscv-core-tools/python/cocotb-venv/bin/python3",
   "slang.path": "/home/ban/.local/riscv-core-tools/opt/slang-server/current/slang-server",
   "systemverilogFormatter.commandLineArguments": "--flagfile=/home/ban/riscv-core/.rules.verible_format"
 }

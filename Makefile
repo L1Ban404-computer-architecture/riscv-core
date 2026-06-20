@@ -1,28 +1,24 @@
 # Copyright (c) 2026
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: all test test-if-stage lint lint-if-stage clean clean-build
+.PHONY: all test test-if-stage wave wave-if-stage wave-vcd wave-if-stage-vcd lint lint-if-stage clean clean-build
 
 all: test
 
 test: test-if-stage
 
+wave: wave-if-stage
+
+wave-vcd: wave-if-stage-vcd
+
 test-if-stage:
-	python tests/cocotb/if_stage/run_if_stage.py
+	$(MAKE) -C tests/cocotb/if_stage test
 
-lint: lint-if-stage
+wave-if-stage:
+	$(MAKE) -C tests/cocotb/if_stage wave
 
-lint-if-stage:
-	verilator --lint-only \
-	  -Ithird_party/ip/common_cells/include \
-	  rtl/include/riscv_core_pkg.sv \
-	  third_party/ip/common_cells/src/fifo_v3.sv \
-	  third_party/ip/common_cells/src/stream_fifo.sv \
-	  third_party/ip/common_cells/src/fall_through_register.sv \
-	  rtl/core/pipe/if_stage.sv \
-	  tests/cocotb/if_stage/if_stage_tb.sv
+wave-if-stage-vcd:
+	$(MAKE) -C tests/cocotb/if_stage wave-vcd
 
-clean: clean-build
-
-clean-build:
+clean: 
 	rm -rf build
