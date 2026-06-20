@@ -42,6 +42,8 @@ def test_if_stage():
         os.environ.pop("WAVES", None)
 
     build_args = list(VERILATOR_BUILD_ARGS)
+    if waves:
+        build_args.append("--trace-structs")
     if waves and trace_format == "fst":
         build_args.append("--trace-fst")
 
