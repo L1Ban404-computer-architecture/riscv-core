@@ -41,15 +41,21 @@ module ex_stage (
   logic ex_mem_input_ready;
 
   wb_req_bus_t wb_req;
+  wb_req_bus_t ex_mem_wb_req;
   mem_req_bus_t mem_req;
   ex_mem_bus_t executed_ex_mem_bus;
+
+  always_comb begin
+    ex_mem_wb_req = ex_mem_bus_o.wb_req;
+    ex_mem_wb_req.valid = ex_mem_valid_o && ex_mem_bus_o.wb_req.valid;
+  end
 
   forwarding_unit u_forwarding_unit (
     .reg_addr_i(id_ex_bus_i.reg_addr),
     .rs1_value_i(id_ex_bus_i.exec_data.rs1_value),
     .rs2_value_i(id_ex_bus_i.exec_data.rs2_value),
     .ctrl_i(id_ex_bus_i.ctrl),
-    .ex_wb_req_i(ex_mem_bus_o.wb_req),
+    .ex_wb_req_i(ex_mem_wb_req),
     .mem_wb_req_i,
     .rs1_value_o(rs1_value),
     .rs2_value_o(rs2_value),
@@ -87,6 +93,7 @@ module ex_stage (
     wb_req.rd_addr = id_ex_bus_i.reg_addr.rd_addr;
 
     case (id_ex_bus_i.ctrl.wb_sel)
+      WB_NONE: wb_req = '0;
       WB_ALU: begin
         wb_req.data_valid = 1'b1;
         wb_req.wdata = alu_result;
