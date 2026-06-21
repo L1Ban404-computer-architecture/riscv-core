@@ -75,6 +75,8 @@ module if_stage #(
 
   // fetch FIFO 同样使用 stream_fifo，保存已经配对完成的 {pc, instr}。
   // 它直接驱动 IF -> ID valid/ready 通道，ID stage 只消费完整 fetch 事务。
+  // 这里关闭满队列同周期 pop/push，切断 ID ready 到 CoreBus 响应 ready 的
+  // 组合路径；队列满载交接时允许产生一个周期的响应背压。
   if_id_bus_t fetch_fifo_data;
   logic fetch_fifo_ready;
   logic fetch_fifo_valid;
@@ -156,7 +158,7 @@ module if_stage #(
   stream_fifo #(
     .Depth(IfIdQueueDepth),
     .FallThrough(1'b0),
-    .SameCycleRW(1'b1),
+    .SameCycleRW(1'b0),
     .T(if_id_bus_t)
   ) u_fetch_fifo (
     .clk_i,

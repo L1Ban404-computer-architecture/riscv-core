@@ -347,8 +347,13 @@ async def if_id_backpressure_preserves_fetch_order(dut):
     dut.if_id_ready_i.value = 1
 
     expected_fetches = deque(pcs)
-    for _ in range(20):
+    for cycle in range(20):
         await ReadOnly()
+        if cycle == 0:
+            assert int(dut.imem_rsp_ready_o.value) == 0, (
+                "full fetch FIFO must not propagate IF/ID ready combinationally "
+                "to CoreBus response ready"
+            )
         rsp_fire = int(dut.imem_rsp_valid_i.value) and int(dut.imem_rsp_ready_o.value)
         check_fetch_outputs(dut, expected_fetches, "IF/ID backpressure release")
         await RisingEdge(dut.clk_i)

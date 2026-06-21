@@ -8,7 +8,7 @@
 module peek_fifo #(
   parameter int unsigned Depth = 2,
   parameter bit FallThrough = 1'b0,
-  parameter bit SameCycleRW = 1'b1,
+  parameter bit SameCycleRW = 1'b0,
   parameter type T = logic,
   parameter int unsigned PtrW = (Depth > 1) ? $clog2(Depth) : 1,
   parameter int unsigned CountW = (Depth > 1) ? $clog2(Depth + 1) : 1

@@ -94,8 +94,9 @@ module mem_stage #(
   end
 
   peek_fifo #(
-    .FallThrough(1'b1),
     .Depth(MemOutstandingDepth),
+    .FallThrough(1'b1),
+    .SameCycleRW(1'b1),
     .T(ex_mem_bus_t)
   ) u_outstanding_fifo (
     .clk_i,
