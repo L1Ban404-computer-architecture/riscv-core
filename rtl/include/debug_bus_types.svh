@@ -29,12 +29,6 @@ typedef struct packed {
 } mem_debug_bus_t;
 
 typedef struct packed {
-  logic valid;
-  mem_debug_bus_t mem_debug;
-  wb_req_bus_t wb_req;
-} wb_debug_bus_t;
-
-typedef struct packed {
   // 面向上层仿真环境，语义等价于展开后的 wb_debug_bus_t。
   logic valid;
   fetch_bus_t fetch;

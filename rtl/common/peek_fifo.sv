@@ -1,14 +1,14 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common_cells/assertions.svh"
+`include "common/assertions.svh"
 
-// 小深度、全条目可观察的顺序 FIFO。流接口与 common_cells::stream_fifo
-// 保持一致，data_all_o/valid_all_o 额外暴露已经存入寄存器阵列的所有条目。
-// ready_o 在满且同周期 pop 时仍然成立，允许无气泡 pop/push。
+// 小深度、全条目可观察的顺序 FIFO。FallThrough 控制空队列组合旁路，
+// SameCycleRW 控制满队列能否在 pop 的同周期接收新条目。
 module peek_fifo #(
-  parameter bit FallThrough = 1'b0,
   parameter int unsigned Depth = 2,
+  parameter bit FallThrough = 1'b0,
+  parameter bit SameCycleRW = 1'b1,
   parameter type T = logic,
   parameter int unsigned PtrW = (Depth > 1) ? $clog2(Depth) : 1,
   parameter int unsigned CountW = (Depth > 1) ? $clog2(Depth + 1) : 1
@@ -16,7 +16,6 @@ module peek_fifo #(
   input logic clk_i,
   input logic rst_ni,
   input logic flush_i,
-  input logic testmode_i,
   output logic [CountW-1:0] usage_o,
 
   input T data_i,
@@ -27,33 +26,38 @@ module peek_fifo #(
   output logic valid_o,
   input logic ready_i,
 
-  output T data_all_o [Depth],
+  output T data_all_o[Depth],
   output logic [Depth-1:0] valid_all_o
 );
 
-  T mem_q [Depth];
+  typedef logic [PtrW-1:0] ptr_t;
+  typedef logic [CountW-1:0] count_t;
+
+  // 数据阵列不复位；count_q/slot_valid_q 会屏蔽无效内容。这样可以避免为
+  // 宽事务总线生成大量复位触发器和复位布线。
+  T mem_q[Depth];
   logic [Depth-1:0] slot_valid_q;
-  logic [PtrW-1:0] read_ptr_q;
-  logic [PtrW-1:0] write_ptr_q;
-  logic [CountW-1:0] count_q;
+  ptr_t read_ptr_q;
+  ptr_t write_ptr_q;
+  count_t count_q;
 
   logic stored_valid;
   logic push;
   logic pop;
   logic bypass_pop;
 
-  function automatic logic [PtrW-1:0] next_ptr(input logic [PtrW-1:0] ptr);
-    if (ptr == PtrW'(Depth - 1))
-      return '0;
-    return ptr + PtrW'(1);
+  function automatic ptr_t next_ptr(input ptr_t ptr);
+    if (ptr == ptr_t'(Depth - 1)) return '0;
+    return ptr + ptr_t'(1'b1);
   endfunction
 
   assign stored_valid = (count_q != '0);
   assign valid_o = stored_valid || (FallThrough && valid_i);
-  assign data_o = stored_valid ? mem_q[read_ptr_q] : data_i;
+  assign data_o = (FallThrough && !stored_valid) ? data_i : mem_q[read_ptr_q];
 
   assign pop = valid_o && ready_i;
-  assign ready_o = (count_q < CountW'(Depth)) || (stored_valid && ready_i);
+  assign ready_o = (count_q < count_t'(Depth)) ||
+                   (SameCycleRW && stored_valid && ready_i);
   assign push = valid_i && ready_o;
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
 
@@ -61,14 +65,8 @@ module peek_fifo #(
   assign data_all_o = mem_q;
   assign valid_all_o = slot_valid_q;
 
-  // testmode_i 与寄存器实现的 FIFO 无关，仅用于保持和 stream_fifo 相同的
-  // 调用接口。
-  logic unused_testmode;
-  assign unused_testmode = testmode_i;
-
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      mem_q <= '{default: T'('0)};
       slot_valid_q <= '0;
       read_ptr_q <= '0;
       write_ptr_q <= '0;
@@ -90,9 +88,11 @@ module peek_fifo #(
         write_ptr_q <= next_ptr(write_ptr_q);
       end
 
-      case ({push && !bypass_pop, pop && stored_valid})
-        2'b10: count_q <= count_q + CountW'(1);
-        2'b01: count_q <= count_q - CountW'(1);
+      case ({
+        push && !bypass_pop, pop && stored_valid
+      })
+        2'b10: count_q <= count_q + count_t'(1'b1);
+        2'b01: count_q <= count_q - count_t'(1'b1);
         default: count_q <= count_q;
       endcase
     end
@@ -100,10 +100,16 @@ module peek_fifo #(
 
   // verilog_format: off
   `ASSERT_INIT(PeekFifoDepthValid, Depth > 0, "Depth must be greater than zero.")
-  `ASSERT(PeekFifoCountValid, count_q <= CountW'(Depth), clk_i, !rst_ni,
+  `ASSERT(PeekFifoCountValid, count_q <= count_t'(Depth), clk_i, !rst_ni,
           "FIFO usage must not exceed Depth.")
-  `ASSERT(PeekFifoSlotCountValid, $countones(slot_valid_q) == count_q,
+  `ASSERT(PeekFifoSlotCountValid, count_t'($countones(slot_valid_q)) == count_q,
           clk_i, !rst_ni, "FIFO slot valid bits must match usage.")
+  `ASSERT(PeekFifoOutputValidStable, valid_o && !ready_i |=> valid_o,
+          clk_i, !rst_ni || flush_i,
+          "FIFO output valid must remain asserted while waiting for ready.")
+  `ASSERT_STABLE(PeekFifoOutputDataStable, valid_o, ready_i, data_o, T'('0),
+                 clk_i, !rst_ni || flush_i,
+                 "FIFO output data must remain stable while waiting for ready.")
   // verilog_format: on
 
 endmodule

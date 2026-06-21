@@ -68,7 +68,7 @@ module riscv_core #(
   // 写回请求同时承担寄存器堆写回和 MEM/WB 数据前递角色。EX/MEM 候选
   // 由 EX stage 内部保存，不再经过顶层绕回。
   wb_req_bus_t mem_wb_req;
-  wb_req_bus_t mem_pending_wb_req [MemOutstandingDepth];
+  wb_req_bus_t mem_pending_wb_req[MemOutstandingDepth];
   wb_req_bus_t wb_wb_req;
 
   if_stage u_if_stage (

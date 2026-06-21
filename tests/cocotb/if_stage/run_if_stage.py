@@ -58,10 +58,9 @@ def test_if_stage():
 
     sources = [
         repo_root / "rtl/include/riscv_core_pkg.sv",
-        repo_root / "third_party/ip/common_cells/src/fifo_v3.sv",
-        repo_root / "third_party/ip/common_cells/src/stream_fifo.sv",
-        repo_root / "third_party/ip/common_cells/src/fall_through_register.sv",
-        repo_root / "rtl/core/units/peek_fifo.sv",
+        repo_root / "rtl/common/peek_fifo.sv",
+        repo_root / "rtl/common/stream_fifo.sv",
+        repo_root / "rtl/common/fall_through_register.sv",
         repo_root / "rtl/core/pipe/if_stage.sv",
         repo_root / "tests/cocotb/if_stage/if_stage_tb.sv",
     ]
@@ -79,7 +78,6 @@ def test_if_stage():
             sources=sources,
             includes=[
                 repo_root / "rtl/include",
-                repo_root / "third_party/ip/common_cells/include",
             ],
             hdl_toplevel="if_stage_tb",
             build_dir=build_dir,

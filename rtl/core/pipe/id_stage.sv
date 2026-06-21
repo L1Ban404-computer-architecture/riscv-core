@@ -3,7 +3,7 @@
 
 import riscv_core_pkg::*;
 
-`include "common_cells/assertions.svh"
+`include "common/assertions.svh"
 
 module id_stage (
   input logic clk_i,
@@ -72,7 +72,7 @@ module id_stage (
     decoded_id_ex_bus.debug.ctrl = decoded_ctrl;
   end
 
-  // common_cells 的 stream_register 实现单入口双向 ready/valid 握手。
+  // 本地 stream_register 实现单入口双向 ready/valid 握手。
   // 它在满载且 EX ready 时允许同拍 pop/push，不会在连续事务间插入气泡。
   assign if_id_ready_o = id_ex_input_ready;
 
@@ -82,7 +82,6 @@ module id_stage (
     .clk_i,
     .rst_ni,
     .clr_i(1'b0),
-    .testmode_i(1'b0),
     .valid_i(if_id_valid_i),
     .ready_o(id_ex_input_ready),
     .data_i(decoded_id_ex_bus),

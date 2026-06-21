@@ -1,11 +1,14 @@
 # Copyright (c) 2026
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: all test test-if-stage test-id-stage test-ex-stage test-mem-stage wave wave-if-stage wave-id-stage wave-ex-stage wave-mem-stage wave-vcd wave-if-stage-vcd wave-id-stage-vcd wave-ex-stage-vcd wave-mem-stage-vcd lint lint-if-stage clean clean-build
+.PHONY: all test test-common-fifo test-if-stage test-id-stage test-ex-stage test-mem-stage wave wave-if-stage wave-id-stage wave-ex-stage wave-mem-stage wave-vcd wave-if-stage-vcd wave-id-stage-vcd wave-ex-stage-vcd wave-mem-stage-vcd lint lint-if-stage clean clean-build
 
 all: test
 
-test: test-if-stage test-id-stage test-ex-stage test-mem-stage
+test: test-common-fifo test-if-stage test-id-stage test-ex-stage test-mem-stage
+
+test-common-fifo:
+	$(MAKE) -C tests/cocotb/common_fifo test
 
 wave: wave-if-stage wave-id-stage wave-ex-stage wave-mem-stage
 

@@ -21,13 +21,11 @@ module load_data_unit (
   always_comb begin
     case (size_i)
       MEM_SIZE_BYTE: begin
-        if (sign_ext_i)
-          load_data_o = {{(XLen - 8) {shifted_data[7]}}, shifted_data[7:0]};
+        if (sign_ext_i) load_data_o = {{(XLen - 8) {shifted_data[7]}}, shifted_data[7:0]};
         else load_data_o = {{(XLen - 8) {1'b0}}, shifted_data[7:0]};
       end
       MEM_SIZE_HALF: begin
-        if (sign_ext_i)
-          load_data_o = {{(XLen - 16) {shifted_data[15]}}, shifted_data[15:0]};
+        if (sign_ext_i) load_data_o = {{(XLen - 16) {shifted_data[15]}}, shifted_data[15:0]};
         else load_data_o = {{(XLen - 16) {1'b0}}, shifted_data[15:0]};
       end
       MEM_SIZE_WORD: load_data_o = shifted_data;

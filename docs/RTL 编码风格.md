@@ -175,15 +175,17 @@ typedef struct packed {
 - 优先选用清晰的流水级载荷名称，而非不相关信号的密集捆绑。
 - 不要将 CPU 内核直接耦合到 SoC 级总线。
 
-## 第三方单元
+## 本地 Common 单元
 
-本项目目前将 PULP `common_cells` 作为子模块纳入 `third_party/ip/common_cells` 下。
+项目自有的 ready/valid 基础设施位于 `rtl/common/`：
 
-- 仅在确实能降低实际复杂性时才实例化第三方单元。
-- 对于简单、稳定的单元，优先直接实例化。
-- 当第三方接口否则会过多地泄漏到内核自有模块中时，使用轻量包装器。
-- 不要为了一致性风格而就地修改第三方源文件。
-- 在 `docs/ip-dependencies.md` 中记录依赖决策。
+- `peek_fifo` 是唯一的 FIFO 状态实现，并额外暴露全部物理条目。
+- `stream_fifo` 包装 `peek_fifo`，隐藏全条目观察端口。
+- `stream_register` 是深度 1、非 fall-through、支持同拍替换的 FIFO。
+- `fall_through_register` 是深度 1、允许空槽组合旁路的 FIFO。
+
+FIFO 的 `FallThrough` 和 `SameCycleRW` 参数必须显式表达组合旁路和满载交接语义。
+流水级寄存器状态使用 `always_ff`，项目不使用寄存器宏头文件。
 
 ## 文件列表与依赖工具
 
@@ -196,10 +198,10 @@ typedef struct packed {
 
 在以下情况可考虑引入 Bender：
 
-- 添加了更多 PULP IP 依赖。
+- 添加了需要复杂依赖图的外部 RTL IP。
 - 手动维护编译顺序变得代价高昂。
 - 多个工具需要从同一依赖图生成源文件列表。
-- 必须通过 `common_cells` 的上游包元数据拉取其依赖，而非选择性引用。
+- 必须通过上游包元数据拉取多层依赖，而非选择性引用。
 
 若后续引入 Bender，需同时提交 `Bender.yml` 和 `Bender.lock`。
 

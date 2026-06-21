@@ -3,8 +3,7 @@
 
 import riscv_core_pkg::*;
 
-`include "common_cells/registers.svh"
-`include "common_cells/assertions.svh"
+`include "common/assertions.svh"
 
 module if_stage #(
   // 取指前端允许同时挂起的 CoreBus 读请求数。这个深度主要吸收外部
@@ -50,7 +49,7 @@ module if_stage #(
   logic fetch_epoch_q;
   logic fetch_epoch_d;
 
-  // 请求 holding register 使用 common_cells::fall_through_register。redirect 只
+  // 请求 holding register 使用本地 fall_through_register。redirect 只
   // 阻止新请求进入 holding register；如果请求已经在时钟沿被接收端采样
   // 为 valid 且尚未 ready，fall-through register 会锁住它，满足
   // CoreBus valid 不能撤销的同步约束。
@@ -62,7 +61,7 @@ module if_stage #(
   logic fetch_req_valid;
   logic fetch_req_fire;
 
-  // PC FIFO 由 common_cells::stream_fifo 实现，记录已经完成请求握手、
+  // PC FIFO 由本地 stream_fifo 实现，记录已经完成请求握手、
   // 但尚未收到响应的请求 PC 及其 epoch。它使用 fall-through 模式，
   // 支持无延迟存储器在请求握手同周期给出响应。redirect 翻转 epoch。
   // 这里使用 1 bit epoch 的前提是：IF 只使用单条顺序 CoreBus 请求流，响应
@@ -81,7 +80,6 @@ module if_stage #(
   logic fetch_fifo_valid;
   logic fetch_fifo_ready_i;
 
-  logic imem_req_fire;
   logic imem_rsp_fire;
   logic fetch_fifo_push;
   logic returned_fetch_kept;
@@ -98,8 +96,7 @@ module if_stage #(
   assign imem_req_o.req.wdata = '0;
   assign imem_req_o.req.wstrb = '0;
   assign imem_req_o.req_valid = req_hold_valid && pc_fifo_ready;
-  assign imem_req_fire = imem_req_o.req_valid && imem_resp_i.req_ready;
-  // valid_i 不依赖 pc_fifo_ready；peek_fifo 内部再与 ready_o 相与得到的
+  // valid_i 不依赖 pc_fifo_ready；stream_fifo 内部再与 ready_o 相与得到的
   // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
   assign pc_fifo_input_valid = req_hold_valid && imem_resp_i.req_ready;
 
@@ -130,7 +127,6 @@ module if_stage #(
     .clk_i,
     .rst_ni,
     .clr_i(req_hold_clr),
-    .testmode_i(1'b0),
     .valid_i(fetch_req_valid),
     .ready_o(req_hold_ready),
     .data_i(fetch_req_data),
@@ -139,35 +135,33 @@ module if_stage #(
     .data_o(req_hold_data)
   );
 
-  peek_fifo #(
-    .FallThrough(1'b1),
+  stream_fifo #(
     .Depth(FetchOutstandingDepth),
+    .FallThrough(1'b1),
+    .SameCycleRW(1'b1),
     .T(fetch_req_t)
   ) u_pc_fifo (
     .clk_i,
     .rst_ni,
     .flush_i(1'b0),
-    .testmode_i(1'b0),
     .usage_o(  /* unused */),
     .data_i(req_hold_data),
     .valid_i(pc_fifo_input_valid),
     .ready_o(pc_fifo_ready),
     .data_o(pc_fifo_data),
     .valid_o(pc_fifo_valid),
-    .ready_i(imem_rsp_fire),
-    .data_all_o(  /* unused */),
-    .valid_all_o(  /* unused */)
+    .ready_i(imem_rsp_fire)
   );
 
   stream_fifo #(
-    .FALL_THROUGH(1'b0),
-    .DEPTH(IfIdQueueDepth),
+    .Depth(IfIdQueueDepth),
+    .FallThrough(1'b0),
+    .SameCycleRW(1'b1),
     .T(if_id_bus_t)
   ) u_fetch_fifo (
     .clk_i,
     .rst_ni,
     .flush_i(redirect_i.valid),
-    .testmode_i(1'b0),
     .usage_o(  /* unused */),
     .data_i(fetch_fifo_data),
     .valid_i(fetch_fifo_push),
@@ -196,9 +190,17 @@ module if_stage #(
   assign boot_pending_d = 1'b0;
   assign fetch_epoch_d = redirect_i.valid ? ~fetch_epoch_q : fetch_epoch_q;
 
-  `FF(pc_q, pc_d, '0)
-  `FF(boot_pending_q, boot_pending_d, 1'b1)
-  `FF(fetch_epoch_q, fetch_epoch_d, 1'b0)
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      pc_q <= '0;
+      boot_pending_q <= 1'b1;
+      fetch_epoch_q <= 1'b0;
+    end else begin
+      pc_q <= pc_d;
+      boot_pending_q <= boot_pending_d;
+      fetch_epoch_q <= fetch_epoch_d;
+    end
+  end
 
   // verilog_format: off
   `ASSERT_STABLE(

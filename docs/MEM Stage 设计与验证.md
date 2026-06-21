@@ -29,7 +29,7 @@ EX/MEM -- memory ------->| CoreBus request               |----> dmem
                            MEM/WB stream_register
 ```
 
-`peek_fifo` 保存完整 `ex_mem_bus_t`，使请求元数据和 debug 信息保持统一。综合器
+`rtl/common/peek_fifo.sv` 保存完整 `ex_mem_bus_t`，使请求元数据和 debug 信息保持统一。综合器
 可以删除后级完全不可观察的位。FIFO 额外输出全部物理条目及其有效位，MEM 将其中
 的未完成 load 转换为 `wb_req_bus_t` 数组。
 

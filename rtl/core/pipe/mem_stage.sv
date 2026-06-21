@@ -3,7 +3,7 @@
 
 import riscv_core_pkg::*;
 
-`include "common_cells/assertions.svh"
+`include "common/assertions.svh"
 
 module mem_stage #(
   parameter int unsigned MemOutstandingDepth = 2
@@ -101,7 +101,6 @@ module mem_stage #(
     .clk_i,
     .rst_ni,
     .flush_i(1'b0),
-    .testmode_i(1'b0),
     .usage_o(  /* unused */),
     .data_i(ex_mem_bus_i),
     .valid_i(outstanding_input_valid),
@@ -166,7 +165,6 @@ module mem_stage #(
     .clk_i,
     .rst_ni,
     .clr_i(1'b0),
-    .testmode_i(1'b0),
     .valid_i(mem_wb_input_valid),
     .ready_o(mem_wb_input_ready),
     .data_i(mem_wb_input_bus),

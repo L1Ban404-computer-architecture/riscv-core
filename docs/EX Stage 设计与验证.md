@@ -54,7 +54,7 @@ PC/imm | operand mux     |                | branch_unit     |----> redirect
 ```
 
 `forwarding_unit`、`alu` 和 `branch_unit` 均为组合逻辑。完整的
-`ex_mem_bus_t` 由 `common_cells::stream_register` 在时钟沿保存。
+`ex_mem_bus_t` 由项目本地 `stream_register` 在时钟沿保存。
 
 ## ID/EX 输入
 
@@ -292,7 +292,7 @@ ALU address   -> byte enable    -> EX/MEM register
 
 ## EX/MEM 握手寄存器
 
-EX/MEM 边界使用 `common_cells::stream_register`，类型参数为 `ex_mem_bus_t`。
+EX/MEM 边界使用项目本地 `stream_register`，类型参数为 `ex_mem_bus_t`。
 
 输入端流控为：
 
@@ -342,7 +342,7 @@ Debug 总线只记录指令行为，不反向参与功能控制。
 
 ## 协议断言
 
-EX stage 使用 `common_cells` 断言检查 EX/MEM 输出接口：
+EX stage 使用本地 assertion 宏检查 EX/MEM 输出接口：
 
 - `ExMemStable`：`ex_mem_valid_o=1` 且 MEM 不 ready 时，payload 必须稳定。
 - `ExMemValidStable`：有效事务在被 MEM 接收前不能撤销 valid。

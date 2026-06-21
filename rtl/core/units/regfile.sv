@@ -16,11 +16,10 @@ module regfile (
 
   // 普通 GPR 的复位值在 RISC-V 架构中未定义。阵列不接复位可以避免为
   // 31 个数据寄存器铺设复位网络；x0 由读写逻辑强制为零。
-  word_t regs_q [31:1];
+  word_t regs_q[31:1];
   logic wb_write;
 
-  assign wb_write = wb_req_i.valid && wb_req_i.data_valid &&
-                    (wb_req_i.rd_addr != ZeroReg);
+  assign wb_write = wb_req_i.valid && wb_req_i.data_valid && (wb_req_i.rd_addr != ZeroReg);
 
   always_ff @(posedge clk_i) begin
     if (wb_write) begin

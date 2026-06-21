@@ -45,7 +45,7 @@ IF/ID instruction ----->| decoder   |-----> decode_ctrl_bus_t
 ```
 
 `decoder` 和 `imm_gen` 是组合逻辑。寄存器堆为组合读、同步写。完整的
-`id_ex_bus_t` 由 `common_cells::stream_register` 在时钟沿保存。
+`id_ex_bus_t` 由项目本地 `stream_register` 在时钟沿保存。
 
 ## IF/ID 输入
 
@@ -175,7 +175,7 @@ x0                    ->  0
 
 ## ID/EX 握手寄存器
 
-ID/EX 边界使用 `common_cells::stream_register`，类型参数为 `id_ex_bus_t`。
+ID/EX 边界使用项目本地 `stream_register`，类型参数为 `id_ex_bus_t`。
 该单元实现：
 
 ```systemverilog
@@ -227,7 +227,7 @@ ID 输出的 `id_ex_bus_t` 包含：
 
 ## 协议断言
 
-ID stage 使用 `common_cells` 断言检查输出接口：
+ID stage 使用本地 assertion 宏检查输出接口：
 
 - `IdExStable`：`id_ex_valid_o=1` 且 EX 不 ready 时，payload 必须保持稳定。
 - `IdExValidStable`：有效事务在被 EX 接收前不能撤销 valid。

@@ -176,7 +176,7 @@ fire = valid && ready;
 
 ### 5.2 弹性寄存器
 
-ID/EX 和 EX/MEM 使用 `common_cells::stream_register`：
+ID/EX 和 EX/MEM 使用项目本地 `stream_register`：
 
 ```systemverilog
 ready_o = ready_i | ~valid_o;

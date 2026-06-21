@@ -1,3 +1,0 @@
-[submodule "third_party/ip/common_cells"]
-	path = third_party/ip/common_cells
-	url = https://github.com/pulp-platform/common_cells.git

@@ -42,16 +42,16 @@ def test_mem_stage():
     runner.build(
         sources=[
             repo_root / "rtl/include/riscv_core_pkg.sv",
-            repo_root / "rtl/core/units/peek_fifo.sv",
+            repo_root / "rtl/common/peek_fifo.sv",
+            repo_root / "rtl/common/stream_fifo.sv",
+            repo_root / "rtl/common/stream_register.sv",
             repo_root / "rtl/core/units/store_data_unit.sv",
             repo_root / "rtl/core/units/load_data_unit.sv",
-            repo_root / "third_party/ip/common_cells/src/stream_register.sv",
             repo_root / "rtl/core/pipe/mem_stage.sv",
             repo_root / "tests/cocotb/mem_stage/mem_stage_tb.sv",
         ],
         includes=[
             repo_root / "rtl/include",
-            repo_root / "third_party/ip/common_cells/include",
         ],
         hdl_toplevel="mem_stage_tb",
         build_dir=build_dir,

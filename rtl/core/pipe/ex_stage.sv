@@ -3,7 +3,7 @@
 
 import riscv_core_pkg::*;
 
-`include "common_cells/assertions.svh"
+`include "common/assertions.svh"
 
 module ex_stage #(
   parameter int unsigned MemOutstandingDepth = 2
@@ -19,7 +19,7 @@ module ex_stage #(
 
   // MEM outstanding load 以及 MEM/WB 写回候选。另一路年龄最近的 EX/MEM
   // 候选由本 stage 内部保存。
-  input wb_req_bus_t mem_pending_wb_req_i [MemOutstandingDepth],
+  input wb_req_bus_t mem_pending_wb_req_i[MemOutstandingDepth],
   input wb_req_bus_t mem_wb_req_i,
 
   // EX -> IF redirect。该信号单向指向前端，只影响更年轻的 IF/ID 事务。
@@ -68,10 +68,9 @@ module ex_stage #(
     .stall_o(forward_stall)
   );
 
-  assign operand_a = (id_ex_bus_i.ctrl.op_a_sel == OP_A_PC) ?
-                     id_ex_bus_i.exec_data.pc : rs1_value;
-  assign operand_b = (id_ex_bus_i.ctrl.op_b_sel == OP_B_IMM) ?
-                     id_ex_bus_i.exec_data.imm : rs2_value;
+  assign operand_a = (id_ex_bus_i.ctrl.op_a_sel == OP_A_PC) ? id_ex_bus_i.exec_data.pc : rs1_value;
+  assign
+      operand_b = (id_ex_bus_i.ctrl.op_b_sel == OP_B_IMM) ? id_ex_bus_i.exec_data.imm : rs2_value;
 
   alu u_alu (
     .alu_op_i(id_ex_bus_i.ctrl.alu_op),
@@ -94,8 +93,7 @@ module ex_stage #(
 
   always_comb begin
     wb_req = '0;
-    wb_req.valid = id_ex_bus_i.ctrl.rd_write &&
-                   !id_ex_bus_i.ctrl.illegal_instr;
+    wb_req.valid = id_ex_bus_i.ctrl.rd_write && !id_ex_bus_i.ctrl.illegal_instr;
     wb_req.rd_addr = id_ex_bus_i.reg_addr.rd_addr;
 
     case (id_ex_bus_i.ctrl.wb_sel)
@@ -116,14 +114,12 @@ module ex_stage #(
     endcase
 
     // x0 写入在这里提前消除，减少后续前递和写回端的无效比较活动。
-    if (wb_req.rd_addr == ZeroReg)
-      wb_req.valid = 1'b0;
+    if (wb_req.rd_addr == ZeroReg) wb_req.valid = 1'b0;
   end
 
   always_comb begin
     mem_req = '0;
-    mem_req.valid = (id_ex_bus_i.ctrl.mem_cmd != MEM_NONE) &&
-                    !id_ex_bus_i.ctrl.illegal_instr;
+    mem_req.valid = (id_ex_bus_i.ctrl.mem_cmd != MEM_NONE) && !id_ex_bus_i.ctrl.illegal_instr;
     mem_req.write = (id_ex_bus_i.ctrl.mem_cmd == MEM_STORE);
     mem_req.size = id_ex_bus_i.ctrl.mem_size;
     mem_req.sign_ext = id_ex_bus_i.ctrl.mem_sign_ext;
@@ -154,7 +150,6 @@ module ex_stage #(
     .clk_i,
     .rst_ni,
     .clr_i(1'b0),
-    .testmode_i(1'b0),
     .valid_i(ex_mem_input_valid),
     .ready_o(ex_mem_input_ready),
     .data_i(executed_ex_mem_bus),
