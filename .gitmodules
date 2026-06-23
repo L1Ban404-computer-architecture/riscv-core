@@ -1,3 +1,3 @@
-[submodule ".codex/skills/sv-waveform-debug"]
-	path = .codex/skills/sv-waveform-debug
-	url = git@github.com:L1Ban404/sv-waveform-debug.git
+[submodule ".codex/skills/systemverilog-waveform-debug-skill"]
+	path = .codex/skills/systemverilog-waveform-debug-skill
+	url = git@github.com:L1Ban404/systemverilog-waveform-debug-skill.git
