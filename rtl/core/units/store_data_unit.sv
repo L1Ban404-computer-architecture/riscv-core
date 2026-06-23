@@ -20,7 +20,7 @@ module store_data_unit (
     case (size_i)
       MEM_SIZE_BYTE: begin
         aligned_wdata_o = wdata_i << shift_amount;
-        wstrb_o = byte_en_t'(4'b0001);
+        wstrb_o = byte_en_t'(4'b0001 << addr_offset_i);
       end
       MEM_SIZE_HALF: begin
         aligned_wdata_o = wdata_i << shift_amount;

@@ -12,7 +12,7 @@ module alu (
 
   always_comb begin
     case (alu_op_i)
-      ALU_ADD: result_o = operand_a_i - operand_b_i;
+      ALU_ADD: result_o = operand_a_i + operand_b_i;
       ALU_SUB: result_o = operand_a_i - operand_b_i;
       ALU_SLL: result_o = operand_a_i << operand_b_i[4:0];
       ALU_SLT: result_o = word_t'($signed(operand_a_i) < $signed(operand_b_i));

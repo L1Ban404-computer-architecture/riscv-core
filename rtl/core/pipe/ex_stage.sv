@@ -93,7 +93,7 @@ module ex_stage #(
     .redirect_o
   );
 
-  assign pc_plus_4 = id_ex_bus_i.exec_data.pc;
+  assign pc_plus_4 = id_ex_bus_i.exec_data.pc + word_t'(4);
 
   always_comb begin
     wb_req = '0;

@@ -179,6 +179,26 @@ async def store_alignment_and_load_extraction(dut):
     assert int(dut.mem_wb_req_wdata_o.value) == 0xFFFFFF80
     assert int(dut.mem_wb_rsp_rdata_o.value) == 0x00008000
 
+    # LBU must zero-extend the selected byte instead of inheriting LB's sign extension.
+    await RisingEdge(dut.clk_i)
+    await issue_memory(
+        dut,
+        pc=0x2008,
+        instr=0x2224,
+        write=0,
+        size=MEM_BYTE,
+        sign_ext=0,
+        addr=0x3001,
+        wb_valid=1,
+        rd=8,
+    )
+    drive_transaction(dut, valid=0)
+    await return_response(dut, 0x00008000)
+    assert int(dut.mem_wb_req_valid_o.value) == 1
+    assert int(dut.mem_wb_req_data_valid_o.value) == 1
+    assert int(dut.mem_wb_req_rd_addr_o.value) == 8
+    assert int(dut.mem_wb_req_wdata_o.value) == 0x00000080
+
 
 @cocotb.test()
 async def multiple_outstanding_preserves_retirement_order(dut):
