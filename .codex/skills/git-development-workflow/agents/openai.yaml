@@ -1,4 +1,0 @@
-interface:
-  display_name: "Git Development Workflow"
-  short_description: "Consistent commits, branches, and staging"
-  default_prompt: "Use $git-development-workflow to stage related changes and create a focused Conventional Commit."
