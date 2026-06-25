@@ -217,7 +217,6 @@ async def branch_redirect_targets_and_debug(dut):
         assert redirect == (int(taken), pc + 0x20, REDIR_BRANCH)
         assert int(dut.ex_mem_debug_redirect_valid_o.value) == int(taken)
         assert int(dut.ex_mem_debug_redirect_target_o.value) == pc + 0x20
-        assert int(dut.ex_mem_debug_redirect_reason_o.value) == REDIR_BRANCH
         await drain_output(dut)
 
     drive_instruction(

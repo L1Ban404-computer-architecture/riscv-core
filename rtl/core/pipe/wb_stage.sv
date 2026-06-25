@@ -46,7 +46,6 @@ module wb_stage (
       core_debug_o.mem_wdata = mem_wb_bus_i.debug.mem_wdata;
       core_debug_o.redirect_valid = mem_wb_bus_i.debug.redirect_valid;
       core_debug_o.redirect_target_pc = mem_wb_bus_i.debug.redirect_target_pc;
-      core_debug_o.redirect_reason = mem_wb_bus_i.debug.redirect_reason;
     end
   end
 

@@ -16,7 +16,6 @@ module wb_stage_tb (
   input logic [31:0] fetch_instr_i,
   input logic redirect_valid_i,
   input logic [31:0] redirect_target_pc_i,
-  input logic [2:0] redirect_reason_i,
   input logic mem_req_valid_i,
   input logic mem_req_write_i,
   input logic [1:0] mem_req_size_i,
@@ -33,7 +32,6 @@ module wb_stage_tb (
   output logic [31:0] retire_instr_o,
   output logic retire_redirect_valid_o,
   output logic [31:0] retire_redirect_target_pc_o,
-  output logic [2:0] retire_redirect_reason_o,
   output logic retire_mem_req_valid_o,
   output logic retire_mem_req_write_o,
   output logic [1:0] retire_mem_req_size_o,
@@ -59,7 +57,6 @@ module wb_stage_tb (
     mem_wb_bus.debug.instr = fetch_instr_i;
     mem_wb_bus.debug.redirect_valid = redirect_valid_i;
     mem_wb_bus.debug.redirect_target_pc = redirect_target_pc_i;
-    mem_wb_bus.debug.redirect_reason = redirect_reason_e'(redirect_reason_i);
     mem_wb_bus.debug.mem_valid = mem_req_valid_i;
     mem_wb_bus.debug.mem_write = mem_req_write_i;
     mem_wb_bus.debug.mem_size = mem_size_e'(mem_req_size_i);
@@ -77,7 +74,6 @@ module wb_stage_tb (
   assign retire_instr_o = core_debug.instr;
   assign retire_redirect_valid_o = core_debug.redirect_valid;
   assign retire_redirect_target_pc_o = core_debug.redirect_target_pc;
-  assign retire_redirect_reason_o = core_debug.redirect_reason;
   assign retire_mem_req_valid_o = core_debug.mem_valid;
   assign retire_mem_req_write_o = core_debug.mem_write;
   assign retire_mem_req_size_o = core_debug.mem_size;

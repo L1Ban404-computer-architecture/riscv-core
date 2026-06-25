@@ -29,7 +29,6 @@ def drive_payload(
     dut.fetch_instr_i.value = instr & MASK32
     dut.redirect_valid_i.value = 1
     dut.redirect_target_pc_i.value = 0x80000100
-    dut.redirect_reason_i.value = 1
     dut.mem_req_valid_i.value = 1
     dut.mem_req_write_i.value = 0
     dut.mem_req_size_i.value = 2
@@ -64,7 +63,6 @@ async def valid_transaction_writes_back_and_flattens_debug(dut):
     assert int(dut.retire_instr_o.value) == 0x00C585B3
     assert int(dut.retire_redirect_valid_o.value) == 1
     assert int(dut.retire_redirect_target_pc_o.value) == 0x80000100
-    assert int(dut.retire_redirect_reason_o.value) == 1
     assert int(dut.retire_mem_req_valid_o.value) == 1
     assert int(dut.retire_mem_req_write_o.value) == 0
     assert int(dut.retire_mem_req_size_o.value) == 2

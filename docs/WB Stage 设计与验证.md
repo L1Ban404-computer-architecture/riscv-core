@@ -51,7 +51,7 @@ x0 过滤由 `regfile` 统一负责，WB 不改写原始退休事务的 `rd_addr
 pc / instr
 gpr_we / gpr_waddr / gpr_wdata
 mem_valid / mem_write / mem_size / mem_addr / mem_wdata
-redirect_valid / redirect_target_pc / redirect_reason
+redirect_valid / redirect_target_pc
 ```
 
 `gpr_we` 由 `wb_req.valid && wb_req.data_valid` 折叠得到。`mem_sign_ext`、

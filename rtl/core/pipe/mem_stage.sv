@@ -148,7 +148,6 @@ module mem_stage #(
     completed_mem_bus.debug.mem_wdata = outstanding_head.debug.mem_wdata;
     completed_mem_bus.debug.redirect_valid = outstanding_head.debug.redirect_valid;
     completed_mem_bus.debug.redirect_target_pc = outstanding_head.debug.redirect_target_pc;
-    completed_mem_bus.debug.redirect_reason = outstanding_head.debug.redirect_reason;
 
     bypass_mem_bus = '0;
     bypass_mem_bus.wb_req = ex_mem_bus_i.wb_req;
@@ -161,7 +160,6 @@ module mem_stage #(
     bypass_mem_bus.debug.mem_wdata = ex_mem_bus_i.debug.mem_wdata;
     bypass_mem_bus.debug.redirect_valid = ex_mem_bus_i.debug.redirect_valid;
     bypass_mem_bus.debug.redirect_target_pc = ex_mem_bus_i.debug.redirect_target_pc;
-    bypass_mem_bus.debug.redirect_reason = ex_mem_bus_i.debug.redirect_reason;
 
     // outstanding 响应优先；FIFO 非空时 ex_mem_ready_o 会阻止非访存输入。
     if (outstanding_head_valid) begin

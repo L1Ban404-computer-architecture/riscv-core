@@ -613,8 +613,8 @@ Debug payload 随指令逐级移动，但各级类型直接列出字段，不再
 ```text
 IF/ID  -> pc + instr
 ID/EX  -> pc + instr
-EX/MEM -> pc + instr + mem access + redirect
-MEM/WB -> pc + instr + mem access + redirect
+EX/MEM -> pc + instr + mem access + redirect valid/target
+MEM/WB -> pc + instr + mem access + redirect valid/target
 WB     -> MEM/WB debug + gpr write + retire valid
 ```
 

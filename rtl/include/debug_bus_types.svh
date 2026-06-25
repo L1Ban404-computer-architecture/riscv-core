@@ -28,7 +28,6 @@ typedef struct packed {
   word_t mem_wdata;
   logic redirect_valid;
   pc_t redirect_target_pc;
-  redirect_reason_e redirect_reason;
 } ex_debug_bus_t;
 
 typedef struct packed {
@@ -41,7 +40,6 @@ typedef struct packed {
   word_t mem_wdata;
   logic redirect_valid;
   pc_t redirect_target_pc;
-  redirect_reason_e redirect_reason;
 } mem_debug_bus_t;
 
 typedef struct packed {
@@ -59,7 +57,6 @@ typedef struct packed {
   word_t mem_wdata;
   logic redirect_valid;
   pc_t redirect_target_pc;
-  redirect_reason_e redirect_reason;
 } core_debug_bus_t;
 
 `endif

@@ -57,8 +57,7 @@ module ex_stage_tb (
   output logic [4:0] ex_mem_wb_rd_addr_o,
   output logic [31:0] ex_mem_wb_wdata_o,
   output logic ex_mem_debug_redirect_valid_o,
-  output logic [31:0] ex_mem_debug_redirect_target_o,
-  output logic [2:0] ex_mem_debug_redirect_reason_o
+  output logic [31:0] ex_mem_debug_redirect_target_o
 );
 
   id_ex_bus_t id_ex_bus;
@@ -123,7 +122,6 @@ module ex_stage_tb (
   assign ex_mem_wb_wdata_o = ex_mem_bus.wb_req.wdata;
   assign ex_mem_debug_redirect_valid_o = ex_mem_bus.debug.redirect_valid;
   assign ex_mem_debug_redirect_target_o = ex_mem_bus.debug.redirect_target_pc;
-  assign ex_mem_debug_redirect_reason_o = ex_mem_bus.debug.redirect_reason;
 
   ex_stage u_dut (
     .clk_i,

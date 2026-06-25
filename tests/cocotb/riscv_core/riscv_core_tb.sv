@@ -37,7 +37,6 @@ module riscv_core_tb #(
   output logic [31:0] retire_instr_o,
   output logic retire_redirect_valid_o,
   output logic [31:0] retire_redirect_target_o,
-  output logic [2:0] retire_redirect_reason_o,
   output logic retire_mem_valid_o,
   output logic retire_mem_write_o,
   output logic [1:0] retire_mem_size_o,
@@ -79,7 +78,6 @@ module riscv_core_tb #(
   assign retire_instr_o = core_debug.instr;
   assign retire_redirect_valid_o = core_debug.redirect_valid;
   assign retire_redirect_target_o = core_debug.redirect_target_pc;
-  assign retire_redirect_reason_o = core_debug.redirect_reason;
   assign retire_mem_valid_o = core_debug.mem_valid;
   assign retire_mem_write_o = core_debug.mem_write;
   assign retire_mem_size_o = core_debug.mem_size;
