@@ -738,21 +738,21 @@ make test
 分 stage 运行：
 
 ```sh
-make test-if-stage
-make test-id-stage
-make test-ex-stage
-make test-mem-stage
-make test-wb-stage
+make test ALL=if_stage
+make test ALL=id_stage
+make test ALL=ex_stage
+make test ALL=mem_stage
+make test ALL=wb_stage
 ```
 
 生成 FST 波形：
 
 ```sh
-make wave-if-stage
-make wave-id-stage
-make wave-ex-stage
-make wave-mem-stage
-make wave-wb-stage
+make test ALL=if_stage WAVE=fst
+make test ALL=id_stage WAVE=fst
+make test ALL=ex_stage WAVE=fst
+make test ALL=mem_stage WAVE=fst
+make test ALL=wb_stage WAVE=fst
 ```
 
 生成 VCD 波形时使用对应的 `*-vcd` 目标。

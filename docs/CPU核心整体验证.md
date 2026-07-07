@@ -17,21 +17,21 @@
 
 ## 2. 文件结构
 
-整核 cocotb 环境位于 `tests/cocotb/riscv_core/`：
+整核 cocotb 环境位于 `tests/riscv_core/`：
 
 | 文件 | 作用 |
 | --- | --- |
 | `riscv_core_tb.sv` | 实例化整核，并将 packed CoreBus/debug 结构展开为标量端口。 |
 | `test_riscv_core.py` | 指令编码器、测试程序、CoreBus 模型、RV32I 参考模型和测试用例。 |
 | `run_riscv_core.py` | Verilator 构建与 cocotb 回归入口。 |
-| `Makefile` | `test`、`wave` 和 `wave-vcd` 快捷入口。 |
+| `Makefile` | `test`、`test WAVE=fst` 和 `test WAVE=vcd` 快捷入口。 |
 
 根目录提供以下目标：
 
 ```sh
-make test-riscv-core
-make wave-riscv-core
-make wave-riscv-core-vcd
+make test ALL=riscv_core
+make test ALL=riscv_core WAVE=fst
+make test ALL=riscv_core WAVE=vcd
 ```
 
 `make test` 已包含整核回归。

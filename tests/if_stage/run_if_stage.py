@@ -31,24 +31,24 @@ DEPTH_CONFIGS = [
 ]
 
 
-def env_flag(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.lower() in ("1", "true", "yes", "on")
-
-
-def test_if_stage():
-    repo_root = Path(__file__).resolve().parents[3]
-    runner = get_runner("verilator")
-    waves = env_flag("WAVES")
-    trace_format = os.environ.get("TRACE_FORMAT", "fst").lower()
-    if trace_format not in ("fst", "vcd"):
-        raise ValueError("TRACE_FORMAT must be 'fst' or 'vcd'")
-    if not waves:
+def wave_format() -> str | None:
+    value = os.environ.get("WAVE", "").lower()
+    if value == "":
         # cocotb runner treats a present WAVES environment variable as true in
         # the Verilator build step, even when it is set to "0".
         os.environ.pop("WAVES", None)
+        return None
+    if value not in ("fst", "vcd"):
+        raise ValueError("WAVE must be empty, 'fst', or 'vcd'")
+    os.environ["WAVES"] = "1"
+    return value
+
+
+def test_if_stage():
+    repo_root = Path(__file__).resolve().parents[2]
+    runner = get_runner("verilator")
+    trace_format = wave_format()
+    waves = trace_format is not None
 
     build_args = list(VERILATOR_BUILD_ARGS)
     if waves:
@@ -62,14 +62,14 @@ def test_if_stage():
         repo_root / "rtl/common/stream_fifo.sv",
         repo_root / "rtl/common/fall_through_register.sv",
         repo_root / "rtl/core/pipe/if_stage.sv",
-        repo_root / "tests/cocotb/if_stage/if_stage_tb.sv",
+        repo_root / "tests/if_stage/if_stage_tb.sv",
     ]
 
     configs = DEPTH_CONFIGS[:1] if waves else DEPTH_CONFIGS
-    wave_dir = repo_root / "build/cocotb/if_stage"
+    wave_dir = repo_root / "build/tests/if_stage"
 
     for name, parameters, test_filter in configs:
-        build_dir = repo_root / "build/cocotb/if_stage" / name
+        build_dir = repo_root / "build/tests/if_stage" / name
         test_args = []
         if waves:
             test_args.extend(["--trace-file", str(wave_dir / f"dump.{trace_format}")])
@@ -92,7 +92,7 @@ def test_if_stage():
             hdl_toplevel="if_stage_tb",
             test_module="test_if_stage",
             build_dir=build_dir,
-            test_dir=repo_root / "tests/cocotb/if_stage",
+            test_dir=repo_root / "tests/if_stage",
             results_xml=results_xml,
             test_filter=test_filter,
             test_args=test_args,

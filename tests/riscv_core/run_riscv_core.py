@@ -41,22 +41,22 @@ CORE_CONFIGS = [
 ]
 
 
-def env_flag(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.lower() in ("1", "true", "yes", "on")
+def wave_format() -> str | None:
+    value = os.environ.get("WAVE", "").lower()
+    if value == "":
+        os.environ.pop("WAVES", None)
+        return None
+    if value not in ("fst", "vcd"):
+        raise ValueError("WAVE must be empty, 'fst', or 'vcd'")
+    os.environ["WAVES"] = "1"
+    return value
 
 
 def test_riscv_core():
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[2]
     runner = get_runner("verilator")
-    waves = env_flag("WAVES")
-    trace_format = os.environ.get("TRACE_FORMAT", "fst").lower()
-    if trace_format not in ("fst", "vcd"):
-        raise ValueError("TRACE_FORMAT must be 'fst' or 'vcd'")
-    if not waves:
-        os.environ.pop("WAVES", None)
+    trace_format = wave_format()
+    waves = trace_format is not None
 
     build_args = list(VERILATOR_BUILD_ARGS)
     if waves:
@@ -84,12 +84,12 @@ def test_riscv_core():
         repo_root / "rtl/core/pipe/mem_stage.sv",
         repo_root / "rtl/core/pipe/wb_stage.sv",
         repo_root / "rtl/core/riscv_core.sv",
-        repo_root / "tests/cocotb/riscv_core/riscv_core_tb.sv",
+        repo_root / "tests/riscv_core/riscv_core_tb.sv",
     ]
 
     configs = CORE_CONFIGS[:1] if waves else CORE_CONFIGS
     for name, parameters, test_filter in configs:
-        build_dir = repo_root / "build/cocotb/riscv_core" / name
+        build_dir = repo_root / "build/tests/riscv_core" / name
         test_args = []
         if waves:
             test_args.extend(["--trace-file", str(build_dir / f"dump.{trace_format}")])
@@ -110,7 +110,7 @@ def test_riscv_core():
             hdl_toplevel="riscv_core_tb",
             test_module="test_riscv_core",
             build_dir=build_dir,
-            test_dir=repo_root / "tests/cocotb/riscv_core",
+            test_dir=repo_root / "tests/riscv_core",
             results_xml=results_xml,
             test_filter=test_filter,
             test_args=test_args,

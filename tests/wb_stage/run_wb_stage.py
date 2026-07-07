@@ -13,23 +13,23 @@ VERILATOR_BUILD_ARGS = [
 ]
 
 
-def env_flag(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.lower() in ("1", "true", "yes", "on")
+def wave_format() -> str | None:
+    value = os.environ.get("WAVE", "").lower()
+    if value == "":
+        os.environ.pop("WAVES", None)
+        return None
+    if value not in ("fst", "vcd"):
+        raise ValueError("WAVE must be empty, 'fst', or 'vcd'")
+    os.environ["WAVES"] = "1"
+    return value
 
 
 def test_wb_stage():
-    repo_root = Path(__file__).resolve().parents[3]
-    build_dir = repo_root / "build/cocotb/wb_stage"
+    repo_root = Path(__file__).resolve().parents[2]
+    build_dir = repo_root / "build/tests/wb_stage"
     runner = get_runner("verilator")
-    waves = env_flag("WAVES")
-    trace_format = os.environ.get("TRACE_FORMAT", "fst").lower()
-    if trace_format not in ("fst", "vcd"):
-        raise ValueError("TRACE_FORMAT must be 'fst' or 'vcd'")
-    if not waves:
-        os.environ.pop("WAVES", None)
+    trace_format = wave_format()
+    waves = trace_format is not None
 
     build_args = list(VERILATOR_BUILD_ARGS)
     if waves:
@@ -41,7 +41,7 @@ def test_wb_stage():
         sources=[
             repo_root / "rtl/include/riscv_core_pkg.sv",
             repo_root / "rtl/core/pipe/wb_stage.sv",
-            repo_root / "tests/cocotb/wb_stage/wb_stage_tb.sv",
+            repo_root / "tests/wb_stage/wb_stage_tb.sv",
         ],
         includes=[repo_root / "rtl/include"],
         hdl_toplevel="wb_stage_tb",
@@ -60,7 +60,7 @@ def test_wb_stage():
         hdl_toplevel="wb_stage_tb",
         test_module="test_wb_stage",
         build_dir=build_dir,
-        test_dir=repo_root / "tests/cocotb/wb_stage",
+        test_dir=repo_root / "tests/wb_stage",
         results_xml=results_xml,
         test_args=test_args,
         waves=waves,

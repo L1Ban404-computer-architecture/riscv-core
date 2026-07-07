@@ -216,7 +216,7 @@ MMIO 还需要比普通 cacheable memory 更严格的请求数和副作用约束
 
 ### P1-2（已完成）：整核程序级验证基线已建立
 
-审查基线后已新增 `tests/cocotb/riscv_core`：双 CoreBus 内存模型、RV32I 小程序、
+审查基线后已新增 `tests/riscv_core`：双 CoreBus 内存模型、RV32I 小程序、
 退休级 scoreboard、零延迟与随机背压回归均已接入 `make test`。当前还以参数化
 smoke 覆盖 `(IF outstanding, IF/ID queue, MEM outstanding)` 的 `(1,1,1)`、
 `(1,2,2)` 与 `(4,1,4)` 组合。
@@ -392,7 +392,7 @@ lint 通过只证明语法、类型和部分结构规则满足工具要求，不
 
 ### 阶段 1：先建立整核验证基线
 
-1. 新增 `tests/cocotb/riscv_core` 和双 CoreBus 内存模型。
+1. 新增 `tests/riscv_core` 和双 CoreBus 内存模型。
 2. 用小型 RV32I 程序覆盖 ALU、前递、branch、load/store 和随机背压。
 3. 以退休事件维护寄存器/内存 scoreboard。
 4. 增加 wrong-path store/GPR 不提交、store→load 同地址和 reset/boot 场景。

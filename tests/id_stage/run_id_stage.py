@@ -14,25 +14,25 @@ VERILATOR_BUILD_ARGS = [
 ]
 
 
-def env_flag(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.lower() in ("1", "true", "yes", "on")
-
-
-def test_id_stage():
-    repo_root = Path(__file__).resolve().parents[3]
-    build_dir = repo_root / "build/cocotb/id_stage"
-    runner = get_runner("verilator")
-    waves = env_flag("WAVES")
-    trace_format = os.environ.get("TRACE_FORMAT", "fst").lower()
-    if trace_format not in ("fst", "vcd"):
-        raise ValueError("TRACE_FORMAT must be 'fst' or 'vcd'")
-    if not waves:
+def wave_format() -> str | None:
+    value = os.environ.get("WAVE", "").lower()
+    if value == "":
         # cocotb runner treats a present WAVES environment variable as true in
         # the Verilator build step, even when it is set to "0".
         os.environ.pop("WAVES", None)
+        return None
+    if value not in ("fst", "vcd"):
+        raise ValueError("WAVE must be empty, 'fst', or 'vcd'")
+    os.environ["WAVES"] = "1"
+    return value
+
+
+def test_id_stage():
+    repo_root = Path(__file__).resolve().parents[2]
+    build_dir = repo_root / "build/tests/id_stage"
+    runner = get_runner("verilator")
+    trace_format = wave_format()
+    waves = trace_format is not None
 
     build_args = list(VERILATOR_BUILD_ARGS)
     if waves:
@@ -50,7 +50,7 @@ def test_id_stage():
             repo_root / "rtl/common/stream_fifo.sv",
             repo_root / "rtl/common/stream_register.sv",
             repo_root / "rtl/core/pipe/id_stage.sv",
-            repo_root / "tests/cocotb/id_stage/id_stage_tb.sv",
+            repo_root / "tests/id_stage/id_stage_tb.sv",
         ],
         includes=[
             repo_root / "rtl/include",
@@ -70,7 +70,7 @@ def test_id_stage():
         hdl_toplevel="id_stage_tb",
         test_module="test_id_stage",
         build_dir=build_dir,
-        test_dir=repo_root / "tests/cocotb/id_stage",
+        test_dir=repo_root / "tests/id_stage",
         results_xml=build_dir / "results.xml",
         test_args=test_args,
         waves=waves,
