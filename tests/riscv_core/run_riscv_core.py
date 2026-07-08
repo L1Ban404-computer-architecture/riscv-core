@@ -83,6 +83,7 @@ def test_riscv_core():
         repo_root / "rtl/core/pipe/ex_stage.sv",
         repo_root / "rtl/core/pipe/mem_stage.sv",
         repo_root / "rtl/core/pipe/wb_stage.sv",
+        repo_root / "rtl/core/riscv_core_impl.sv",
         repo_root / "rtl/core/riscv_core.sv",
         repo_root / "tests/riscv_core/riscv_core_tb.sv",
     ]

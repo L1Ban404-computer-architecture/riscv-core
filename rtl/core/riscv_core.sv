@@ -10,135 +10,96 @@ module riscv_core #(
 ) (
   input logic clk_i,
   input logic rst_ni,
+  input logic [31:0] boot_pc_i,
 
-  // 启动 PC 由上层 SoC 或测试平台提供。当前顶层只把它交给 IF stage，
-  // 后续 IF stage 内部会维护真实 PC 寄存器、取指请求队列和 redirect 处理。
-  input pc_t boot_pc_i,
+  output logic imem_req_valid_o,
+  input logic imem_req_ready_i,
+  output logic [31:0] imem_req_addr_o,
+  output logic [31:0] imem_req_wdata_o,
+  output logic [3:0] imem_req_wstrb_o,
+  input logic imem_rsp_valid_i,
+  output logic imem_rsp_ready_o,
+  input logic [31:0] imem_rsp_rdata_i,
+  input logic imem_rsp_error_i,
 
-  // ---------------------------------------------------------------------------
-  // CoreBus 取指接口
-  // ---------------------------------------------------------------------------
-  //
-  // IF 只发起 wstrb=0 的固定字宽读事务。
-  output core_bus_req_t imem_req_o,
-  input core_bus_resp_t imem_resp_i,
+  output logic dmem_req_valid_o,
+  input logic dmem_req_ready_i,
+  output logic [31:0] dmem_req_addr_o,
+  output logic [31:0] dmem_req_wdata_o,
+  output logic [3:0] dmem_req_wstrb_o,
+  input logic dmem_rsp_valid_i,
+  output logic dmem_rsp_ready_o,
+  input logic [31:0] dmem_rsp_rdata_i,
+  input logic dmem_rsp_error_i,
 
-  // ---------------------------------------------------------------------------
-  // CoreBus 数据接口
-  // ---------------------------------------------------------------------------
-  //
-  // MEM stage 负责把流水线访存转换为统一的顺序 CoreBus 请求。CoreBus
-  // 每周期最多接受一个读或写请求，并允许多个请求 outstanding。
-  output core_bus_req_t dmem_req_o,
-  input core_bus_resp_t dmem_resp_i,
-
-  // core_debug_o 是面向仿真环境的扁平退休追踪总线。
-  // 当 core_debug_o.valid 为 1 时，表示 WB stage 本周期退休一条指令。
-  output core_debug_bus_t core_debug_o
+  output logic debug_retire_valid_o,
+  output logic [31:0] debug_retire_pc_o,
+  output logic [31:0] debug_retire_instr_o,
+  output logic debug_retire_redirect_valid_o,
+  output logic [31:0] debug_retire_redirect_target_o,
+  output logic debug_retire_mem_valid_o,
+  output logic debug_retire_mem_write_o,
+  output logic [1:0] debug_retire_mem_size_o,
+  output logic [31:0] debug_retire_mem_addr_o,
+  output logic [31:0] debug_retire_mem_wdata_o,
+  output logic debug_retire_gpr_we_o,
+  output logic [4:0] debug_retire_gpr_waddr_o,
+  output logic [31:0] debug_retire_gpr_wdata_o
 );
 
-  // ---------------------------------------------------------------------------
-  // 阶段间事务通道
-  // ---------------------------------------------------------------------------
-  //
-  // valid/ready 属于 stage 间流控；payload 使用 riscv_core_pkg 中定义的
-  // 阶段事务类型。具体寄存器墙/FIFO 属于各 stage 内部，顶层只负责连线。
-  logic if_id_valid;
-  logic if_id_ready;
-  if_id_bus_t if_id_bus;
+  core_bus_req_t imem_req;
+  core_bus_resp_t imem_resp;
+  core_bus_req_t dmem_req;
+  core_bus_resp_t dmem_resp;
+  core_debug_bus_t core_debug;
 
-  logic id_ex_valid;
-  logic id_ex_ready;
-  id_ex_bus_t id_ex_bus;
+  assign imem_req_valid_o = imem_req.req_valid;
+  assign imem_req_addr_o = imem_req.req.addr;
+  assign imem_req_wdata_o = imem_req.req.wdata;
+  assign imem_req_wstrb_o = imem_req.req.wstrb;
+  assign imem_rsp_ready_o = imem_req.rsp_ready;
+  assign imem_resp.req_ready = imem_req_ready_i;
+  assign imem_resp.rsp_valid = imem_rsp_valid_i;
+  assign imem_resp.rsp.rdata = imem_rsp_rdata_i;
+  assign imem_resp.rsp.error = imem_rsp_error_i;
 
-  logic ex_mem_valid;
-  logic ex_mem_ready;
-  ex_mem_bus_t ex_mem_bus;
+  assign dmem_req_valid_o = dmem_req.req_valid;
+  assign dmem_req_addr_o = dmem_req.req.addr;
+  assign dmem_req_wdata_o = dmem_req.req.wdata;
+  assign dmem_req_wstrb_o = dmem_req.req.wstrb;
+  assign dmem_rsp_ready_o = dmem_req.rsp_ready;
+  assign dmem_resp.req_ready = dmem_req_ready_i;
+  assign dmem_resp.rsp_valid = dmem_rsp_valid_i;
+  assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
+  assign dmem_resp.rsp.error = dmem_rsp_error_i;
 
-  logic mem_wb_valid;
-  logic mem_wb_ready;
-  mem_wb_bus_t mem_wb_bus;
+  assign debug_retire_valid_o = core_debug.valid;
+  assign debug_retire_pc_o = core_debug.pc;
+  assign debug_retire_instr_o = core_debug.instr;
+  assign debug_retire_redirect_valid_o = core_debug.redirect_valid;
+  assign debug_retire_redirect_target_o = core_debug.redirect_target_pc;
+  assign debug_retire_mem_valid_o = core_debug.mem_valid;
+  assign debug_retire_mem_write_o = core_debug.mem_write;
+  assign debug_retire_mem_size_o = core_debug.mem_size;
+  assign debug_retire_mem_addr_o = core_debug.mem_addr;
+  assign debug_retire_mem_wdata_o = core_debug.mem_wdata;
+  assign debug_retire_gpr_we_o = core_debug.gpr_we;
+  assign debug_retire_gpr_waddr_o = core_debug.gpr_waddr;
+  assign debug_retire_gpr_wdata_o = core_debug.gpr_wdata;
 
-  // ---------------------------------------------------------------------------
-  // redirect、前递和写回旁路
-  // ---------------------------------------------------------------------------
-  //
-  // redirect 从 EX 指向 IF，用于丢弃错误路径 fetch。当前 ID/EX 寄存器中的
-  // 正是产生 redirect 的指令；IF 会在同周期屏蔽更年轻事务的 valid。
-  redirect_bus_t redirect_bus;
-
-  // 写回请求同时承担寄存器堆写回和 MEM/WB 数据前递角色。EX/MEM 候选
-  // 由 EX stage 内部保存，不再经过顶层绕回。
-  wb_req_bus_t mem_wb_req;
-  wb_req_bus_t mem_pending_wb_req[MemOutstandingDepth];
-  wb_req_bus_t wb_wb_req;
-
-  if_stage #(
+  riscv_core_impl #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
-    .IfIdQueueDepth(IfIdQueueDepth)
-  ) u_if_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .boot_pc_i(boot_pc_i),
-    .redirect_i(redirect_bus),
-    .imem_req_o(imem_req_o),
-    .imem_resp_i(imem_resp_i),
-    .if_id_valid_o(if_id_valid),
-    .if_id_ready_i(if_id_ready),
-    .if_id_bus_o(if_id_bus)
-  );
-
-  id_stage u_id_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .if_id_valid_i(if_id_valid),
-    .if_id_ready_o(if_id_ready),
-    .if_id_bus_i(if_id_bus),
-    .wb_req_i(wb_wb_req),
-    .id_ex_valid_o(id_ex_valid),
-    .id_ex_ready_i(id_ex_ready),
-    .id_ex_bus_o(id_ex_bus)
-  );
-
-  ex_stage #(
+    .IfIdQueueDepth(IfIdQueueDepth),
     .MemOutstandingDepth(MemOutstandingDepth)
-  ) u_ex_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .id_ex_valid_i(id_ex_valid),
-    .id_ex_ready_o(id_ex_ready),
-    .id_ex_bus_i(id_ex_bus),
-    .mem_pending_wb_req_i(mem_pending_wb_req),
-    .mem_wb_req_i(mem_wb_req),
-    .redirect_o(redirect_bus),
-    .ex_mem_valid_o(ex_mem_valid),
-    .ex_mem_ready_i(ex_mem_ready),
-    .ex_mem_bus_o(ex_mem_bus)
-  );
-
-  mem_stage #(
-    .MemOutstandingDepth(MemOutstandingDepth)
-  ) u_mem_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .ex_mem_valid_i(ex_mem_valid),
-    .ex_mem_ready_o(ex_mem_ready),
-    .ex_mem_bus_i(ex_mem_bus),
-    .dmem_req_o(dmem_req_o),
-    .dmem_resp_i(dmem_resp_i),
-    .mem_pending_wb_req_o(mem_pending_wb_req),
-    .mem_wb_req_o(mem_wb_req),
-    .mem_wb_valid_o(mem_wb_valid),
-    .mem_wb_ready_i(mem_wb_ready),
-    .mem_wb_bus_o(mem_wb_bus)
-  );
-
-  wb_stage u_wb_stage (
-    .mem_wb_valid_i(mem_wb_valid),
-    .mem_wb_ready_o(mem_wb_ready),
-    .mem_wb_bus_i(mem_wb_bus),
-    .wb_req_o(wb_wb_req),
-    .core_debug_o(core_debug_o)
+  ) u_impl (
+    .clk_i,
+    .rst_ni,
+    .boot_pc_i,
+    .imem_req_o(imem_req),
+    .imem_resp_i(imem_resp),
+    .dmem_req_o(dmem_req),
+    .dmem_resp_i(dmem_resp),
+    .core_debug_o(core_debug)
   );
 
 endmodule

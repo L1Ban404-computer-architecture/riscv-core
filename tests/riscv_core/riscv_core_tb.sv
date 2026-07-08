@@ -1,8 +1,6 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 module riscv_core_tb #(
   parameter int unsigned FetchOutstandingDepth = 1,
   parameter int unsigned IfIdQueueDepth = 2,
@@ -32,60 +30,20 @@ module riscv_core_tb #(
   input logic [31:0] dmem_rsp_rdata_i,
   input logic dmem_rsp_error_i,
 
-  output logic retire_valid_o,
-  output logic [31:0] retire_pc_o,
-  output logic [31:0] retire_instr_o,
-  output logic retire_redirect_valid_o,
-  output logic [31:0] retire_redirect_target_o,
-  output logic retire_mem_valid_o,
-  output logic retire_mem_write_o,
-  output logic [1:0] retire_mem_size_o,
-  output logic [31:0] retire_mem_addr_o,
-  output logic [31:0] retire_mem_wdata_o,
-  output logic retire_gpr_we_o,
-  output logic [4:0] retire_gpr_waddr_o,
-  output logic [31:0] retire_gpr_wdata_o
+  output logic debug_retire_valid_o,
+  output logic [31:0] debug_retire_pc_o,
+  output logic [31:0] debug_retire_instr_o,
+  output logic debug_retire_redirect_valid_o,
+  output logic [31:0] debug_retire_redirect_target_o,
+  output logic debug_retire_mem_valid_o,
+  output logic debug_retire_mem_write_o,
+  output logic [1:0] debug_retire_mem_size_o,
+  output logic [31:0] debug_retire_mem_addr_o,
+  output logic [31:0] debug_retire_mem_wdata_o,
+  output logic debug_retire_gpr_we_o,
+  output logic [4:0] debug_retire_gpr_waddr_o,
+  output logic [31:0] debug_retire_gpr_wdata_o
 );
-
-  core_bus_req_t imem_req;
-  core_bus_resp_t imem_resp;
-  core_bus_req_t dmem_req;
-  core_bus_resp_t dmem_resp;
-  core_debug_bus_t core_debug;
-
-  assign imem_req_valid_o = imem_req.req_valid;
-  assign imem_req_addr_o = imem_req.req.addr;
-  assign imem_req_wdata_o = imem_req.req.wdata;
-  assign imem_req_wstrb_o = imem_req.req.wstrb;
-  assign imem_rsp_ready_o = imem_req.rsp_ready;
-  assign imem_resp.req_ready = imem_req_ready_i;
-  assign imem_resp.rsp_valid = imem_rsp_valid_i;
-  assign imem_resp.rsp.rdata = imem_rsp_rdata_i;
-  assign imem_resp.rsp.error = imem_rsp_error_i;
-
-  assign dmem_req_valid_o = dmem_req.req_valid;
-  assign dmem_req_addr_o = dmem_req.req.addr;
-  assign dmem_req_wdata_o = dmem_req.req.wdata;
-  assign dmem_req_wstrb_o = dmem_req.req.wstrb;
-  assign dmem_rsp_ready_o = dmem_req.rsp_ready;
-  assign dmem_resp.req_ready = dmem_req_ready_i;
-  assign dmem_resp.rsp_valid = dmem_rsp_valid_i;
-  assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
-  assign dmem_resp.rsp.error = dmem_rsp_error_i;
-
-  assign retire_valid_o = core_debug.valid;
-  assign retire_pc_o = core_debug.pc;
-  assign retire_instr_o = core_debug.instr;
-  assign retire_redirect_valid_o = core_debug.redirect_valid;
-  assign retire_redirect_target_o = core_debug.redirect_target_pc;
-  assign retire_mem_valid_o = core_debug.mem_valid;
-  assign retire_mem_write_o = core_debug.mem_write;
-  assign retire_mem_size_o = core_debug.mem_size;
-  assign retire_mem_addr_o = core_debug.mem_addr;
-  assign retire_mem_wdata_o = core_debug.mem_wdata;
-  assign retire_gpr_we_o = core_debug.gpr_we;
-  assign retire_gpr_waddr_o = core_debug.gpr_waddr;
-  assign retire_gpr_wdata_o = core_debug.gpr_wdata;
 
   riscv_core #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
@@ -95,11 +53,37 @@ module riscv_core_tb #(
     .clk_i,
     .rst_ni,
     .boot_pc_i,
-    .imem_req_o(imem_req),
-    .imem_resp_i(imem_resp),
-    .dmem_req_o(dmem_req),
-    .dmem_resp_i(dmem_resp),
-    .core_debug_o(core_debug)
+    .imem_req_valid_o,
+    .imem_req_ready_i,
+    .imem_req_addr_o,
+    .imem_req_wdata_o,
+    .imem_req_wstrb_o,
+    .imem_rsp_valid_i,
+    .imem_rsp_ready_o,
+    .imem_rsp_rdata_i,
+    .imem_rsp_error_i,
+    .dmem_req_valid_o,
+    .dmem_req_ready_i,
+    .dmem_req_addr_o,
+    .dmem_req_wdata_o,
+    .dmem_req_wstrb_o,
+    .dmem_rsp_valid_i,
+    .dmem_rsp_ready_o,
+    .dmem_rsp_rdata_i,
+    .dmem_rsp_error_i,
+    .debug_retire_valid_o,
+    .debug_retire_pc_o,
+    .debug_retire_instr_o,
+    .debug_retire_redirect_valid_o,
+    .debug_retire_redirect_target_o,
+    .debug_retire_mem_valid_o,
+    .debug_retire_mem_write_o,
+    .debug_retire_mem_size_o,
+    .debug_retire_mem_addr_o,
+    .debug_retire_mem_wdata_o,
+    .debug_retire_gpr_we_o,
+    .debug_retire_gpr_waddr_o,
+    .debug_retire_gpr_wdata_o
   );
 
 endmodule

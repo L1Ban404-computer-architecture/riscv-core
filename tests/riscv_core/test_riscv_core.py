@@ -603,40 +603,40 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
     for cycle in range(2000):
         await RisingEdge(dut.clk_i)
         await ReadOnly()
-        if not int(dut.retire_valid_o.value):
+        if not int(dut.debug_retire_valid_o.value):
             continue
 
-        pc = int(dut.retire_pc_o.value)
-        instr = int(dut.retire_instr_o.value)
+        pc = int(dut.debug_retire_pc_o.value)
+        instr = int(dut.debug_retire_instr_o.value)
         trace.append((pc, instr))
         try:
             check_equal(pc, reference.pc, "retirement PC", pc, instr)
             check_equal(instr, reference.memory.read_word(pc), "retirement instruction", pc, instr)
             expected = reference.execute(instr)
 
-            check_equal(int(dut.retire_gpr_we_o.value), int(expected.wb_valid), "GPR write enable", pc, instr)
+            check_equal(int(dut.debug_retire_gpr_we_o.value), int(expected.wb_valid), "GPR write enable", pc, instr)
             if expected.wb_valid:
-                check_equal(int(dut.retire_gpr_waddr_o.value), expected.rd, "GPR write address", pc, instr)
-                check_equal(int(dut.retire_gpr_wdata_o.value), expected.wdata, "GPR write data", pc, instr)
+                check_equal(int(dut.debug_retire_gpr_waddr_o.value), expected.rd, "GPR write address", pc, instr)
+                check_equal(int(dut.debug_retire_gpr_wdata_o.value), expected.wdata, "GPR write data", pc, instr)
 
-            check_equal(int(dut.retire_mem_valid_o.value), int(expected.mem_valid), "memory valid", pc, instr)
+            check_equal(int(dut.debug_retire_mem_valid_o.value), int(expected.mem_valid), "memory valid", pc, instr)
             if expected.mem_valid:
-                check_equal(int(dut.retire_mem_write_o.value), int(expected.mem_write), "memory write", pc, instr)
-                check_equal(int(dut.retire_mem_size_o.value), expected.mem_size, "memory size", pc, instr)
-                check_equal(int(dut.retire_mem_addr_o.value), expected.mem_addr, "memory address", pc, instr)
+                check_equal(int(dut.debug_retire_mem_write_o.value), int(expected.mem_write), "memory write", pc, instr)
+                check_equal(int(dut.debug_retire_mem_size_o.value), expected.mem_size, "memory size", pc, instr)
+                check_equal(int(dut.debug_retire_mem_addr_o.value), expected.mem_addr, "memory address", pc, instr)
                 if expected.mem_write:
                     check_equal(
-                        int(dut.retire_mem_wdata_o.value), expected.mem_wdata,
+                        int(dut.debug_retire_mem_wdata_o.value), expected.mem_wdata,
                         "store source data", pc, instr,
                     )
 
             check_equal(
-                int(dut.retire_redirect_valid_o.value), int(expected.redirect_valid),
+                int(dut.debug_retire_redirect_valid_o.value), int(expected.redirect_valid),
                 "redirect valid", pc, instr,
             )
             if expected.redirect_valid:
                 check_equal(
-                    int(dut.retire_redirect_target_o.value), expected.redirect_target,
+                    int(dut.debug_retire_redirect_target_o.value), expected.redirect_target,
                     "redirect target", pc, instr,
                 )
         except AssertionError as error:
