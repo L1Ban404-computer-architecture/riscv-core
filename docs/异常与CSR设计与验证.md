@@ -125,13 +125,13 @@ next_pc <- mepc
 | EX branch/JAL/JALR | 更新 IF PC、清 fetch FIFO、翻转 epoch；不清后端。 |
 | WB trap/MRET | 执行相同前端改道，并清 ID/EX、EX/MEM、MEM/WB 年轻事务。 |
 
-同周期竞争时 WB 优先，因为 WB 指令必然比 EX 指令更老。`pipeline_kill` 同周期门控
+同周期竞争时 WB 优先，因为 WB 指令必然比 EX 指令更老。`flush_backend` 同周期门控
 级间 push、GPR/CSR 写和数据请求，防止即将清除的年轻事务产生副作用。已经握手的
 取指请求不可取消，响应返回后依靠 epoch 丢弃。
 
-RTL 使用 `pipeline_control_bus_t` 绑定最终 redirect 与 kill 属性。IF 只消费仲裁后
-redirect，不理解流水线年龄；顶层负责选择 WB control 或 EX branch redirect，并把
-同一 control 的 kill 位分发给后端。
+RTL 使用 `pipeline_control_bus_t` 绑定最终 redirect 与 `flush_backend` 属性。
+IF 只消费仲裁后 redirect，并在内部由 `redirect.valid` 派生前端 flush；顶层
+负责选择 WB control 或 EX branch redirect，并把同一 control 的后端 flush 分发给各级。
 
 ECALL 后顺序存放的 CSR、store 或 branch 都属于年轻事务，会在 ECALL 到达 WB 时
 被清除。handler 从 `mtvec` 重新取指发生在 trap CSR 状态提交之后，因此 handler

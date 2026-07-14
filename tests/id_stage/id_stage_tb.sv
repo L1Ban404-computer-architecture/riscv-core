@@ -70,7 +70,7 @@ module id_stage_tb (
   id_stage u_dut (
     .clk_i,
     .rst_ni,
-    .kill_i(1'b0),
+    .flush_i(1'b0),
     .serialize_block_i(1'b0),
     .if_id_valid_i,
     .if_id_ready_o,

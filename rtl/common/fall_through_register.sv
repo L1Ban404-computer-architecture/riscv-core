@@ -7,7 +7,7 @@ module fall_through_register #(
 ) (
   input logic clk_i,
   input logic rst_ni,
-  input logic clr_i,
+  input logic flush_i,
 
   input logic valid_i,
   output logic ready_o,
@@ -26,7 +26,7 @@ module fall_through_register #(
   ) u_fifo (
     .clk_i,
     .rst_ni,
-    .flush_i(clr_i),
+    .flush_i,
     .usage_o(  /* unused */),
     .data_i,
     .valid_i,

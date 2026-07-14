@@ -128,7 +128,7 @@ module ex_stage_tb (
   ex_stage u_dut (
     .clk_i,
     .rst_ni,
-    .kill_i(1'b0),
+    .flush_i(1'b0),
     .serialize_ready_i(1'b1),
     .id_ex_valid_i,
     .id_ex_ready_o,

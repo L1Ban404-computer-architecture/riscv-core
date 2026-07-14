@@ -384,7 +384,7 @@ EX 分支 redirect 只冲刷尚未进入 EX 的年轻事务：
 分支不清 ID/EX，原因是 redirect 发生时 ID/EX 中保存的正是产生跳转的
 指令。它本身必须进入 EX/MEM，不能被清除。
 
-WB trap/MRET 则通过 `pipeline_kill` 清 ID/EX、EX/MEM 和 MEM/WB，并在同周期
+WB trap/MRET 则通过 `flush_backend` 清 ID/EX、EX/MEM 和 MEM/WB，并在同周期
 门控级间 push、数据请求和架构写入。IF 对两类 redirect 都更新 PC、清 fetch FIFO
 并翻转 epoch。
 
@@ -419,7 +419,7 @@ IF 使用 1 bit epoch 标记 outstanding fetch。其正确性依赖：
 
 异常可在 IF、ID、EX、MEM 或 WB 检测，但都作为 payload 随指令到 WB 提交。
 WB trap 优先于同周期年轻 EX branch，且被覆盖的年轻指令不能产生 GPR、CSR、
-访存或 redirect 副作用。详细 cause/tval、CSR 状态转换和 kill 契约见
+访存或 redirect 副作用。详细 cause/tval、CSR 状态转换和 flush 契约见
 `docs/异常与CSR设计与验证.md`。
 
 ## 9. 各流水级职责
@@ -548,7 +548,7 @@ WB 负责：
 - 将有效且 `data_valid=1` 的 `wb_req`送回 ID 寄存器堆。
 - 用 `wb_fire` 门控写回，保证事务只提交一次。
 - 按 trap entry、MRET、普通 CSR/GPR 的顺序提交架构状态。
-- 对 trap/MRET 产生 redirect 和 `pipeline_kill`。
+- 对 trap/MRET 产生 redirect 和 `flush_backend`。
 - 将扁平 debug payload 和最终写回行为形成 `core_debug_o`。
 - 仅在 `wb_fire` 时拉高 `core_debug_o.valid`。
 - 确保 store、branch、FENCE 等无寄存器写回指令仍能正常退休。

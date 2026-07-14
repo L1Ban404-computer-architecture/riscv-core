@@ -119,7 +119,7 @@ module mem_stage_tb (
   ) u_dut (
     .clk_i,
     .rst_ni,
-    .kill_i(1'b0),
+    .flush_i(1'b0),
     .side_effect_block_i(1'b0),
     .ex_mem_valid_i,
     .ex_mem_ready_o,

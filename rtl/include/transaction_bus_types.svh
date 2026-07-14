@@ -108,7 +108,7 @@ typedef struct packed {
   csr_write_bus_t csr_write;
 } commit_ctrl_bus_t;
 
-// 分支 redirect 只冲刷前端；trap/MRET redirect 由 WB 同时产生 pipeline_kill，
+// 分支 redirect 只冲刷前端；trap/MRET redirect 由 WB 同时产生后端 flush，
 // 清除全部年轻后端事务。顶层集中仲裁时始终令 WB 来源优先。
 typedef enum logic [2:0] {
   REDIR_NONE,
@@ -125,11 +125,11 @@ typedef struct packed {
   redirect_reason_e reason;
 } redirect_bus_t;
 
-// 顶层统一分发的流水控制。branch redirect 的 kill=0，只刷新前端；
-// WB trap/MRET 的 kill=1，同时清除所有年轻后端事务。
+// 顶层统一分发的流水控制。任何 redirect 都由 IF 内部派生前端 flush；
+// 只有 WB trap/MRET 额外置位 flush_backend，清除所有年轻后端事务。
 typedef struct packed {
   redirect_bus_t redirect;
-  logic kill;
+  logic flush_backend;
 } pipeline_control_bus_t;
 
 `endif

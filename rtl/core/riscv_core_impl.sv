@@ -64,7 +64,7 @@ module riscv_core_impl #(
   // ---------------------------------------------------------------------------
   //
   // 顶层集中仲裁两类 redirect：EX 分支/JAL/JALR 仅清除错误路径前端；
-  // WB trap/MRET 年龄更老，具有最高优先级并同时产生 pipeline_kill。
+  // WB trap/MRET 年龄更老，具有最高优先级并同时产生后端 flush。
   redirect_bus_t branch_redirect;
   pipeline_control_bus_t pipeline_control;
   pipeline_control_bus_t wb_control;
@@ -83,7 +83,7 @@ module riscv_core_impl #(
   wb_req_bus_t wb_wb_req;
 
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
-  // 必须采用 WB 目标，年轻分支随后由 pipeline_kill 清除。
+  // 必须采用 WB 目标，年轻分支随后由后端 flush 清除。
   always_comb begin
     pipeline_control = '0;
     pipeline_control.redirect = branch_redirect;
@@ -118,7 +118,7 @@ module riscv_core_impl #(
   id_stage u_id_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .kill_i(pipeline_control.kill),
+    .flush_i(pipeline_control.flush_backend),
     .serialize_block_i(serialize_block),
     .if_id_valid_i(if_id_valid),
     .if_id_ready_o(if_id_ready),
@@ -134,7 +134,7 @@ module riscv_core_impl #(
   ) u_ex_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .kill_i(pipeline_control.kill),
+    .flush_i(pipeline_control.flush_backend),
     .serialize_ready_i(serialize_ready),
     .id_ex_valid_i(id_ex_valid),
     .id_ex_ready_o(id_ex_ready),
@@ -154,7 +154,7 @@ module riscv_core_impl #(
   ) u_mem_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .kill_i(pipeline_control.kill),
+    .flush_i(pipeline_control.flush_backend),
     .side_effect_block_i(mem_side_effect_block),
     .ex_mem_valid_i(ex_mem_valid),
     .ex_mem_ready_o(ex_mem_ready),

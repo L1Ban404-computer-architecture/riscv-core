@@ -20,8 +20,8 @@ module if_stage #(
   // IF stage 内部，而不是由 riscv_core 顶层额外插入 pipeline_regs。
   input pc_t boot_pc_i,
 
-  // redirect_i 来自顶层集中仲裁：EX 分支只改道前端，WB trap/MRET 还会通过
-  // 独立 kill 信号清除后端年轻事务。IF 对两者执行相同的 PC/epoch 更新。
+  // redirect_i 只描述改道目标。IF 在内部由 redirect.valid 派生
+  // frontend_flush，使 PC 更新与旧路径事务作废保持原子。
   input redirect_bus_t redirect_i,
 
   // CoreBus 取指接口。IF 只发出 wstrb=0 的固定字宽读请求，读请求和
@@ -48,6 +48,7 @@ module if_stage #(
   logic boot_pending_d;
   logic fetch_epoch_q;
   logic fetch_epoch_d;
+  logic frontend_flush;
 
   // 请求 holding register 使用本地 fall_through_register。redirect 只
   // 阻止新请求进入 holding register；如果请求已经在时钟沿被接收端采样
@@ -57,7 +58,7 @@ module if_stage #(
   fetch_req_t req_hold_data;
   logic req_hold_ready;
   logic req_hold_valid;
-  logic req_hold_clr;
+  logic req_hold_flush;
   logic fetch_req_valid;
   logic fetch_req_fire;
 
@@ -89,7 +90,8 @@ module if_stage #(
   // redirect 不能直接拉低已经锁存的 req_valid，否则会破坏 CoreBus 保持规则。
   // holding register 可以在 PC FIFO 满时提前保存下一条顺序请求。真正的
   // CoreBus valid 仍由 pc_fifo_ready 门控，确保请求握手和元数据入队原子发生。
-  assign fetch_req_valid = !boot_pending_q && !redirect_i.valid;
+  assign frontend_flush = redirect_i.valid;
+  assign fetch_req_valid = !boot_pending_q && !frontend_flush;
   assign fetch_req_data = '{pc: pc_q, epoch: fetch_epoch_q};
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
@@ -103,11 +105,11 @@ module if_stage #(
 
   // redirect 可以丢弃尚未向 CoreBus 暴露的预存请求；已经拉高 req_valid 的
   // 请求必须继续保持，直到从设备接受。
-  assign req_hold_clr = redirect_i.valid && !imem_req_o.req_valid;
+  assign req_hold_flush = frontend_flush && !imem_req_o.req_valid;
 
   // 返回端按 CoreBus 顺序从 PC FIFO 头部取对应 PC。如果该请求 epoch
   // 与当前 epoch 不同，说明它属于 redirect 前的旧路径，只弹出不写入。
-  assign returned_fetch_kept = (pc_fifo_data.epoch == fetch_epoch_q) && !redirect_i.valid;
+  assign returned_fetch_kept = (pc_fifo_data.epoch == fetch_epoch_q) && !frontend_flush;
   assign imem_req_o.rsp_ready = pc_fifo_valid && (!returned_fetch_kept || fetch_fifo_ready);
   assign imem_rsp_fire = imem_resp_i.rsp_valid && imem_req_o.rsp_ready;
   assign fetch_fifo_push = imem_rsp_fire && returned_fetch_kept;
@@ -122,17 +124,17 @@ module if_stage #(
   assign fetch_fifo_data.debug.pc = pc_fifo_data.pc;
   assign fetch_fifo_data.debug.instr = instr_t'(imem_resp_i.rsp.rdata);
 
-  // fetch FIFO 在 redirect 周期同步清空；组合输出也用 redirect_i.valid 屏蔽，
+  // fetch FIFO 在 frontend flush 周期同步清空；组合输出同时屏蔽，
   // 避免同周期把旧路径指令继续交给 ID。
-  assign if_id_valid_o = !redirect_i.valid && fetch_fifo_valid;
-  assign fetch_fifo_ready_i = !redirect_i.valid && if_id_ready_i;
+  assign if_id_valid_o = !frontend_flush && fetch_fifo_valid;
+  assign fetch_fifo_ready_i = !frontend_flush && if_id_ready_i;
 
   fall_through_register #(
     .T(fetch_req_t)
   ) u_req_hold (
     .clk_i,
     .rst_ni,
-    .clr_i(req_hold_clr),
+    .flush_i(req_hold_flush),
     .valid_i(fetch_req_valid),
     .ready_o(req_hold_ready),
     .data_i(fetch_req_data),
@@ -167,7 +169,7 @@ module if_stage #(
   ) u_fetch_fifo (
     .clk_i,
     .rst_ni,
-    .flush_i(redirect_i.valid),
+    .flush_i(frontend_flush),
     .usage_o(  /* unused */),
     .data_i(fetch_fifo_data),
     .valid_i(fetch_fifo_push),
@@ -194,7 +196,7 @@ module if_stage #(
   // boot_pending_q 只用于复位释放后的第一个正常周期同步采样 boot_pc_i。
   // reset 后它为 1，下一拍无条件清 0。
   assign boot_pending_d = 1'b0;
-  assign fetch_epoch_d = redirect_i.valid ? ~fetch_epoch_q : fetch_epoch_q;
+  assign fetch_epoch_d = frontend_flush ? ~fetch_epoch_q : fetch_epoch_q;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

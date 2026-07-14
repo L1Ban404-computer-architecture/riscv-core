@@ -55,7 +55,7 @@ module wb_stage (
     csr_write.valid = wb_fire && !trap_commit && !mret_commit &&
         mem_wb_bus_i.commit.csr_write.valid;
 
-    // trap 和 MRET 都从 WB 发起全流水 kill；功能目标分别读取提交前 mtvec/mepc。
+    // trap 和 MRET 都从 WB 发起全流水 flush；功能目标分别读取提交前 mtvec/mepc。
     control_o = '0;
     if (trap_commit) begin
       control_o.redirect.valid = 1'b1;
@@ -66,7 +66,7 @@ module wb_stage (
       control_o.redirect.target_pc = csr_current_state.mepc;
       control_o.redirect.reason = REDIR_MRET;
     end
-    control_o.kill = control_o.redirect.valid;
+    control_o.flush_backend = control_o.redirect.valid;
 
     wb_req_o = '0;
     if (wb_fire && !trap_commit && !mret_commit) wb_req_o = mem_wb_bus_i.wb_req;

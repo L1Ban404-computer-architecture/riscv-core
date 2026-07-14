@@ -10,7 +10,7 @@ module ex_stage #(
 ) (
   input logic clk_i,
   input logic rst_ni,
-  input logic kill_i,
+  input logic flush_i,
   input logic serialize_ready_i,
 
   // ID -> EX 事务通道。进入 EX 的指令被视为已确认有效，不再被 redirect
@@ -211,8 +211,8 @@ module ex_stage #(
   // 这也避免取指错误携带的无意义指令位影响串行化判断。
   assign serialize_stall = (id_ex_bus_i.ctrl.serialize || id_ex_bus_i.exception.valid) &&
       !serialize_ready_i;
-  assign ex_mem_input_valid = id_ex_valid_i && !forward_stall && !serialize_stall && !kill_i;
-  assign id_ex_ready_o = ex_mem_input_ready && !forward_stall && !serialize_stall && !kill_i;
+  assign ex_mem_input_valid = id_ex_valid_i && !forward_stall && !serialize_stall && !flush_i;
+  assign id_ex_ready_o = ex_mem_input_ready && !forward_stall && !serialize_stall && !flush_i;
   assign ex_execute_fire = ex_mem_input_valid && ex_mem_input_ready;
 
   always_comb begin
@@ -239,7 +239,7 @@ module ex_stage #(
   ) u_ex_mem_register (
     .clk_i,
     .rst_ni,
-    .clr_i(kill_i),
+    .flush_i,
     .valid_i(ex_mem_input_valid),
     .ready_o(ex_mem_input_ready),
     .data_i(executed_ex_mem_bus),
@@ -256,7 +256,7 @@ module ex_stage #(
     ex_mem_bus_o,
     ex_mem_bus_t'(0),
     clk_i,
-    !rst_ni || kill_i,
+    !rst_ni || flush_i,
     "EX/MEM payload must remain stable while valid is waiting for ready."
   )
 
@@ -264,7 +264,7 @@ module ex_stage #(
     ExMemValidStable,
     ex_mem_valid_o && !ex_mem_ready_i |=> ex_mem_valid_o,
     clk_i,
-    !rst_ni || kill_i,
+    !rst_ni || flush_i,
     "EX/MEM valid must remain asserted until ready."
   )
   // verilog_format: on

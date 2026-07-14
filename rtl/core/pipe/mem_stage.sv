@@ -10,7 +10,7 @@ module mem_stage #(
 ) (
   input logic clk_i,
   input logic rst_ni,
-  input logic kill_i,
+  input logic flush_i,
   input logic side_effect_block_i,
 
   // EX -> MEM 事务通道。首版精确异常将 LSU 限制为单 outstanding；内部 FIFO
@@ -80,7 +80,7 @@ module mem_stage #(
   assign dmem_req_o.req.wstrb = ex_mem_bus_i.mem_req.write ? store_byte_en : '0;
   // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助 FIFO
   // 同拍 pop/push 发出请求。kill 同周期也必须关闭总线请求及级间交接。
-  assign request_blocked = kill_i || side_effect_block_i ||
+  assign request_blocked = flush_i || side_effect_block_i ||
       (dmem_resp_i.rsp_valid && dmem_resp_i.rsp.error);
   assign dmem_req_valid = ex_mem_valid_i && memory_instruction && outstanding_ready && !request_blocked;
   assign dmem_req_o.req_valid = dmem_req_valid;
@@ -98,7 +98,7 @@ module mem_stage #(
   // 访存事务在请求被接受后释放 EX/MEM；非访存事务不能越过任何更老的
   // outstanding 访存事务，但可以在 FIFO 为空时进入 MEM/WB。
   always_comb begin
-    if (kill_i) ex_mem_ready_o = 1'b0;
+    if (flush_i) ex_mem_ready_o = 1'b0;
     else if (memory_instruction)
       ex_mem_ready_o = outstanding_ready && dmem_resp_i.req_ready && !request_blocked;
     else ex_mem_ready_o = !outstanding_head_valid && mem_wb_input_ready;
@@ -200,8 +200,8 @@ module mem_stage #(
   ) u_mem_wb_register (
     .clk_i,
     .rst_ni,
-    .clr_i(kill_i),
-    .valid_i(mem_wb_input_valid && !kill_i),
+    .flush_i,
+    .valid_i(mem_wb_input_valid && !flush_i),
     .ready_o(mem_wb_input_ready),
     .data_i(mem_wb_input_bus),
     .valid_o(mem_wb_valid_o),
@@ -229,7 +229,7 @@ module mem_stage #(
     dmem_req_o.req,
     core_bus_req_chan_t'(0),
     clk_i,
-    !rst_ni || kill_i,
+    !rst_ni || flush_i,
     "CoreBus data request must remain stable while waiting for ready."
   )
 

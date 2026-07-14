@@ -8,9 +8,9 @@ import riscv_core_pkg::*;
 module id_stage (
   input logic clk_i,
   input logic rst_ni,
-  // kill 清除所有年轻 ID/EX 事务；serialize_block 阻止年轻指令越过正在执行的
+  // flush 清除所有年轻 ID/EX 事务；serialize_block 阻止年轻指令越过正在执行的
   // CSR/SYSTEM 或已知异常事务。
-  input logic kill_i,
+  input logic flush_i,
   input logic serialize_block_i,
 
   // IF -> ID 事务通道。ID stage 消费 IF 产生的 fetch/debug 事务，并在内部
@@ -95,15 +95,15 @@ module id_stage (
 
   // 本地 stream_register 实现单入口双向 ready/valid 握手。
   // 它在满载且 EX ready 时允许同拍 pop/push，不会在连续事务间插入气泡。
-  assign if_id_ready_o = id_ex_input_ready && !serialize_block_i && !kill_i;
+  assign if_id_ready_o = id_ex_input_ready && !serialize_block_i && !flush_i;
 
   stream_register #(
     .T(id_ex_bus_t)
   ) u_id_ex_register (
     .clk_i,
     .rst_ni,
-    .clr_i(kill_i),
-    .valid_i(if_id_valid_i && !serialize_block_i && !kill_i),
+    .flush_i,
+    .valid_i(if_id_valid_i && !serialize_block_i && !flush_i),
     .ready_o(id_ex_input_ready),
     .data_i(decoded_id_ex_bus),
     .valid_o(id_ex_valid_o),
@@ -119,7 +119,7 @@ module id_stage (
     id_ex_bus_o,
     id_ex_bus_t'(0),
     clk_i,
-    !rst_ni || kill_i,
+    !rst_ni || flush_i,
     "ID/EX payload must remain stable while valid is waiting for ready."
   )
 
@@ -127,7 +127,7 @@ module id_stage (
     IdExValidStable,
     id_ex_valid_o && !id_ex_ready_i |=> id_ex_valid_o,
     clk_i,
-    !rst_ni || kill_i,
+    !rst_ni || flush_i,
     "ID/EX valid must remain asserted until ready."
   )
   // verilog_format: on
