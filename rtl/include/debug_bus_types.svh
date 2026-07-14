@@ -61,11 +61,7 @@ typedef struct packed {
   logic intr;
   word_t cause;
   word_t tval;
-  word_t mstatus;
-  word_t mtvec;
-  word_t mepc;
-  word_t mcause;
-  word_t mtval;
+  csr_state_bus_t csr;
 } core_debug_bus_t;
 
 `endif

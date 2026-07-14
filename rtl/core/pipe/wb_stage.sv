@@ -4,32 +4,30 @@
 import riscv_core_pkg::*;
 
 module wb_stage (
+  input logic clk_i,
+  input logic rst_ni,
+
   input logic mem_wb_valid_i,
   output logic mem_wb_ready_o,
   input mem_wb_bus_t mem_wb_bus_i,
 
-  input word_t csr_mstatus_i,
-  input word_t csr_mtvec_i,
-  input word_t csr_mepc_i,
-  input word_t csr_mcause_i,
-  input word_t csr_mtval_i,
-  input word_t csr_current_mtvec_i,
-  input word_t csr_current_mepc_i,
+  // CSR 状态归 WB 所有，但串行化 CSR 指令在 EX 组合读取旧值。
+  input csr_addr_t csr_read_addr_i,
+  output csr_read_rsp_bus_t csr_read_rsp_o,
 
-  output csr_write_bus_t csr_write_o,
-  output logic trap_commit_o,
-  output pc_t trap_epc_o,
-  output exception_bus_t trap_exception_o,
-  output logic mret_commit_o,
-  output redirect_bus_t commit_redirect_o,
-  output logic pipeline_kill_o,
+  output pipeline_control_bus_t control_o,
 
   output wb_req_bus_t wb_req_o,
   output core_debug_bus_t core_debug_o
 );
 
   logic wb_fire;
+  logic trap_commit;
+  logic mret_commit;
   exception_bus_t effective_exception;
+  csr_write_bus_t csr_write;
+  csr_state_bus_t csr_state;
+  csr_state_bus_t csr_current_state;
 
   // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
   // wb_fire 门控，避免无效 MEM/WB payload 产生副作用。
@@ -42,54 +40,52 @@ module wb_stage (
     effective_exception = mem_wb_bus_i.exception;
     if (!effective_exception.valid &&
         (mem_wb_bus_i.commit.system_op == SYS_MRET) &&
-        (csr_current_mepc_i[1:0] != 2'b00)) begin
+        (csr_current_state.mepc[1:0] != 2'b00)) begin
       effective_exception.valid = 1'b1;
       effective_exception.cause = EXC_INST_ADDR_MISALIGNED;
-      effective_exception.tval = csr_current_mepc_i;
+      effective_exception.tval = csr_current_state.mepc;
     end
 
     // 架构提交优先级固定为：trap entry > MRET > 普通 CSR/GPR 写回。
-    trap_commit_o = wb_fire && effective_exception.valid;
-    trap_epc_o = mem_wb_bus_i.debug.pc;
-    trap_exception_o = effective_exception;
-    mret_commit_o = wb_fire && !trap_commit_o &&
+    trap_commit = wb_fire && effective_exception.valid;
+    mret_commit = wb_fire && !trap_commit &&
         (mem_wb_bus_i.commit.system_op == SYS_MRET);
 
-    csr_write_o = mem_wb_bus_i.commit.csr_write;
-    csr_write_o.valid = wb_fire && !trap_commit_o && !mret_commit_o &&
+    csr_write = mem_wb_bus_i.commit.csr_write;
+    csr_write.valid = wb_fire && !trap_commit && !mret_commit &&
         mem_wb_bus_i.commit.csr_write.valid;
 
     // trap 和 MRET 都从 WB 发起全流水 kill；功能目标分别读取提交前 mtvec/mepc。
-    commit_redirect_o = '0;
-    if (trap_commit_o) begin
-      commit_redirect_o.valid = 1'b1;
-      commit_redirect_o.target_pc = csr_current_mtvec_i;
-      commit_redirect_o.reason = REDIR_TRAP;
-    end else if (mret_commit_o) begin
-      commit_redirect_o.valid = 1'b1;
-      commit_redirect_o.target_pc = csr_current_mepc_i;
-      commit_redirect_o.reason = REDIR_MRET;
+    control_o = '0;
+    if (trap_commit) begin
+      control_o.redirect.valid = 1'b1;
+      control_o.redirect.target_pc = csr_current_state.mtvec;
+      control_o.redirect.reason = REDIR_TRAP;
+    end else if (mret_commit) begin
+      control_o.redirect.valid = 1'b1;
+      control_o.redirect.target_pc = csr_current_state.mepc;
+      control_o.redirect.reason = REDIR_MRET;
     end
-    pipeline_kill_o = commit_redirect_o.valid;
+    control_o.kill = control_o.redirect.valid;
 
     wb_req_o = '0;
+    if (wb_fire && !trap_commit && !mret_commit) wb_req_o = mem_wb_bus_i.wb_req;
+  end
+
+  // Trace 是提交结果的纯观察者，与 CSR 下一状态计算分块，避免观察通路被综合器
+  // 误认为会反向影响 trap/CSR 控制。
+  always_comb begin
     core_debug_o = '0;
-    core_debug_o.mstatus = csr_mstatus_i;
-    core_debug_o.mtvec = csr_mtvec_i;
-    core_debug_o.mepc = csr_mepc_i;
-    core_debug_o.mcause = csr_mcause_i;
-    core_debug_o.mtval = csr_mtval_i;
+    core_debug_o.csr = csr_state;
 
     if (wb_fire) begin
-      if (!trap_commit_o && !mret_commit_o) wb_req_o = mem_wb_bus_i.wb_req;
-
       core_debug_o.valid = 1'b1;
       core_debug_o.pc = mem_wb_bus_i.debug.pc;
       core_debug_o.instr = mem_wb_bus_i.debug.instr;
       core_debug_o.gpr_we = wb_req_o.valid && wb_req_o.data_valid;
       core_debug_o.gpr_waddr = wb_req_o.rd_addr;
       core_debug_o.gpr_wdata = wb_req_o.wdata;
-      core_debug_o.mem_valid = mem_wb_bus_i.debug.mem_valid && !trap_commit_o && !mret_commit_o;
+      core_debug_o.mem_valid = mem_wb_bus_i.debug.mem_valid && !trap_commit && !mret_commit;
       core_debug_o.mem_write = mem_wb_bus_i.debug.mem_write;
       core_debug_o.mem_size = mem_wb_bus_i.debug.mem_size;
       core_debug_o.mem_addr = mem_wb_bus_i.debug.mem_addr;
@@ -97,16 +93,32 @@ module wb_stage (
       core_debug_o.redirect_valid = mem_wb_bus_i.debug.redirect_valid;
       core_debug_o.redirect_target_pc = mem_wb_bus_i.debug.redirect_target_pc;
       // 异常指令本身仍退休一条 trace，但不报告正常 GPR/访存提交。
-      core_debug_o.trap = trap_commit_o;
+      core_debug_o.trap = trap_commit;
       core_debug_o.intr = effective_exception.is_interrupt;
       core_debug_o.cause = {{(XLen-4) {1'b0}}, effective_exception.cause};
       core_debug_o.tval = effective_exception.tval;
 
-      if (commit_redirect_o.valid) begin
+      if (control_o.redirect.valid) begin
         core_debug_o.redirect_valid = 1'b1;
-        core_debug_o.redirect_target_pc = commit_redirect_o.target_pc;
+        core_debug_o.redirect_target_pc = control_o.redirect.target_pc;
       end
     end
   end
+
+  // CSR 寄存器物理上归属 WB。读端口只观察 current state；写、trap 和 MRET
+  // 都由 wb_fire 派生的提交信号驱动，因此不会提前改变架构状态。
+  csr_unit u_csr_unit (
+    .clk_i,
+    .rst_ni,
+    .read_addr_i(csr_read_addr_i),
+    .read_rsp_o(csr_read_rsp_o),
+    .write_i(csr_write),
+    .trap_i(trap_commit),
+    .trap_epc_i(mem_wb_bus_i.debug.pc),
+    .trap_exception_i(effective_exception),
+    .mret_i(mret_commit),
+    .state_o(csr_state),
+    .current_state_o(csr_current_state)
+  );
 
 endmodule

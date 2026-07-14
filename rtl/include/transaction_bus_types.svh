@@ -84,6 +84,23 @@ typedef struct packed {
   word_t wdata;
 } csr_write_bus_t;
 
+// CSR 组合读端口的返回值。请求端只有一个地址字段，保持独立端口更直观；
+// 返回端的合法性和数据必须同周期一起使用，因此组成单向结构体。
+typedef struct packed {
+  logic valid;
+  word_t data;
+} csr_read_rsp_bus_t;
+
+// 当前实现的全部 M-mode CSR 架构状态。该结构同时用于 csr_unit 状态输出和
+// 退休后快照，避免五个始终同生命周期的字宽信号在层次间展开。
+typedef struct packed {
+  word_t mstatus;
+  word_t mtvec;
+  word_t mepc;
+  word_t mcause;
+  word_t mtval;
+} csr_state_bus_t;
+
 // 从 EX 携带到 WB 的提交控制。CSR 旧值已独立进入 wb_req，避免提交端重算。
 typedef struct packed {
   logic serialize;
@@ -107,5 +124,12 @@ typedef struct packed {
   pc_t target_pc;
   redirect_reason_e reason;
 } redirect_bus_t;
+
+// 顶层统一分发的流水控制。branch redirect 的 kill=0，只刷新前端；
+// WB trap/MRET 的 kill=1，同时清除所有年轻后端事务。
+typedef struct packed {
+  redirect_bus_t redirect;
+  logic kill;
+} pipeline_control_bus_t;
 
 `endif

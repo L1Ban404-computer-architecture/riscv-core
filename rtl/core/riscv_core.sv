@@ -92,11 +92,11 @@ module riscv_core #(
   assign debug_retire_gpr_we_o = core_debug.gpr_we;
   assign debug_retire_gpr_waddr_o = core_debug.gpr_waddr;
   assign debug_retire_gpr_wdata_o = core_debug.gpr_wdata;
-  assign debug_retire_mstatus_o = core_debug.mstatus;
-  assign debug_retire_mtvec_o = core_debug.mtvec;
-  assign debug_retire_mepc_o = core_debug.mepc;
-  assign debug_retire_mcause_o = core_debug.mcause;
-  assign debug_retire_mtval_o = core_debug.mtval;
+  assign debug_retire_mstatus_o = core_debug.csr.mstatus;
+  assign debug_retire_mtvec_o = core_debug.csr.mtvec;
+  assign debug_retire_mepc_o = core_debug.csr.mepc;
+  assign debug_retire_mcause_o = core_debug.csr.mcause;
+  assign debug_retire_mtval_o = core_debug.csr.mtval;
 
   riscv_core_impl #(
     .FetchOutstandingDepth(FetchOutstandingDepth),

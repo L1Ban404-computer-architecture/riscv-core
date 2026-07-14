@@ -40,6 +40,7 @@ def test_wb_stage():
     runner.build(
         sources=[
             repo_root / "rtl/include/riscv_core_pkg.sv",
+            repo_root / "rtl/core/units/csr_unit.sv",
             repo_root / "rtl/core/pipe/wb_stage.sv",
             repo_root / "tests/wb_stage/wb_stage_tb.sv",
         ],

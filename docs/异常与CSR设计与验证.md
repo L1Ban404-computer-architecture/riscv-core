@@ -66,6 +66,10 @@ decoder 支持 `CSRRW/CSRRS/CSRRC` 及三个立即数形式。CSR 指令写入 `
 ECALL 和 EBREAK 在 ID 转换为异常。MRET 不在前级直接修改状态，而是携带
 `SYS_MRET` 到 WB 原子提交。
 
+`csr_unit` 实例化在 `wb_stage` 内部，使 CSR 寄存器物理所有权与唯一架构提交点
+一致。EX 仅通过组合读端口取得旧值；顶层不再展开 CSR 写、trap 更新和五个状态
+字，只转发 `csr_read_rsp_bus_t`。
+
 ## 4. CSR 串行化与数据相关
 
 所有 CSR/SYSTEM 指令均为串行化事务：
@@ -109,8 +113,8 @@ next_pc <- mepc
 ```
 
 若 MRET 目标未对齐，则 MRET 状态转换不发生，改为以 MRET 自身 PC 进入 cause 0
-异常。退休 CSR 快照输出 `csr_unit` 的提交后下一状态，使 runner 在当前退休周期
-立即观察到最新 `mepc/mcause/mtval`。
+异常。`csr_state_bus_t` 输出 `csr_unit` 的提交后下一状态，使 runner 在当前退休
+周期立即观察到最新 `mepc/mcause/mtval`。
 
 ## 6. Redirect 与 Pipeline Kill
 
@@ -124,6 +128,10 @@ next_pc <- mepc
 同周期竞争时 WB 优先，因为 WB 指令必然比 EX 指令更老。`pipeline_kill` 同周期门控
 级间 push、GPR/CSR 写和数据请求，防止即将清除的年轻事务产生副作用。已经握手的
 取指请求不可取消，响应返回后依靠 epoch 丢弃。
+
+RTL 使用 `pipeline_control_bus_t` 绑定最终 redirect 与 kill 属性。IF 只消费仲裁后
+redirect，不理解流水线年龄；顶层负责选择 WB control 或 EX branch redirect，并把
+同一 control 的 kill 位分发给后端。
 
 ECALL 后顺序存放的 CSR、store 或 branch 都属于年轻事务，会在 ECALL 到达 WB 时
 被清除。handler 从 `mtvec` 重新取指发生在 trap CSR 状态提交之后，因此 handler

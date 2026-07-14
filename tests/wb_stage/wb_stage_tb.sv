@@ -4,6 +4,9 @@
 import riscv_core_pkg::*;
 
 module wb_stage_tb (
+  input logic clk_i,
+  input logic rst_ni,
+
   input logic mem_wb_valid_i,
   output logic mem_wb_ready_o,
 
@@ -45,6 +48,8 @@ module wb_stage_tb (
   mem_wb_bus_t mem_wb_bus;
   wb_req_bus_t wb_req;
   core_debug_bus_t core_debug;
+  csr_read_rsp_bus_t csr_read_rsp;
+  pipeline_control_bus_t control;
 
   always_comb begin
     mem_wb_bus = '0;
@@ -84,23 +89,14 @@ module wb_stage_tb (
   assign retire_gpr_wdata_o = core_debug.gpr_wdata;
 
   wb_stage u_dut (
+    .clk_i,
+    .rst_ni,
     .mem_wb_valid_i,
     .mem_wb_ready_o,
     .mem_wb_bus_i(mem_wb_bus),
-    .csr_mstatus_i(32'h0000_1800),
-    .csr_mtvec_i('0),
-    .csr_mepc_i('0),
-    .csr_mcause_i('0),
-    .csr_mtval_i('0),
-    .csr_current_mtvec_i('0),
-    .csr_current_mepc_i('0),
-    .csr_write_o(),
-    .trap_commit_o(),
-    .trap_epc_o(),
-    .trap_exception_o(),
-    .mret_commit_o(),
-    .commit_redirect_o(),
-    .pipeline_kill_o(),
+    .csr_read_addr_i(CsrMstatus),
+    .csr_read_rsp_o(csr_read_rsp),
+    .control_o(control),
     .wb_req_o(wb_req),
     .core_debug_o(core_debug)
   );

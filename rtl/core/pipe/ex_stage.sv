@@ -25,8 +25,7 @@ module ex_stage #(
   input wb_req_bus_t mem_wb_req_i,
 
   output csr_addr_t csr_read_addr_o,
-  input logic csr_read_valid_i,
-  input word_t csr_read_data_i,
+  input csr_read_rsp_bus_t csr_read_rsp_i,
 
   // EX -> IF redirect。该信号单向指向前端，只影响更年轻的 IF/ID 事务。
   output redirect_bus_t redirect_o,
@@ -135,7 +134,7 @@ module ex_stage #(
           EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
       executed_exception.tval = alu_result;
     end else if (!executed_exception.valid && (id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) &&
-                 !csr_read_valid_i) begin
+                 !csr_read_rsp_i.valid) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_ILLEGAL_INSTR;
       executed_exception.tval = id_ex_bus_i.fetch.instr;
@@ -168,7 +167,7 @@ module ex_stage #(
       end
       WB_CSR: begin
         wb_req.data_valid = 1'b1;
-        wb_req.wdata = csr_read_data_i;
+        wb_req.wdata = csr_read_rsp_i.data;
       end
       default: wb_req = '0;
     endcase
@@ -191,8 +190,8 @@ module ex_stage #(
   always_comb begin
     unique case (id_ex_bus_i.ctrl.csr_cmd)
       CSR_RW: csr_new_value = csr_source;
-      CSR_RS: csr_new_value = csr_read_data_i | csr_source;
-      CSR_RC: csr_new_value = csr_read_data_i & ~csr_source;
+      CSR_RS: csr_new_value = csr_read_rsp_i.data | csr_source;
+      CSR_RC: csr_new_value = csr_read_rsp_i.data & ~csr_source;
       default: csr_new_value = '0;
     endcase
 

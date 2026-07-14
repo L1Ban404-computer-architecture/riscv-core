@@ -2,10 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import cocotb
-from cocotb.triggers import Timer
+from cocotb.clock import Clock
+from cocotb.triggers import RisingEdge, Timer
 
 
 MASK32 = 0xFFFFFFFF
+
+
+async def reset_dut(dut):
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    drive_payload(dut, valid=0)
+    dut.rst_ni.value = 0
+    await RisingEdge(dut.clk_i)
+    await RisingEdge(dut.clk_i)
+    dut.rst_ni.value = 1
+    await RisingEdge(dut.clk_i)
 
 
 def drive_payload(
@@ -49,6 +60,7 @@ def assert_zeroed_outputs(dut):
 
 @cocotb.test()
 async def valid_transaction_writes_back_and_flattens_debug(dut):
+    await reset_dut(dut)
     drive_payload(dut)
     await Timer(1, unit="ns")
 
@@ -75,6 +87,7 @@ async def valid_transaction_writes_back_and_flattens_debug(dut):
 
 @cocotb.test()
 async def instruction_without_register_write_still_retires(dut):
+    await reset_dut(dut)
     drive_payload(
         dut,
         wb_valid=0,
@@ -96,6 +109,7 @@ async def instruction_without_register_write_still_retires(dut):
 
 @cocotb.test()
 async def bubble_masks_stale_payload(dut):
+    await reset_dut(dut)
     drive_payload(dut, valid=0)
     await Timer(1, unit="ns")
 

@@ -350,7 +350,8 @@ load 离开 EX/MEM 后仍由 MEM pending 数组保持相关可见性。响应进
 ### 8.1 Redirect 来源与仲裁
 
 当前有两类 redirect：EX 产生 taken branch、JAL 和 JALR；WB 在 trap entry 或
-MRET 提交时产生架构重定向。顶层集中仲裁，固定令更老的 WB 来源优先。
+MRET 提交时产生架构重定向。顶层通过 `pipeline_control_bus_t` 集中仲裁，固定令
+更老的 WB 来源优先；IF 只执行最终 redirect，不承担年龄判断。
 
 `redirect_bus_t` 同时包含：
 
@@ -358,7 +359,7 @@ MRET 提交时产生架构重定向。顶层集中仲裁，固定令更老的 WB
 - `target_pc`
 - `reason`
 
-`REDIR_TRAP` 和 `REDIR_MRET` 同时产生 `pipeline_kill`，用于清除全部年轻后端事务。
+`REDIR_TRAP` 和 `REDIR_MRET` 对应 control 的 `kill=1`，用于清除全部年轻后端事务。
 
 ### 8.2 Redirect 必须绑定 EX/MEM 输入握手
 

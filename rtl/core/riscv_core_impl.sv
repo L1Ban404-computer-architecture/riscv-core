@@ -65,30 +65,16 @@ module riscv_core_impl #(
   //
   // 顶层集中仲裁两类 redirect：EX 分支/JAL/JALR 仅清除错误路径前端；
   // WB trap/MRET 年龄更老，具有最高优先级并同时产生 pipeline_kill。
-  redirect_bus_t redirect_bus;
   redirect_bus_t branch_redirect;
-  redirect_bus_t commit_redirect;
-  logic pipeline_kill;
+  pipeline_control_bus_t pipeline_control;
+  pipeline_control_bus_t wb_control;
   logic serialize_block;
   logic serialize_ready;
   logic mem_busy;
   logic mem_side_effect_block;
 
   csr_addr_t csr_read_addr;
-  logic csr_read_valid;
-  word_t csr_read_data;
-  csr_write_bus_t csr_write;
-  logic trap_commit;
-  pc_t trap_epc;
-  exception_bus_t trap_exception;
-  logic mret_commit;
-  word_t csr_mstatus;
-  word_t csr_mtvec;
-  word_t csr_mepc;
-  word_t csr_mcause;
-  word_t csr_mtval;
-  word_t csr_current_mtvec;
-  word_t csr_current_mepc;
+  csr_read_rsp_bus_t csr_read_rsp;
 
   // 写回请求同时承担寄存器堆写回和 MEM/WB 数据前递角色。EX/MEM 候选
   // 由 EX stage 内部保存，不再经过顶层绕回。
@@ -99,8 +85,9 @@ module riscv_core_impl #(
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
   // 必须采用 WB 目标，年轻分支随后由 pipeline_kill 清除。
   always_comb begin
-    redirect_bus = branch_redirect;
-    if (commit_redirect.valid) redirect_bus = commit_redirect;
+    pipeline_control = '0;
+    pipeline_control.redirect = branch_redirect;
+    if (wb_control.redirect.valid) pipeline_control = wb_control;
   end
 
   // CSR/SYSTEM 在 ID/EX 至 WB 期间构成串行屏障。它进入 EX 前先等待更老
@@ -120,7 +107,7 @@ module riscv_core_impl #(
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
-    .redirect_i(redirect_bus),
+    .redirect_i(pipeline_control.redirect),
     .imem_req_o(imem_req_o),
     .imem_resp_i(imem_resp_i),
     .if_id_valid_o(if_id_valid),
@@ -131,7 +118,7 @@ module riscv_core_impl #(
   id_stage u_id_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .kill_i(pipeline_kill),
+    .kill_i(pipeline_control.kill),
     .serialize_block_i(serialize_block),
     .if_id_valid_i(if_id_valid),
     .if_id_ready_o(if_id_ready),
@@ -147,7 +134,7 @@ module riscv_core_impl #(
   ) u_ex_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .kill_i(pipeline_kill),
+    .kill_i(pipeline_control.kill),
     .serialize_ready_i(serialize_ready),
     .id_ex_valid_i(id_ex_valid),
     .id_ex_ready_o(id_ex_ready),
@@ -155,8 +142,7 @@ module riscv_core_impl #(
     .mem_pending_wb_req_i(mem_pending_wb_req),
     .mem_wb_req_i(mem_wb_req),
     .csr_read_addr_o(csr_read_addr),
-    .csr_read_valid_i(csr_read_valid),
-    .csr_read_data_i(csr_read_data),
+    .csr_read_rsp_i(csr_read_rsp),
     .redirect_o(branch_redirect),
     .ex_mem_valid_o(ex_mem_valid),
     .ex_mem_ready_i(ex_mem_ready),
@@ -168,7 +154,7 @@ module riscv_core_impl #(
   ) u_mem_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .kill_i(pipeline_kill),
+    .kill_i(pipeline_control.kill),
     .side_effect_block_i(mem_side_effect_block),
     .ex_mem_valid_i(ex_mem_valid),
     .ex_mem_ready_o(ex_mem_ready),
@@ -183,44 +169,15 @@ module riscv_core_impl #(
     .busy_o(mem_busy)
   );
 
-  csr_unit u_csr_unit (
+  wb_stage u_wb_stage (
     .clk_i,
     .rst_ni,
-    .read_addr_i(csr_read_addr),
-    .read_valid_o(csr_read_valid),
-    .read_data_o(csr_read_data),
-    .write_i(csr_write),
-    .trap_i(trap_commit),
-    .trap_epc_i(trap_epc),
-    .trap_exception_i(trap_exception),
-    .mret_i(mret_commit),
-    .mstatus_o(csr_mstatus),
-    .mtvec_o(csr_mtvec),
-    .mepc_o(csr_mepc),
-    .mcause_o(csr_mcause),
-    .mtval_o(csr_mtval),
-    .current_mtvec_o(csr_current_mtvec),
-    .current_mepc_o(csr_current_mepc)
-  );
-
-  wb_stage u_wb_stage (
     .mem_wb_valid_i(mem_wb_valid),
     .mem_wb_ready_o(mem_wb_ready),
     .mem_wb_bus_i(mem_wb_bus),
-    .csr_mstatus_i(csr_mstatus),
-    .csr_mtvec_i(csr_mtvec),
-    .csr_mepc_i(csr_mepc),
-    .csr_mcause_i(csr_mcause),
-    .csr_mtval_i(csr_mtval),
-    .csr_current_mtvec_i(csr_current_mtvec),
-    .csr_current_mepc_i(csr_current_mepc),
-    .csr_write_o(csr_write),
-    .trap_commit_o(trap_commit),
-    .trap_epc_o(trap_epc),
-    .trap_exception_o(trap_exception),
-    .mret_commit_o(mret_commit),
-    .commit_redirect_o(commit_redirect),
-    .pipeline_kill_o(pipeline_kill),
+    .csr_read_addr_i(csr_read_addr),
+    .csr_read_rsp_o(csr_read_rsp),
+    .control_o(wb_control),
     .wb_req_o(wb_wb_req),
     .core_debug_o(core_debug_o)
   );
