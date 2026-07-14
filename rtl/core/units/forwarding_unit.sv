@@ -71,6 +71,7 @@ module forwarding_unit #(
     // 只检查指令真正读取的源寄存器，编码中无语义的 rs 字段不会产生
     // LUI、JAL、FENCE 等指令的伪相关。
     rs1_used = conditional_branch || (ctrl_i.branch_op == BR_JALR) || (ctrl_i.mem_cmd != MEM_NONE)
+        || ((ctrl_i.csr_cmd != CSR_NONE) && !ctrl_i.csr_use_imm)
         || ((ctrl_i.wb_sel == WB_ALU) && (ctrl_i.op_a_sel == OP_A_RS1) &&
             (ctrl_i.alu_op != ALU_PASS_B));
     rs2_used = conditional_branch || (ctrl_i.mem_cmd == MEM_STORE) ||

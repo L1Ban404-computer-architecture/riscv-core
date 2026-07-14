@@ -4,7 +4,7 @@
 module riscv_core_tb #(
   parameter int unsigned FetchOutstandingDepth = 1,
   parameter int unsigned IfIdQueueDepth = 2,
-  parameter int unsigned MemOutstandingDepth = 2
+  parameter int unsigned MemOutstandingDepth = 1
 ) (
   input logic clk_i,
   input logic rst_ni,
@@ -42,7 +42,12 @@ module riscv_core_tb #(
   output logic [31:0] debug_retire_mem_wdata_o,
   output logic debug_retire_gpr_we_o,
   output logic [4:0] debug_retire_gpr_waddr_o,
-  output logic [31:0] debug_retire_gpr_wdata_o
+  output logic [31:0] debug_retire_gpr_wdata_o,
+  output logic [31:0] debug_retire_mstatus_o,
+  output logic [31:0] debug_retire_mtvec_o,
+  output logic [31:0] debug_retire_mepc_o,
+  output logic [31:0] debug_retire_mcause_o,
+  output logic [31:0] debug_retire_mtval_o
 );
 
   riscv_core #(
@@ -83,7 +88,12 @@ module riscv_core_tb #(
     .debug_retire_mem_wdata_o,
     .debug_retire_gpr_we_o,
     .debug_retire_gpr_waddr_o,
-    .debug_retire_gpr_wdata_o
+    .debug_retire_gpr_wdata_o,
+    .debug_retire_mstatus_o,
+    .debug_retire_mtvec_o,
+    .debug_retire_mepc_o,
+    .debug_retire_mcause_o,
+    .debug_retire_mtval_o
   );
 
 endmodule

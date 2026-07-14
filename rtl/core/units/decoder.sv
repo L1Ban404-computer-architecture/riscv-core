@@ -32,6 +32,8 @@ module decoder (
     ctrl_o.mem_cmd = MEM_NONE;
     ctrl_o.mem_size = MEM_SIZE_WORD;
     ctrl_o.wb_sel = WB_NONE;
+    ctrl_o.csr_cmd = CSR_NONE;
+    ctrl_o.system_op = SYS_NONE;
     ctrl_o.illegal_instr = 1'b1;
 
     case (opcode)
@@ -256,10 +258,52 @@ module decoder (
         end
       end
 
-      // SYSTEM 的异常/CSR 语义尚未进入流水控制总线，暂按非法指令处理，
-      // 避免错误地把 ECALL、EBREAK 或 CSR 指令当作空操作退休。显式列出
-      // OPC_SYSTEM，保证 unique case 完整覆盖 opcode_e 的所有枚举值。
-      OPC_SYSTEM: ;
+      OPC_SYSTEM: begin
+        ctrl_o.csr_addr = instr_i[31:20];
+        if (funct3 == 3'b000) begin
+          ctrl_o.serialize = 1'b1;
+          unique case (instr_i)
+            32'h0000_0073: begin
+              ctrl_o.system_op = SYS_ECALL;
+              ctrl_o.illegal_instr = 1'b0;
+            end
+            32'h0010_0073: begin
+              ctrl_o.system_op = SYS_EBREAK;
+              ctrl_o.illegal_instr = 1'b0;
+            end
+            32'h3020_0073: begin
+              ctrl_o.system_op = SYS_MRET;
+              ctrl_o.illegal_instr = 1'b0;
+            end
+            default: ;
+          endcase
+        end else begin
+          ctrl_o.serialize = 1'b1;
+          ctrl_o.wb_sel = WB_CSR;
+          ctrl_o.rd_write = 1'b1;
+          ctrl_o.csr_use_imm = funct3[2];
+          imm_type_o = funct3[2] ? IMM_Z : IMM_NONE;
+
+          unique case (funct3[1:0])
+            2'b01: ctrl_o.csr_cmd = CSR_RW;
+            2'b10: ctrl_o.csr_cmd = CSR_RS;
+            2'b11: ctrl_o.csr_cmd = CSR_RC;
+            default: ctrl_o.csr_cmd = CSR_NONE;
+          endcase
+
+          unique case (instr_i[31:20])
+            CsrMstatus, CsrMtvec, CsrMepc, CsrMcause, CsrMtval:
+            ctrl_o.illegal_instr = (ctrl_o.csr_cmd == CSR_NONE);
+            default: ctrl_o.illegal_instr = 1'b1;
+          endcase
+
+          if (ctrl_o.illegal_instr) begin
+            ctrl_o.csr_cmd = CSR_NONE;
+            ctrl_o.wb_sel = WB_NONE;
+            ctrl_o.rd_write = 1'b0;
+          end
+        end
+      end
 
       // 非法的 7-bit opcode 编码由枚举 cast 后落入 default。
       default: ;

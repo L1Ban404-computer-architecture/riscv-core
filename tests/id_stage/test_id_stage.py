@@ -164,13 +164,19 @@ async def control_decode_representative_rv32i_classes(dut):
         if "imm" in expected: assert int(dut.id_ex_imm_o.value) == expected["imm"]
         await consume(dut)
 
-    # Reserved shift encoding and unsupported SYSTEM instructions must not write rd.
-    for instr in (encode_i((0b0010000 << 5) | 1, 1, 0b001, 3), 0x00000073):
-        await push(dut, instr)
-        assert int(dut.id_ex_illegal_instr_o.value) == 1
-        assert int(dut.id_ex_rd_write_o.value) == 0
-        assert int(dut.id_ex_wb_sel_o.value) == WB_NONE
-        await consume(dut)
+    # Reserved shift encoding remains illegal.
+    await push(dut, encode_i((0b0010000 << 5) | 1, 1, 0b001, 3))
+    assert int(dut.id_ex_illegal_instr_o.value) == 1
+    assert int(dut.id_ex_rd_write_o.value) == 0
+    assert int(dut.id_ex_wb_sel_o.value) == WB_NONE
+    await consume(dut)
+
+    # ECALL is a legal SYSTEM encoding whose exception is carried separately.
+    await push(dut, 0x00000073)
+    assert int(dut.id_ex_illegal_instr_o.value) == 0
+    assert int(dut.id_ex_rd_write_o.value) == 0
+    assert int(dut.id_ex_wb_sel_o.value) == WB_NONE
+    await consume(dut)
 
 
 @cocotb.test()

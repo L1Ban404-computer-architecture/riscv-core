@@ -82,11 +82,47 @@ typedef enum logic [1:0] {
   MEM_SIZE_WORD
 } mem_size_e;
 
-typedef enum logic [1:0] {
+typedef enum logic [2:0] {
   WB_NONE,
   WB_ALU,
   WB_MEM,
-  WB_PC4
+  WB_PC4,
+  WB_CSR
 } wb_sel_e;
+
+typedef logic [11:0] csr_addr_t;
+
+typedef enum logic [1:0] {
+  CSR_NONE,
+  CSR_RW,
+  CSR_RS,
+  CSR_RC
+} csr_cmd_e;
+
+// SYSTEM 操作随指令送至 WB；ECALL/EBREAK 在 ID 转为异常，MRET 在 WB 提交。
+typedef enum logic [1:0] {
+  SYS_NONE,
+  SYS_ECALL,
+  SYS_EBREAK,
+  SYS_MRET
+} system_op_e;
+
+typedef enum logic [3:0] {
+  EXC_INST_ADDR_MISALIGNED  = 4'd0,
+  EXC_INST_ACCESS_FAULT     = 4'd1,
+  EXC_ILLEGAL_INSTR         = 4'd2,
+  EXC_BREAKPOINT            = 4'd3,
+  EXC_LOAD_ADDR_MISALIGNED  = 4'd4,
+  EXC_LOAD_ACCESS_FAULT     = 4'd5,
+  EXC_STORE_ADDR_MISALIGNED = 4'd6,
+  EXC_STORE_ACCESS_FAULT    = 4'd7,
+  EXC_ECALL_M               = 4'd11
+} exception_cause_e;
+
+localparam csr_addr_t CsrMstatus = 12'h300;
+localparam csr_addr_t CsrMtvec   = 12'h305;
+localparam csr_addr_t CsrMepc    = 12'h341;
+localparam csr_addr_t CsrMcause  = 12'h342;
+localparam csr_addr_t CsrMtval   = 12'h343;
 
 `endif

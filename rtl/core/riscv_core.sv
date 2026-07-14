@@ -6,7 +6,7 @@ import riscv_core_pkg::*;
 module riscv_core #(
   parameter int unsigned FetchOutstandingDepth = 1,
   parameter int unsigned IfIdQueueDepth = 2,
-  parameter int unsigned MemOutstandingDepth = 2
+  parameter int unsigned MemOutstandingDepth = 1
 ) (
   input logic clk_i,
   input logic rst_ni,
@@ -44,7 +44,13 @@ module riscv_core #(
   output logic [31:0] debug_retire_mem_wdata_o,
   output logic debug_retire_gpr_we_o,
   output logic [4:0] debug_retire_gpr_waddr_o,
-  output logic [31:0] debug_retire_gpr_wdata_o
+  output logic [31:0] debug_retire_gpr_wdata_o,
+  // 与退休 trace 同周期输出本条 WB 事务提交后的架构 CSR 快照。
+  output logic [31:0] debug_retire_mstatus_o,
+  output logic [31:0] debug_retire_mtvec_o,
+  output logic [31:0] debug_retire_mepc_o,
+  output logic [31:0] debug_retire_mcause_o,
+  output logic [31:0] debug_retire_mtval_o
 );
 
   core_bus_req_t imem_req;
@@ -86,6 +92,11 @@ module riscv_core #(
   assign debug_retire_gpr_we_o = core_debug.gpr_we;
   assign debug_retire_gpr_waddr_o = core_debug.gpr_waddr;
   assign debug_retire_gpr_wdata_o = core_debug.gpr_wdata;
+  assign debug_retire_mstatus_o = core_debug.mstatus;
+  assign debug_retire_mtvec_o = core_debug.mtvec;
+  assign debug_retire_mepc_o = core_debug.mepc;
+  assign debug_retire_mcause_o = core_debug.mcause;
+  assign debug_retire_mtval_o = core_debug.mtval;
 
   riscv_core_impl #(
     .FetchOutstandingDepth(FetchOutstandingDepth),

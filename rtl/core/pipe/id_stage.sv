@@ -8,6 +8,10 @@ import riscv_core_pkg::*;
 module id_stage (
   input logic clk_i,
   input logic rst_ni,
+  // kill 清除所有年轻 ID/EX 事务；serialize_block 阻止年轻指令越过正在执行的
+  // CSR/SYSTEM 或已知异常事务。
+  input logic kill_i,
+  input logic serialize_block_i,
 
   // IF -> ID 事务通道。ID stage 消费 IF 产生的 fetch/debug 事务，并在内部
   // 完成译码、立即数生成和寄存器堆读取。
@@ -67,21 +71,39 @@ module id_stage (
     decoded_id_ex_bus.exec_data.rs2_value = rs2_value;
     decoded_id_ex_bus.exec_data.imm = decoded_imm;
     decoded_id_ex_bus.ctrl = decoded_ctrl;
+    // IF 异常年龄更老且优先。仅在取指正常时，ID 才根据译码补充同步异常。
+    decoded_id_ex_bus.exception = if_id_bus_i.exception;
+    if (!if_id_bus_i.exception.valid) begin
+      if (decoded_ctrl.illegal_instr) begin
+        decoded_id_ex_bus.exception = '0;
+        decoded_id_ex_bus.exception.valid = 1'b1;
+        decoded_id_ex_bus.exception.cause = EXC_ILLEGAL_INSTR;
+        decoded_id_ex_bus.exception.tval = if_id_bus_i.fetch.instr;
+      end else if (decoded_ctrl.system_op == SYS_ECALL) begin
+        decoded_id_ex_bus.exception = '0;
+        decoded_id_ex_bus.exception.valid = 1'b1;
+        decoded_id_ex_bus.exception.cause = EXC_ECALL_M;
+      end else if (decoded_ctrl.system_op == SYS_EBREAK) begin
+        decoded_id_ex_bus.exception = '0;
+        decoded_id_ex_bus.exception.valid = 1'b1;
+        decoded_id_ex_bus.exception.cause = EXC_BREAKPOINT;
+      end
+    end
     decoded_id_ex_bus.debug.pc = if_id_bus_i.debug.pc;
     decoded_id_ex_bus.debug.instr = if_id_bus_i.debug.instr;
   end
 
   // 本地 stream_register 实现单入口双向 ready/valid 握手。
   // 它在满载且 EX ready 时允许同拍 pop/push，不会在连续事务间插入气泡。
-  assign if_id_ready_o = id_ex_input_ready;
+  assign if_id_ready_o = id_ex_input_ready && !serialize_block_i && !kill_i;
 
   stream_register #(
     .T(id_ex_bus_t)
   ) u_id_ex_register (
     .clk_i,
     .rst_ni,
-    .clr_i(1'b0),
-    .valid_i(if_id_valid_i),
+    .clr_i(kill_i),
+    .valid_i(if_id_valid_i && !serialize_block_i && !kill_i),
     .ready_o(id_ex_input_ready),
     .data_i(decoded_id_ex_bus),
     .valid_o(id_ex_valid_o),
@@ -97,7 +119,7 @@ module id_stage (
     id_ex_bus_o,
     id_ex_bus_t'(0),
     clk_i,
-    !rst_ni,
+    !rst_ni || kill_i,
     "ID/EX payload must remain stable while valid is waiting for ready."
   )
 
@@ -105,7 +127,7 @@ module id_stage (
     IdExValidStable,
     id_ex_valid_o && !id_ex_ready_i |=> id_ex_valid_o,
     clk_i,
-    !rst_ni,
+    !rst_ni || kill_i,
     "ID/EX valid must remain asserted until ready."
   )
   // verilog_format: on

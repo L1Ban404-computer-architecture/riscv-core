@@ -13,7 +13,10 @@ CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
 ## 当前范围
 
 - 已覆盖 RV32I 整数、分支跳转、load/store 与 FENCE 的主要流水线数据通路；
-- 不包含 CSR、SYSTEM/ECALL/EBREAK、特权态、异常完整通路，也不包含 M/C/F/A 扩展、MMU、缓存或分支预测；
+- 实现 M-mode 精确同步异常、ECALL/EBREAK/MRET、六条 Zicsr 指令，以及
+  `mstatus/mtvec/mepc/mcause/mtval`；暂不实现中断、其他特权级、M/C/F/A 扩展、
+  MMU、缓存或分支预测；
+- 为保证错误响应下的精确异常，数据侧当前只允许一个 outstanding 事务；
 - 各流水级有 cocotb 模块测试；整核验证仍应与 `mini-soc` + `riscv-runner` 的差分链结合进行。
 
 ## 构建与验证
@@ -27,5 +30,7 @@ make verilator            # 以 riscv_core 为顶层生成 Verilator C++ 模型
 
 ## 深入文档
 
-`docs/CPU核心整体架构.md` 是微架构总览；其余文档分别覆盖 IF/ID/EX/MEM/WB、CoreBus、RTL 编码风格、静态审查和验证方法。改动流水线前，应保持 stage 对 payload 与 valid 的所有权，避免引入顶层匿名流水寄存器。
-
+`docs/CPU核心整体架构.md` 是微架构总览，`docs/异常与CSR设计与验证.md` 定义精确
+异常、CSR 串行化、提交和全流水冲刷契约；其余文档分别覆盖 IF/ID/EX/MEM/WB、
+CoreBus、RTL 编码风格、静态审查和验证方法。改动流水线前，应保持 stage 对
+payload 与 valid 的所有权，避免引入顶层匿名流水寄存器。

@@ -93,6 +93,16 @@ def j_type(offset, rd):
     )
 
 
+def csr_type(csr, source, funct3, rd):
+    return (
+        ((csr & 0xFFF) << 20)
+        | ((source & 0x1F) << 15)
+        | ((funct3 & 0x7) << 12)
+        | ((rd & 0x1F) << 7)
+        | 0x73
+    )
+
+
 class Assembler:
     def __init__(self, base=0):
         self.base = base
@@ -688,3 +698,156 @@ async def randomized_core_bus_backpressure(dut):
         immediate_probability=0.30,
         max_latency=7,
     )
+
+
+@cocotb.test()
+async def csr_ecall_handler_and_mret_are_precise(dut):
+    """Exercise all Zicsr forms and an ECALL/handler/MRET round trip."""
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+
+    memory = ByteMemory()
+    program = [
+        i_type(0x100, 0, 0, 1),                 # addi x1, x0, 0x100
+        csr_type(0x305, 1, 0b001, 2),           # csrrw x2, mtvec, x1
+        i_type(3, 0, 0, 6),                     # addi x6, x0, 3
+        csr_type(0x343, 6, 0b001, 7),           # csrrw x7, mtval, x6
+        csr_type(0x343, 6, 0b010, 8),           # csrrs x8, mtval, x6
+        csr_type(0x343, 6, 0b011, 9),           # csrrc x9, mtval, x6
+        csr_type(0x343, 5, 0b101, 10),          # csrrwi x10, mtval, 5
+        csr_type(0x343, 2, 0b110, 11),          # csrrsi x11, mtval, 2
+        csr_type(0x343, 1, 0b111, 12),          # csrrci x12, mtval, 1
+        0x00000073,                             # ecall
+        i_type(7, 0, 0, 3),                     # resumed addi x3, x0, 7
+        j_type(0, 0),                           # stop fetching useful work
+    ]
+    ecall_pc = 9 * 4
+    resume_pc = ecall_pc + 4
+    handler = [
+        csr_type(0x341, 0, 0b010, 4),           # csrrs x4, mepc, x0
+        i_type(4, 4, 0, 5),                     # addi x5, x4, 4
+        csr_type(0x341, 5, 0b001, 0),           # csrrw x0, mepc, x5
+        0x30200073,                             # mret
+    ]
+    memory.load_program(0, program)
+    memory.load_program(0x100, handler)
+
+    imem = CoreBusSlave(dut, "imem", memory, 0xC5A, 0.75, 0.25, 5)
+    dmem = CoreBusSlave(dut, "dmem", memory, 0xD5A, 0.75, 0.25, 5)
+    cocotb.start_soon(imem.run())
+    cocotb.start_soon(dmem.run())
+    await reset_dut(dut)
+
+    retired_pcs = []
+    writes = {}
+    csr_at_pc = {}
+    for _ in range(800):
+        await RisingEdge(dut.clk_i)
+        await ReadOnly()
+        if not int(dut.debug_retire_valid_o.value):
+            continue
+
+        pc = int(dut.debug_retire_pc_o.value)
+        retired_pcs.append(pc)
+        csr_at_pc[pc] = (
+            int(dut.debug_retire_mstatus_o.value),
+            int(dut.debug_retire_mtvec_o.value),
+            int(dut.debug_retire_mepc_o.value),
+            int(dut.debug_retire_mcause_o.value),
+            int(dut.debug_retire_mtval_o.value),
+        )
+        if int(dut.debug_retire_gpr_we_o.value):
+            writes[int(dut.debug_retire_gpr_waddr_o.value)] = int(
+                dut.debug_retire_gpr_wdata_o.value
+            )
+
+        if pc == resume_pc:
+            break
+    else:
+        raise AssertionError("CSR/trap program did not return from MRET")
+
+    expected_prefix = list(range(0, ecall_pc + 4, 4)) + [0x100, 0x104, 0x108, 0x10C, resume_pc]
+    assert retired_pcs == expected_prefix
+    assert writes[2] == 0
+    assert writes[7] == 0
+    assert writes[8] == 3
+    assert writes[9] == 3
+    assert writes[10] == 0
+    assert writes[11] == 5
+    assert writes[12] == 7
+    assert writes[4] == ecall_pc
+    assert writes[3] == 7
+
+    # CSR snapshots describe architectural state after the retiring instruction.
+    assert csr_at_pc[4][1] == 0x100
+    assert csr_at_pc[12][4] == 3
+    assert csr_at_pc[20][4] == 0
+    assert csr_at_pc[24][4] == 5
+    assert csr_at_pc[28][4] == 7
+    assert csr_at_pc[32][4] == 6
+    assert csr_at_pc[ecall_pc][2:] == (ecall_pc, 11, 0), csr_at_pc[ecall_pc]
+    assert csr_at_pc[0x108][2] == resume_pc
+    assert csr_at_pc[0x10C][0] & (1 << 7)
+
+
+@cocotb.test()
+async def synchronous_exceptions_report_precise_cause_and_tval(dut):
+    """Check misaligned, illegal, breakpoint and control-target exceptions."""
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    memory = ByteMemory()
+    program = [
+        i_type(0x100, 0, 0, 1),                 # addi x1, x0, 0x100
+        csr_type(0x305, 1, 0b001, 0),           # csrrw x0, mtvec, x1
+        i_type(1, 0, 0b010, 3, 0x03),           # lw x3, 1(x0): misaligned
+        0xFFFF_FFFF,                            # illegal instruction
+        0x0010_0073,                            # ebreak
+        j_type(2, 0),                           # JAL target violates IALIGN=32
+        i_type(9, 0, 0, 10),                    # final visible instruction
+        j_type(0, 0),
+    ]
+    handler = [
+        csr_type(0x342, 0, 0b010, 4),           # csrr x4, mcause
+        csr_type(0x343, 0, 0b010, 5),           # csrr x5, mtval
+        csr_type(0x341, 0, 0b010, 6),           # csrr x6, mepc
+        i_type(4, 6, 0, 6),
+        csr_type(0x341, 6, 0b001, 0),
+        0x3020_0073,
+    ]
+    memory.load_program(0, program)
+    memory.load_program(0x100, handler)
+
+    imem = CoreBusSlave(dut, "imem", memory, 0xE11, 0.70, 0.20, 6)
+    dmem = CoreBusSlave(dut, "dmem", memory, 0xE22, 0.70, 0.20, 6)
+    cocotb.start_soon(imem.run())
+    cocotb.start_soon(dmem.run())
+    await reset_dut(dut)
+
+    expected = {
+        8: (4, 1),
+        12: (2, 0xFFFF_FFFF),
+        16: (3, 0),
+        20: (0, 22),
+    }
+    observed = {}
+    for _ in range(1200):
+        await RisingEdge(dut.clk_i)
+        await ReadOnly()
+        if not int(dut.debug_retire_valid_o.value):
+            continue
+        pc = int(dut.debug_retire_pc_o.value)
+        if pc in expected:
+            observed[pc] = (
+                int(dut.debug_retire_mcause_o.value),
+                int(dut.debug_retire_mtval_o.value),
+            )
+            assert int(dut.debug_retire_gpr_we_o.value) == 0
+            assert int(dut.debug_retire_mem_valid_o.value) == 0
+        if pc == 24:
+            assert int(dut.debug_retire_gpr_we_o.value) == 1
+            assert int(dut.debug_retire_gpr_waddr_o.value) == 10
+            assert int(dut.debug_retire_gpr_wdata_o.value) == 9
+            break
+    else:
+        raise AssertionError("synchronous exception program did not complete")
+
+    assert observed == expected
+    assert all(addr != 0 for addr, _, _ in dmem.request_log)

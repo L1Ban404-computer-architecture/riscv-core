@@ -38,7 +38,19 @@ typedef struct packed {
   wb_sel_e wb_sel;
   logic rd_write;
   logic illegal_instr;
+  csr_cmd_e csr_cmd;
+  logic csr_use_imm;
+  csr_addr_t csr_addr;
+  system_op_e system_op;
+  logic serialize;
 } decode_ctrl_bus_t;
+
+typedef struct packed {
+  logic valid;
+  logic is_interrupt;
+  exception_cause_e cause;
+  word_t tval;
+} exception_bus_t;
 
 typedef struct packed {
   logic valid;
@@ -65,8 +77,22 @@ typedef struct packed {
   word_t wdata;
 } wb_req_bus_t;
 
-// Redirect 只冲刷尚未进入 EX 的年轻事务；已经进入 EX 及后续阶段的
-// 事务继续退休。该事务同时随 debug 总线记录分支执行结果。
+typedef struct packed {
+  // valid 只在 WB fire 且本条指令没有被 trap/MRET 覆盖时成立。
+  logic valid;
+  csr_addr_t addr;
+  word_t wdata;
+} csr_write_bus_t;
+
+// 从 EX 携带到 WB 的提交控制。CSR 旧值已独立进入 wb_req，避免提交端重算。
+typedef struct packed {
+  logic serialize;
+  system_op_e system_op;
+  csr_write_bus_t csr_write;
+} commit_ctrl_bus_t;
+
+// 分支 redirect 只冲刷前端；trap/MRET redirect 由 WB 同时产生 pipeline_kill，
+// 清除全部年轻后端事务。顶层集中仲裁时始终令 WB 来源优先。
 typedef enum logic [2:0] {
   REDIR_NONE,
   REDIR_BRANCH,

@@ -19,7 +19,7 @@ VERILATOR_BUILD_ARGS = [
 
 
 CORE_CONFIGS = [
-    ("fetch1_ifq2_mem2", {}, None),
+    ("fetch1_ifq2_mem1", {}, None),
     (
         "fetch1_ifq1_mem1",
         {
@@ -30,11 +30,11 @@ CORE_CONFIGS = [
         "zero_latency_core_bus_and_pipeline_flow",
     ),
     (
-        "fetch4_ifq1_mem4",
+        "fetch4_ifq1_mem1",
         {
             "FetchOutstandingDepth": 4,
             "IfIdQueueDepth": 1,
-            "MemOutstandingDepth": 4,
+            "MemOutstandingDepth": 1,
         },
         "randomized_core_bus_backpressure",
     ),
@@ -72,6 +72,7 @@ def test_riscv_core():
         repo_root / "rtl/common/stream_register.sv",
         repo_root / "rtl/core/units/alu.sv",
         repo_root / "rtl/core/units/branch_unit.sv",
+        repo_root / "rtl/core/units/csr_unit.sv",
         repo_root / "rtl/core/units/decoder.sv",
         repo_root / "rtl/core/units/forwarding_unit.sv",
         repo_root / "rtl/core/units/imm_gen.sv",

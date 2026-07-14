@@ -10,9 +10,11 @@ module mem_stage #(
 ) (
   input logic clk_i,
   input logic rst_ni,
+  input logic kill_i,
+  input logic side_effect_block_i,
 
-  // EX -> MEM 事务通道。MEM stage 未来会在内部维护顺序 LSU 请求/响应队列，
-  // 因此不依赖顶层额外 pipeline_regs 插入寄存器。
+  // EX -> MEM 事务通道。首版精确异常将 LSU 限制为单 outstanding；内部 FIFO
+  // 仍统一保存请求元数据，以便请求响应解耦并保留未来扩展接口。
   input logic ex_mem_valid_i,
   output logic ex_mem_ready_o,
   input ex_mem_bus_t ex_mem_bus_i,
@@ -22,8 +24,8 @@ module mem_stage #(
   output core_bus_req_t dmem_req_o,
   input core_bus_resp_t dmem_resp_i,
 
-  // 所有已经发出、尚未收到响应的 load 写回候选。data_valid 恒为 0，
-  // EX 只用这些条目检测未解决的 RAW 相关。
+  // 已经发出、尚未收到响应的 load 写回候选。当前数组只有一个有效槽位；
+  // data_valid 恒为 0，EX 用它检测未解决的 RAW 相关。
   output wb_req_bus_t mem_pending_wb_req_o[MemOutstandingDepth],
 
   // MEM/WB 输出寄存器中的写回候选，用于已完成数据的前递。
@@ -32,7 +34,8 @@ module mem_stage #(
   // MEM -> WB 事务通道。MEM debug 会记录访存请求和响应行为。
   output logic mem_wb_valid_o,
   input logic mem_wb_ready_i,
-  output mem_wb_bus_t mem_wb_bus_o
+  output mem_wb_bus_t mem_wb_bus_o,
+  output logic busy_o
 );
 
   word_t aligned_store_data;
@@ -50,6 +53,7 @@ module mem_stage #(
   logic dmem_req_valid;
   logic dmem_rsp_ready;
   logic dmem_rsp_fire;
+  logic request_blocked;
 
   mem_wb_bus_t completed_mem_bus;
   mem_wb_bus_t bypass_mem_bus;
@@ -74,11 +78,16 @@ module mem_stage #(
   assign dmem_req_o.req.addr = {ex_mem_bus_i.mem_req.addr[XLen-1:2], 2'b00};
   assign dmem_req_o.req.wdata = ex_mem_bus_i.mem_req.write ? aligned_store_data : '0;
   assign dmem_req_o.req.wstrb = ex_mem_bus_i.mem_req.write ? store_byte_en : '0;
-  assign dmem_req_valid = ex_mem_valid_i && memory_instruction && outstanding_ready;
+  // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助 FIFO
+  // 同拍 pop/push 发出请求。kill 同周期也必须关闭总线请求及级间交接。
+  assign request_blocked = kill_i || side_effect_block_i ||
+      (dmem_resp_i.rsp_valid && dmem_resp_i.rsp.error);
+  assign dmem_req_valid = ex_mem_valid_i && memory_instruction && outstanding_ready && !request_blocked;
   assign dmem_req_o.req_valid = dmem_req_valid;
   // FIFO 的 valid_i 不反向依赖 ready_o；FIFO 内部的 valid_i && ready_o
   // 仍与 dmem_req_fire 完全等价，同时避免 fall-through 路径形成组合环。
-  assign outstanding_input_valid = ex_mem_valid_i && memory_instruction && dmem_resp_i.req_ready;
+  assign outstanding_input_valid = ex_mem_valid_i && memory_instruction && dmem_resp_i.req_ready &&
+      !request_blocked;
 
   // 响应必须和 FIFO 头部事务配对。MEM/WB 输入不可接受时直接反压 CoreBus
   // 响应通道，不需要额外的 response holding register。
@@ -89,7 +98,9 @@ module mem_stage #(
   // 访存事务在请求被接受后释放 EX/MEM；非访存事务不能越过任何更老的
   // outstanding 访存事务，但可以在 FIFO 为空时进入 MEM/WB。
   always_comb begin
-    if (memory_instruction) ex_mem_ready_o = outstanding_ready && dmem_resp_i.req_ready;
+    if (kill_i) ex_mem_ready_o = 1'b0;
+    else if (memory_instruction)
+      ex_mem_ready_o = outstanding_ready && dmem_resp_i.req_ready && !request_blocked;
     else ex_mem_ready_o = !outstanding_head_valid && mem_wb_input_ready;
   end
 
@@ -135,9 +146,19 @@ module mem_stage #(
   always_comb begin
     completed_mem_bus = '0;
     completed_mem_bus.wb_req = outstanding_head.wb_req;
-    if (outstanding_head.wb_req.valid) begin
+    completed_mem_bus.exception = outstanding_head.exception;
+    completed_mem_bus.commit = outstanding_head.commit;
+    if (!completed_mem_bus.exception.valid && dmem_resp_i.rsp.error) begin
+      completed_mem_bus.exception.valid = 1'b1;
+      completed_mem_bus.exception.cause = outstanding_head.mem_req.write ?
+          EXC_STORE_ACCESS_FAULT : EXC_LOAD_ACCESS_FAULT;
+      completed_mem_bus.exception.tval = outstanding_head.mem_req.addr;
+    end
+    if (outstanding_head.wb_req.valid && !completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req.data_valid = 1'b1;
       completed_mem_bus.wb_req.wdata = loaded_data;
+    end else if (completed_mem_bus.exception.valid) begin
+      completed_mem_bus.wb_req = '0;
     end
     completed_mem_bus.debug.pc = outstanding_head.debug.pc;
     completed_mem_bus.debug.instr = outstanding_head.debug.instr;
@@ -148,9 +169,12 @@ module mem_stage #(
     completed_mem_bus.debug.mem_wdata = outstanding_head.debug.mem_wdata;
     completed_mem_bus.debug.redirect_valid = outstanding_head.debug.redirect_valid;
     completed_mem_bus.debug.redirect_target_pc = outstanding_head.debug.redirect_target_pc;
+    if (completed_mem_bus.exception.valid) completed_mem_bus.debug.mem_valid = 1'b0;
 
     bypass_mem_bus = '0;
     bypass_mem_bus.wb_req = ex_mem_bus_i.wb_req;
+    bypass_mem_bus.exception = ex_mem_bus_i.exception;
+    bypass_mem_bus.commit = ex_mem_bus_i.commit;
     bypass_mem_bus.debug.pc = ex_mem_bus_i.debug.pc;
     bypass_mem_bus.debug.instr = ex_mem_bus_i.debug.instr;
     bypass_mem_bus.debug.mem_valid = ex_mem_bus_i.debug.mem_valid;
@@ -176,8 +200,8 @@ module mem_stage #(
   ) u_mem_wb_register (
     .clk_i,
     .rst_ni,
-    .clr_i(1'b0),
-    .valid_i(mem_wb_input_valid),
+    .clr_i(kill_i),
+    .valid_i(mem_wb_input_valid && !kill_i),
     .ready_o(mem_wb_input_ready),
     .data_i(mem_wb_input_bus),
     .valid_o(mem_wb_valid_o),
@@ -190,6 +214,13 @@ module mem_stage #(
     mem_wb_req_o.valid = mem_wb_valid_o && mem_wb_bus_o.wb_req.valid;
   end
 
+  assign busy_o = outstanding_head_valid;
+
+  // 多 outstanding store 无法在当前 CoreBus 上撤销；恢复更深队列前必须先引入
+  // 提交式 store buffer。因此暂时在 elaboration 阶段拒绝其它配置。
+  `ASSERT_INIT(MemOutstandingDepthIsOne, MemOutstandingDepth == 1,
+               "Precise exceptions currently require MemOutstandingDepth=1.")
+
   // verilog_format: off
   `ASSERT_STABLE(
     DmemReqStable,
@@ -198,7 +229,7 @@ module mem_stage #(
     dmem_req_o.req,
     core_bus_req_chan_t'(0),
     clk_i,
-    !rst_ni,
+    !rst_ni || kill_i,
     "CoreBus data request must remain stable while waiting for ready."
   )
 

@@ -200,7 +200,7 @@ async def store_alignment_and_load_extraction(dut):
 
 
 @cocotb.test()
-async def multiple_outstanding_preserves_retirement_order(dut):
+async def single_outstanding_backpressures_younger_requests(dut):
     cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
     await reset_dut(dut)
     dut.dmem_req_ready_i.value = 1
@@ -208,109 +208,60 @@ async def multiple_outstanding_preserves_retirement_order(dut):
     await issue_memory(dut, pc=0x4000, instr=0x4001, addr=0x1000,
                        wb_valid=1, rd=5)
     assert pending_entries(dut) == [5]
-    await issue_memory(dut, pc=0x4004, instr=0x4002, addr=0x1004,
-                       wb_valid=1, rd=6)
-    assert pending_entries(dut) == [5, 6]
-
-    # A younger ALU result cannot bypass either outstanding load.
-    drive_transaction(
-        dut,
-        pc=0x4008,
-        instr=0x4003,
-        wb_valid=1,
-        wb_data_valid=1,
-        rd=8,
-        wb_data=0x88888888,
-    )
+    drive_transaction(dut, pc=0x4004, instr=0x4002, mem_valid=1,
+                      addr=0x1004, wb_valid=1, rd=6)
     await Timer(1, unit="ns")
     assert int(dut.ex_mem_ready_o.value) == 0
+    assert int(dut.dmem_req_valid_o.value) == 0
 
-    dut.mem_wb_ready_i.value = 0
-    await return_response(dut, 0x55555555)
-    assert int(dut.mem_wb_instr_o.value) == 0x4001
-    assert int(dut.mem_wb_req_wdata_o.value) == 0x55555555
-    assert pending_entries(dut) == [6]
-    assert int(dut.ex_mem_ready_o.value) == 0
-
-    # MEM/WB backpressure also backpressures the CoreBus response.
-    drive_response(dut, valid=1, data=0x66666666)
-    await Timer(1, unit="ns")
-    assert int(dut.dmem_rsp_ready_o.value) == 0
-
-    dut.mem_wb_ready_i.value = 1
+    # A successful response may hand the single slot to the next request in
+    # the same cycle without ever having two unresolved transactions.
+    drive_response(dut, valid=1, data=0x55555555)
     await Timer(1, unit="ns")
     assert int(dut.dmem_rsp_ready_o.value) == 1
-    await RisingEdge(dut.clk_i)
-    drive_response(dut)
-    await NextTimeStep()
-    assert int(dut.mem_wb_instr_o.value) == 0x4002
-    assert int(dut.mem_wb_req_wdata_o.value) == 0x66666666
-    assert pending_entries(dut) == []
-
-    # Once all older memory operations have reached MEM/WB, the ALU result can
-    # replace the second load in the output register on the next edge.
-    await Timer(1, unit="ns")
+    assert int(dut.dmem_req_valid_o.value) == 1
     assert int(dut.ex_mem_ready_o.value) == 1
     await RisingEdge(dut.clk_i)
     drive_transaction(dut, valid=0)
+    drive_response(dut)
     await NextTimeStep()
-    assert int(dut.mem_wb_instr_o.value) == 0x4003
-    assert int(dut.mem_wb_req_wdata_o.value) == 0x88888888
+    assert pending_entries(dut) == [6]
+    assert int(dut.mem_wb_instr_o.value) == 0x4001
+    assert int(dut.mem_wb_req_wdata_o.value) == 0x55555555
+
+    await return_response(dut, 0x55555555)
+    assert int(dut.mem_wb_instr_o.value) == 0x4002
+    assert pending_entries(dut) == []
 
 
 @cocotb.test()
-async def full_fifo_pop_push_and_zero_latency_response(dut):
+async def access_fault_blocks_same_cycle_handoff_and_suppresses_writeback(dut):
     cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
     await reset_dut(dut)
     dut.dmem_req_ready_i.value = 1
 
     await issue_memory(dut, instr=0x5001, addr=0x1000, wb_valid=1, rd=1)
-    await issue_memory(dut, instr=0x5002, addr=0x1004, wb_valid=1, rd=2)
-    assert pending_entries(dut) == [1, 2]
-
-    # A response frees the full FIFO in the same cycle that a third request
-    # occupies the released slot.
     drive_transaction(
         dut,
-        instr=0x5003,
+        instr=0x5002,
         mem_valid=1,
-        addr=0x1008,
+        addr=0x1004,
         wb_valid=1,
-        rd=3,
+        rd=2,
     )
-    drive_response(dut, valid=1, data=0x11111111)
+    drive_response(dut, valid=1, error=1)
     await Timer(1, unit="ns")
     assert int(dut.dmem_rsp_ready_o.value) == 1
-    assert int(dut.dmem_req_valid_o.value) == 1
-    assert int(dut.ex_mem_ready_o.value) == 1
+    assert int(dut.dmem_req_valid_o.value) == 0
+    assert int(dut.ex_mem_ready_o.value) == 0
     await RisingEdge(dut.clk_i)
     drive_transaction(dut, valid=0)
     drive_response(dut)
     await NextTimeStep()
-    assert pending_entries(dut) == [2, 3]
+    assert pending_entries(dut) == []
     assert int(dut.mem_wb_instr_o.value) == 0x5001
-
-    # Drain both entries before checking empty-FIFO fall-through behavior.
-    await return_response(dut, 0x22222222)
-    await return_response(dut, 0x33333333)
-    assert pending_entries(dut) == []
-
-    drive_transaction(
-        dut,
-        instr=0x5004,
-        mem_valid=1,
-        addr=0x2000,
-        wb_valid=1,
-        rd=4,
-    )
-    drive_response(dut, valid=1, data=0x44444444)
-    await Timer(1, unit="ns")
-    assert int(dut.dmem_req_valid_o.value) == 1
-    assert int(dut.dmem_rsp_ready_o.value) == 1
-    await RisingEdge(dut.clk_i)
-    drive_transaction(dut, valid=0)
-    drive_response(dut)
-    await NextTimeStep()
-    assert pending_entries(dut) == []
-    assert int(dut.mem_wb_instr_o.value) == 0x5004
-    assert int(dut.mem_wb_req_wdata_o.value) == 0x44444444
+    assert int(dut.mem_wb_exception_valid_o.value) == 1
+    assert int(dut.mem_wb_exception_cause_o.value) == 5
+    assert int(dut.mem_wb_exception_tval_o.value) == 0x1000
+    assert int(dut.mem_wb_req_valid_o.value) == 0
+    assert int(dut.mem_wb_mem_valid_o.value) == 0

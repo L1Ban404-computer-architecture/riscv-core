@@ -49,13 +49,16 @@ module mem_stage_tb (
   output logic mem_wb_mem_write_o,
   output logic [1:0] mem_wb_mem_size_o,
   output logic [31:0] mem_wb_mem_addr_o,
-  output logic [31:0] mem_wb_mem_wdata_o
+  output logic [31:0] mem_wb_mem_wdata_o,
+  output logic mem_wb_exception_valid_o,
+  output logic [3:0] mem_wb_exception_cause_o,
+  output logic [31:0] mem_wb_exception_tval_o
 );
 
   ex_mem_bus_t ex_mem_bus;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
-  wb_req_bus_t pending_wb_req [2];
+  wb_req_bus_t pending_wb_req [1];
   wb_req_bus_t mem_wb_req;
   mem_wb_bus_t mem_wb_bus;
 
@@ -93,8 +96,8 @@ module mem_stage_tb (
 
   assign pending_0_valid_o = pending_wb_req[0].valid;
   assign pending_0_rd_addr_o = pending_wb_req[0].rd_addr;
-  assign pending_1_valid_o = pending_wb_req[1].valid;
-  assign pending_1_rd_addr_o = pending_wb_req[1].rd_addr;
+  assign pending_1_valid_o = 1'b0;
+  assign pending_1_rd_addr_o = '0;
 
   assign mem_wb_req_valid_o = mem_wb_req.valid;
   assign mem_wb_req_data_valid_o = mem_wb_req.data_valid;
@@ -107,12 +110,17 @@ module mem_stage_tb (
   assign mem_wb_mem_size_o = mem_wb_bus.debug.mem_size;
   assign mem_wb_mem_addr_o = mem_wb_bus.debug.mem_addr;
   assign mem_wb_mem_wdata_o = mem_wb_bus.debug.mem_wdata;
+  assign mem_wb_exception_valid_o = mem_wb_bus.exception.valid;
+  assign mem_wb_exception_cause_o = mem_wb_bus.exception.cause;
+  assign mem_wb_exception_tval_o = mem_wb_bus.exception.tval;
 
   mem_stage #(
-    .MemOutstandingDepth(2)
+    .MemOutstandingDepth(1)
   ) u_dut (
     .clk_i,
     .rst_ni,
+    .kill_i(1'b0),
+    .side_effect_block_i(1'b0),
     .ex_mem_valid_i,
     .ex_mem_ready_o,
     .ex_mem_bus_i(ex_mem_bus),
@@ -122,7 +130,8 @@ module mem_stage_tb (
     .mem_wb_req_o(mem_wb_req),
     .mem_wb_valid_o,
     .mem_wb_ready_i,
-    .mem_wb_bus_o(mem_wb_bus)
+    .mem_wb_bus_o(mem_wb_bus),
+    .busy_o()
   );
 
 endmodule

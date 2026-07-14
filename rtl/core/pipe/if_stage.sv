@@ -20,8 +20,8 @@ module if_stage #(
   // IF stage 内部，而不是由 riscv_core 顶层额外插入 pipeline_regs。
   input pc_t boot_pc_i,
 
-  // redirect_i 只来自 EX stage。它表示“前端改道”，用于丢弃尚未进入 EX
-  // 的年轻事务；它不负责冲刷 EX/MEM/WB 中已经有效的指令。
+  // redirect_i 来自顶层集中仲裁：EX 分支只改道前端，WB trap/MRET 还会通过
+  // 独立 kill 信号清除后端年轻事务。IF 对两者执行相同的 PC/epoch 更新。
   input redirect_bus_t redirect_i,
 
   // CoreBus 取指接口。IF 只发出 wstrb=0 的固定字宽读请求，读请求和
@@ -65,9 +65,8 @@ module if_stage #(
   // 但尚未收到响应的请求 PC 及其 epoch。它使用 fall-through 模式，
   // 支持无延迟存储器在请求握手同周期给出响应。redirect 翻转 epoch。
   // 这里使用 1 bit epoch 的前提是：IF 只使用单条顺序 CoreBus 请求流，响应
-  // 必须严格按请求握手顺序返回；redirect 只来自 EX，下一次 redirect 必须
-  // 等新路径指令返回并进入 EX 后才可能发生。因此在 epoch 再次翻转前，
-  // 更老 epoch 的响应已经按顺序被消费掉，不会和当前路径混淆。
+  // 必须严格按请求握手顺序返回；在 epoch 再次翻转前，更老 epoch 的响应必须
+  // 已按顺序被消费。若以后允许连续重定向跨越未返回请求，应扩展 epoch/tag 宽度。
   fetch_req_t pc_fifo_data;
   logic pc_fifo_ready;
   logic pc_fifo_valid;
@@ -115,6 +114,11 @@ module if_stage #(
 
   assign fetch_fifo_data.fetch.pc = pc_fifo_data.pc;
   assign fetch_fifo_data.fetch.instr = instr_t'(imem_resp_i.rsp.rdata);
+  assign fetch_fifo_data.exception.valid = imem_resp_i.rsp.error;
+  assign fetch_fifo_data.exception.is_interrupt = 1'b0;
+  assign fetch_fifo_data.exception.cause = imem_resp_i.rsp.error ? EXC_INST_ACCESS_FAULT :
+      exception_cause_e'('0);
+  assign fetch_fifo_data.exception.tval = imem_resp_i.rsp.error ? pc_fifo_data.pc : '0;
   assign fetch_fifo_data.debug.pc = pc_fifo_data.pc;
   assign fetch_fifo_data.debug.instr = instr_t'(imem_resp_i.rsp.rdata);
 
@@ -223,6 +227,9 @@ module if_stage #(
     !rst_ni,
     "CoreBus request valid must remain asserted until ready."
   )
+
+  `ASSERT(BootPcAligned, !boot_pending_q |-> (boot_pc_i[1:0] == 2'b00), clk_i, !rst_ni,
+          "boot_pc_i must satisfy RV32I IALIGN=32.")
   // verilog_format: on
 
 endmodule

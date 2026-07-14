@@ -57,6 +57,15 @@ typedef struct packed {
   word_t mem_wdata;
   logic redirect_valid;
   pc_t redirect_target_pc;
+  logic trap;
+  logic intr;
+  word_t cause;
+  word_t tval;
+  word_t mstatus;
+  word_t mtvec;
+  word_t mepc;
+  word_t mcause;
+  word_t mtval;
 } core_debug_bus_t;
 
 `endif

@@ -10,6 +10,8 @@ module ex_stage #(
 ) (
   input logic clk_i,
   input logic rst_ni,
+  input logic kill_i,
+  input logic serialize_ready_i,
 
   // ID -> EX 事务通道。进入 EX 的指令被视为已确认有效，不再被 redirect
   // 冲刷；若数据前递不可用，EX 通过 id_ex_ready_o 反压 ID。
@@ -21,6 +23,10 @@ module ex_stage #(
   // 候选由本 stage 内部保存。
   input wb_req_bus_t mem_pending_wb_req_i[MemOutstandingDepth],
   input wb_req_bus_t mem_wb_req_i,
+
+  output csr_addr_t csr_read_addr_o,
+  input logic csr_read_valid_i,
+  input word_t csr_read_data_i,
 
   // EX -> IF redirect。该信号单向指向前端，只影响更年轻的 IF/ID 事务。
   output redirect_bus_t redirect_o,
@@ -39,6 +45,7 @@ module ex_stage #(
   word_t pc_plus_4;
 
   logic forward_stall;
+  logic serialize_stall;
   logic ex_execute_fire;
   logic ex_mem_input_valid;
   logic ex_mem_input_ready;
@@ -47,6 +54,12 @@ module ex_stage #(
   wb_req_bus_t ex_mem_wb_req;
   mem_req_bus_t mem_req;
   ex_mem_bus_t executed_ex_mem_bus;
+  redirect_bus_t branch_redirect;
+  exception_bus_t executed_exception;
+  commit_ctrl_bus_t commit_ctrl;
+  word_t csr_source;
+  word_t csr_new_value;
+  logic data_misaligned;
 
   always_comb begin
     ex_mem_wb_req = ex_mem_bus_o.wb_req;
@@ -85,13 +98,52 @@ module ex_stage #(
 
   branch_unit u_branch_unit (
     .execute_fire_i(ex_execute_fire),
-    .illegal_instr_i(id_ex_bus_i.ctrl.illegal_instr),
+    .illegal_instr_i(id_ex_bus_i.exception.valid || id_ex_bus_i.ctrl.illegal_instr),
     .branch_op_i(id_ex_bus_i.ctrl.branch_op),
     .rs1_value_i(rs1_value),
     .rs2_value_i(rs2_value),
     .alu_target_i(alu_result),
-    .redirect_o
+    .redirect_o(branch_redirect)
   );
+
+  assign csr_read_addr_o = id_ex_bus_i.ctrl.csr_addr;
+  assign csr_source = id_ex_bus_i.ctrl.csr_use_imm ? id_ex_bus_i.exec_data.imm : rs1_value;
+
+  always_comb begin
+    unique case (id_ex_bus_i.ctrl.mem_size)
+      MEM_SIZE_BYTE: data_misaligned = 1'b0;
+      MEM_SIZE_HALF: data_misaligned = alu_result[0];
+      MEM_SIZE_WORD: data_misaligned = |alu_result[1:0];
+      default: data_misaligned = 1'b1;
+    endcase
+
+    // 上游异常不可覆盖。EX 仅在当前 payload 尚无异常时补充控制流目标、
+    // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
+    executed_exception = id_ex_bus_i.exception;
+    if (!executed_exception.valid && id_ex_bus_i.ctrl.illegal_instr) begin
+      executed_exception.valid = 1'b1;
+      executed_exception.cause = EXC_ILLEGAL_INSTR;
+      executed_exception.tval = id_ex_bus_i.fetch.instr;
+    end else if (!executed_exception.valid && branch_redirect.valid &&
+                 (branch_redirect.target_pc[1:0] != 2'b00)) begin
+      executed_exception.valid = 1'b1;
+      executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
+      executed_exception.tval = branch_redirect.target_pc;
+    end else if (!executed_exception.valid && (id_ex_bus_i.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
+      executed_exception.valid = 1'b1;
+      executed_exception.cause = (id_ex_bus_i.ctrl.mem_cmd == MEM_STORE) ?
+          EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
+      executed_exception.tval = alu_result;
+    end else if (!executed_exception.valid && (id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) &&
+                 !csr_read_valid_i) begin
+      executed_exception.valid = 1'b1;
+      executed_exception.cause = EXC_ILLEGAL_INSTR;
+      executed_exception.tval = id_ex_bus_i.fetch.instr;
+    end
+
+    redirect_o = branch_redirect;
+    if (executed_exception.valid) redirect_o.valid = 1'b0;
+  end
 
   assign pc_plus_4 = id_ex_bus_i.exec_data.pc + word_t'(4);
 
@@ -114,16 +166,20 @@ module ex_stage #(
         wb_req.data_valid = 1'b1;
         wb_req.wdata = pc_plus_4;
       end
+      WB_CSR: begin
+        wb_req.data_valid = 1'b1;
+        wb_req.wdata = csr_read_data_i;
+      end
       default: wb_req = '0;
     endcase
 
     // x0 写入在这里提前消除，减少后续前递和写回端的无效比较活动。
-    if (wb_req.rd_addr == ZeroReg) wb_req.valid = 1'b0;
+    if ((wb_req.rd_addr == ZeroReg) || executed_exception.valid) wb_req.valid = 1'b0;
   end
 
   always_comb begin
     mem_req = '0;
-    mem_req.valid = (id_ex_bus_i.ctrl.mem_cmd != MEM_NONE) && !id_ex_bus_i.ctrl.illegal_instr;
+    mem_req.valid = (id_ex_bus_i.ctrl.mem_cmd != MEM_NONE) && !executed_exception.valid;
     mem_req.write = (id_ex_bus_i.ctrl.mem_cmd == MEM_STORE);
     mem_req.size = id_ex_bus_i.ctrl.mem_size;
     mem_req.sign_ext = id_ex_bus_i.ctrl.mem_sign_ext;
@@ -132,15 +188,40 @@ module ex_stage #(
     mem_req.wdata = rs2_value;
   end
 
+  always_comb begin
+    unique case (id_ex_bus_i.ctrl.csr_cmd)
+      CSR_RW: csr_new_value = csr_source;
+      CSR_RS: csr_new_value = csr_read_data_i | csr_source;
+      CSR_RC: csr_new_value = csr_read_data_i & ~csr_source;
+      default: csr_new_value = '0;
+    endcase
+
+    // CSR 指令把旧值放入普通 GPR 写回路径，把新值作为提交请求随指令送到 WB。
+    // RS/RC 的零源操作数按规范只读，不形成 CSR 写请求。
+    commit_ctrl = '0;
+    commit_ctrl.serialize = id_ex_bus_i.ctrl.serialize || executed_exception.valid;
+    commit_ctrl.system_op = id_ex_bus_i.ctrl.system_op;
+    commit_ctrl.csr_write.valid = (id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) &&
+        ((id_ex_bus_i.ctrl.csr_cmd == CSR_RW) || (csr_source != '0)) && !executed_exception.valid;
+    commit_ctrl.csr_write.addr = id_ex_bus_i.ctrl.csr_addr;
+    commit_ctrl.csr_write.wdata = csr_new_value;
+  end
+
   // 前递数据未就绪时不允许当前 ID/EX 事务进入 EX/MEM 寄存器。
-  assign ex_mem_input_valid = id_ex_valid_i && !forward_stall;
-  assign id_ex_ready_o = ex_mem_input_ready && !forward_stall;
+  // ID 已知的异常与 SYSTEM/CSR 一样，必须先等待所有更老事务排空。
+  // 这也避免取指错误携带的无意义指令位影响串行化判断。
+  assign serialize_stall = (id_ex_bus_i.ctrl.serialize || id_ex_bus_i.exception.valid) &&
+      !serialize_ready_i;
+  assign ex_mem_input_valid = id_ex_valid_i && !forward_stall && !serialize_stall && !kill_i;
+  assign id_ex_ready_o = ex_mem_input_ready && !forward_stall && !serialize_stall && !kill_i;
   assign ex_execute_fire = ex_mem_input_valid && ex_mem_input_ready;
 
   always_comb begin
     executed_ex_mem_bus = '0;
     executed_ex_mem_bus.mem_req = mem_req;
     executed_ex_mem_bus.wb_req = wb_req;
+    executed_ex_mem_bus.exception = executed_exception;
+    executed_ex_mem_bus.commit = commit_ctrl;
     executed_ex_mem_bus.debug.pc = id_ex_bus_i.debug.pc;
     executed_ex_mem_bus.debug.instr = id_ex_bus_i.debug.instr;
     executed_ex_mem_bus.debug.mem_valid = mem_req.valid;
@@ -159,7 +240,7 @@ module ex_stage #(
   ) u_ex_mem_register (
     .clk_i,
     .rst_ni,
-    .clr_i(1'b0),
+    .clr_i(kill_i),
     .valid_i(ex_mem_input_valid),
     .ready_o(ex_mem_input_ready),
     .data_i(executed_ex_mem_bus),
@@ -176,7 +257,7 @@ module ex_stage #(
     ex_mem_bus_o,
     ex_mem_bus_t'(0),
     clk_i,
-    !rst_ni,
+    !rst_ni || kill_i,
     "EX/MEM payload must remain stable while valid is waiting for ready."
   )
 
@@ -184,7 +265,7 @@ module ex_stage #(
     ExMemValidStable,
     ex_mem_valid_o && !ex_mem_ready_i |=> ex_mem_valid_o,
     clk_i,
-    !rst_ni,
+    !rst_ni || kill_i,
     "EX/MEM valid must remain asserted until ready."
   )
   // verilog_format: on

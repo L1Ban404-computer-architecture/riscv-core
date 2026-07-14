@@ -31,7 +31,10 @@ module if_stage_tb #(
   output logic [31:0] if_id_pc_o,
   output logic [31:0] if_id_instr_o,
   output logic [31:0] if_id_debug_pc_o,
-  output logic [31:0] if_id_debug_instr_o
+  output logic [31:0] if_id_debug_instr_o,
+  output logic if_id_exception_valid_o,
+  output logic [3:0] if_id_exception_cause_o,
+  output logic [31:0] if_id_exception_tval_o
 );
 
   core_bus_req_t imem_req;
@@ -58,6 +61,9 @@ module if_stage_tb #(
   assign if_id_instr_o = if_id_bus.fetch.instr;
   assign if_id_debug_pc_o = if_id_bus.debug.pc;
   assign if_id_debug_instr_o = if_id_bus.debug.instr;
+  assign if_id_exception_valid_o = if_id_bus.exception.valid;
+  assign if_id_exception_cause_o = if_id_bus.exception.cause;
+  assign if_id_exception_tval_o = if_id_bus.exception.tval;
 
   if_stage #(
     .FetchOutstandingDepth(FetchOutstandingDepth),

@@ -31,7 +31,7 @@ module id_stage_tb (
   output logic [1:0] id_ex_mem_cmd_o,
   output logic [1:0] id_ex_mem_size_o,
   output logic id_ex_mem_sign_ext_o,
-  output logic [1:0] id_ex_wb_sel_o,
+  output logic [2:0] id_ex_wb_sel_o,
   output logic id_ex_rd_write_o,
   output logic id_ex_illegal_instr_o
 );
@@ -42,6 +42,7 @@ module id_stage_tb (
 
   assign if_id_bus = '{
     fetch: '{pc: if_id_pc_i, instr: if_id_instr_i},
+    exception: '0,
     debug: '{pc: if_id_pc_i, instr: if_id_instr_i}
   };
   assign wb_req = '{valid: wb_valid_i, data_valid: wb_data_valid_i,
@@ -69,6 +70,8 @@ module id_stage_tb (
   id_stage u_dut (
     .clk_i,
     .rst_ni,
+    .kill_i(1'b0),
+    .serialize_block_i(1'b0),
     .if_id_valid_i,
     .if_id_ready_o,
     .if_id_bus_i(if_id_bus),

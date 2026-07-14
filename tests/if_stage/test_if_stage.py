@@ -65,6 +65,38 @@ async def start_clock(dut):
     cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
 
 
+@cocotb.test()
+async def instruction_access_error_is_carried_with_fetch(dut):
+    await start_clock(dut)
+    await reset_dut(dut, 0x8000_0000)
+    requests = await accept_requests(dut, 1)
+    assert requests == [0x8000_0000]
+
+    dut.imem_rsp_rdata_i.value = 0xDEAD_BEEF
+    dut.imem_rsp_error_i.value = 1
+    dut.imem_rsp_valid_i.value = 1
+    while True:
+        await ReadOnly()
+        ready = int(dut.imem_rsp_ready_o.value)
+        await RisingEdge(dut.clk_i)
+        await NextTimeStep()
+        if ready:
+            break
+    dut.imem_rsp_valid_i.value = 0
+    dut.imem_rsp_error_i.value = 0
+
+    for _ in range(10):
+        await ReadOnly()
+        if int(dut.if_id_valid_o.value):
+            assert int(dut.if_id_exception_valid_o.value) == 1
+            assert int(dut.if_id_exception_cause_o.value) == 1
+            assert int(dut.if_id_exception_tval_o.value) == 0x8000_0000
+            return
+        await RisingEdge(dut.clk_i)
+        await NextTimeStep()
+    raise AssertionError("faulting fetch did not reach IF/ID")
+
+
 async def wait_cycles(dut, count):
     for _ in range(count):
         await RisingEdge(dut.clk_i)
