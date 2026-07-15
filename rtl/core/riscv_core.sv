@@ -45,6 +45,10 @@ module riscv_core #(
   output logic debug_retire_gpr_we_o,
   output logic [4:0] debug_retire_gpr_waddr_o,
   output logic [31:0] debug_retire_gpr_wdata_o,
+  output logic debug_retire_trap_o,
+  output logic debug_retire_intr_o,
+  output logic [31:0] debug_retire_cause_o,
+  output logic [31:0] debug_retire_tval_o,
   // 与退休 trace 同周期输出本条 WB 事务提交后的架构 CSR 快照。
   output logic [31:0] debug_retire_mstatus_o,
   output logic [31:0] debug_retire_mtvec_o,
@@ -92,6 +96,10 @@ module riscv_core #(
   assign debug_retire_gpr_we_o = core_debug.gpr_we;
   assign debug_retire_gpr_waddr_o = core_debug.gpr_waddr;
   assign debug_retire_gpr_wdata_o = core_debug.gpr_wdata;
+  assign debug_retire_trap_o = core_debug.trap;
+  assign debug_retire_intr_o = core_debug.intr;
+  assign debug_retire_cause_o = core_debug.cause;
+  assign debug_retire_tval_o = core_debug.tval;
   assign debug_retire_mstatus_o = core_debug.csr.mstatus;
   assign debug_retire_mtvec_o = core_debug.csr.mtvec;
   assign debug_retire_mepc_o = core_debug.csr.mepc;
