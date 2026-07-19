@@ -246,9 +246,28 @@ async def branch_redirect_targets_and_debug(dut):
     assert await accept_current(dut) == (1, 0x9004, REDIR_JALR)
     await drain_output(dut)
 
+    # A taken control-flow instruction targeting its sequential successor must
+    # not flush the frontend or report a redundant architectural redirect.
     drive_instruction(
         dut,
         pc=0xA000,
+        rs1=0xA004,
+        imm=0,
+        alu=ALU_ADD,
+        op_b=OP_B_IMM,
+        branch=BR_JALR,
+        wb=WB_PC4,
+        rd=1,
+        rd_write=1,
+    )
+    assert (await accept_current(dut))[0] == 0
+    assert int(dut.ex_mem_debug_redirect_valid_o.value) == 0
+    assert int(dut.ex_mem_wb_wdata_o.value) == 0xA004
+    await drain_output(dut)
+
+    drive_instruction(
+        dut,
+        pc=0xB000,
         imm=4,
         op_a=OP_A_PC,
         op_b=OP_B_IMM,

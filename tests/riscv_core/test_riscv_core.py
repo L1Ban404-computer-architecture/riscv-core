@@ -443,15 +443,17 @@ class Rv32iReference:
             result.wb_valid = True
             result.wdata = u32(pc + 4)
             result.next_pc = u32(pc + imm)
-            result.redirect_valid = True
-            result.redirect_target = result.next_pc
+            result.redirect_valid = result.next_pc != u32(pc + 4)
+            if result.redirect_valid:
+                result.redirect_target = result.next_pc
         elif opcode == 0x67 and funct3 == 0:  # JALR
             imm = sext(instr >> 20, 12)
             result.wb_valid = True
             result.wdata = u32(pc + 4)
             result.next_pc = u32(lhs + imm) & ~1
-            result.redirect_valid = True
-            result.redirect_target = result.next_pc
+            result.redirect_valid = result.next_pc != u32(pc + 4)
+            if result.redirect_valid:
+                result.redirect_target = result.next_pc
         elif opcode == 0x63:                  # BRANCH
             imm = sext(
                 (((instr >> 31) & 1) << 12)
@@ -470,8 +472,9 @@ class Rv32iReference:
             }[funct3]
             if taken:
                 result.next_pc = u32(pc + imm)
-                result.redirect_valid = True
-                result.redirect_target = result.next_pc
+                result.redirect_valid = result.next_pc != u32(pc + 4)
+                if result.redirect_valid:
+                    result.redirect_target = result.next_pc
         elif opcode == 0x03:                  # LOAD
             imm = sext(instr >> 20, 12)
             addr = u32(lhs + imm)

@@ -141,7 +141,11 @@ module ex_stage #(
     end
 
     redirect_o = branch_redirect;
-    if (executed_exception.valid) redirect_o.valid = 1'b0;
+    // taken 控制流若恰好落到顺序 PC+4，不需要清空前端或翻转 fetch epoch。
+    // 这也统一了退休 debug 的 redirect 语义：只报告下一 PC 的实际改道。
+    if (executed_exception.valid ||
+        (branch_redirect.valid && (branch_redirect.target_pc == pc_plus_4)))
+      redirect_o.valid = 1'b0;
   end
 
   assign pc_plus_4 = id_ex_bus_i.exec_data.pc + word_t'(4);
