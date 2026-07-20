@@ -54,7 +54,56 @@ module riscv_core_tb #(
   output logic [31:0] debug_retire_mtval_o
 );
 
-  riscv_core #(
+  core_bus_req_t imem_req;
+  core_bus_resp_t imem_resp;
+  core_bus_req_t dmem_req;
+  core_bus_resp_t dmem_resp;
+  core_debug_bus_t core_debug;
+
+  assign imem_req_valid_o = imem_req.req_valid;
+  assign imem_req_addr_o = imem_req.req.addr;
+  assign imem_req_wdata_o = imem_req.req.wdata;
+  assign imem_req_wstrb_o = imem_req.req.wstrb;
+  assign imem_rsp_ready_o = imem_req.rsp_ready;
+  assign imem_resp.req_ready = imem_req_ready_i;
+  assign imem_resp.rsp_valid = imem_rsp_valid_i;
+  assign imem_resp.rsp.rdata = imem_rsp_rdata_i;
+  assign imem_resp.rsp.error = imem_rsp_error_i;
+
+  assign dmem_req_valid_o = dmem_req.req_valid;
+  assign dmem_req_addr_o = dmem_req.req.addr;
+  assign dmem_req_wdata_o = dmem_req.req.wdata;
+  assign dmem_req_wstrb_o = dmem_req.req.wstrb;
+  assign dmem_rsp_ready_o = dmem_req.rsp_ready;
+  assign dmem_resp.req_ready = dmem_req_ready_i;
+  assign dmem_resp.rsp_valid = dmem_rsp_valid_i;
+  assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
+  assign dmem_resp.rsp.error = dmem_rsp_error_i;
+
+  assign debug_retire_valid_o = core_debug.valid;
+  assign debug_retire_pc_o = core_debug.pc;
+  assign debug_retire_instr_o = core_debug.instr;
+  assign debug_retire_redirect_valid_o = core_debug.redirect_valid;
+  assign debug_retire_redirect_target_o = core_debug.redirect_target_pc;
+  assign debug_retire_mem_valid_o = core_debug.mem_valid;
+  assign debug_retire_mem_write_o = core_debug.mem_write;
+  assign debug_retire_mem_size_o = core_debug.mem_size;
+  assign debug_retire_mem_addr_o = core_debug.mem_addr;
+  assign debug_retire_mem_wdata_o = core_debug.mem_wdata;
+  assign debug_retire_gpr_we_o = core_debug.gpr_we;
+  assign debug_retire_gpr_waddr_o = core_debug.gpr_waddr;
+  assign debug_retire_gpr_wdata_o = core_debug.gpr_wdata;
+  assign debug_retire_trap_o = core_debug.trap;
+  assign debug_retire_intr_o = core_debug.intr;
+  assign debug_retire_cause_o = core_debug.cause;
+  assign debug_retire_tval_o = core_debug.tval;
+  assign debug_retire_mstatus_o = core_debug.csr.mstatus;
+  assign debug_retire_mtvec_o = core_debug.csr.mtvec;
+  assign debug_retire_mepc_o = core_debug.csr.mepc;
+  assign debug_retire_mcause_o = core_debug.csr.mcause;
+  assign debug_retire_mtval_o = core_debug.csr.mtval;
+
+  riscv_core_impl #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
     .IfIdQueueDepth(IfIdQueueDepth),
     .MemOutstandingDepth(MemOutstandingDepth)
@@ -62,46 +111,11 @@ module riscv_core_tb #(
     .clk_i,
     .rst_ni,
     .boot_pc_i,
-    .imem_req_valid_o,
-    .imem_req_ready_i,
-    .imem_req_addr_o,
-    .imem_req_wdata_o,
-    .imem_req_wstrb_o,
-    .imem_rsp_valid_i,
-    .imem_rsp_ready_o,
-    .imem_rsp_rdata_i,
-    .imem_rsp_error_i,
-    .dmem_req_valid_o,
-    .dmem_req_ready_i,
-    .dmem_req_addr_o,
-    .dmem_req_wdata_o,
-    .dmem_req_wstrb_o,
-    .dmem_rsp_valid_i,
-    .dmem_rsp_ready_o,
-    .dmem_rsp_rdata_i,
-    .dmem_rsp_error_i,
-    .debug_retire_valid_o,
-    .debug_retire_pc_o,
-    .debug_retire_instr_o,
-    .debug_retire_redirect_valid_o,
-    .debug_retire_redirect_target_o,
-    .debug_retire_mem_valid_o,
-    .debug_retire_mem_write_o,
-    .debug_retire_mem_size_o,
-    .debug_retire_mem_addr_o,
-    .debug_retire_mem_wdata_o,
-    .debug_retire_gpr_we_o,
-    .debug_retire_gpr_waddr_o,
-    .debug_retire_gpr_wdata_o,
-    .debug_retire_trap_o,
-    .debug_retire_intr_o,
-    .debug_retire_cause_o,
-    .debug_retire_tval_o,
-    .debug_retire_mstatus_o,
-    .debug_retire_mtvec_o,
-    .debug_retire_mepc_o,
-    .debug_retire_mcause_o,
-    .debug_retire_mtval_o
+    .imem_req_o(imem_req),
+    .imem_resp_i(imem_resp),
+    .dmem_req_o(dmem_req),
+    .dmem_resp_i(dmem_resp),
+    .core_debug_o(core_debug)
   );
 
 endmodule

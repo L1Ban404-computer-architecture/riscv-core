@@ -1,0 +1,178 @@
+// Copyright (c) 2026
+// SPDX-License-Identifier: Apache-2.0
+
+// Serialize the instruction and data CoreBus ports onto one single-beat AXI4
+// master.  Data traffic wins arbitration.  AXI IDs preserve the request source:
+// ID 0 is instruction fetch and ID 1 is data access.
+module corebus_axi4 (
+  input  logic        clock,
+  input  logic        reset,
+
+  input  logic        imem_req_valid_i,
+  output logic        imem_req_ready_o,
+  input  logic [31:0] imem_req_addr_i,
+  input  logic [31:0] imem_req_wdata_i,
+  input  logic [3:0]  imem_req_wstrb_i,
+  output logic        imem_rsp_valid_o,
+  input  logic        imem_rsp_ready_i,
+  output logic [31:0] imem_rsp_rdata_o,
+  output logic        imem_rsp_error_o,
+
+  input  logic        dmem_req_valid_i,
+  output logic        dmem_req_ready_o,
+  input  logic [31:0] dmem_req_addr_i,
+  input  logic [31:0] dmem_req_wdata_i,
+  input  logic [3:0]  dmem_req_wstrb_i,
+  output logic        dmem_rsp_valid_o,
+  input  logic        dmem_rsp_ready_i,
+  output logic [31:0] dmem_rsp_rdata_o,
+  output logic        dmem_rsp_error_o,
+
+  input  logic        m_awready_i,
+  output logic        m_awvalid_o,
+  output logic [31:0] m_awaddr_o,
+  output logic [3:0]  m_awid_o,
+  output logic [7:0]  m_awlen_o,
+  output logic [2:0]  m_awsize_o,
+  output logic [1:0]  m_awburst_o,
+  input  logic        m_wready_i,
+  output logic        m_wvalid_o,
+  output logic [31:0] m_wdata_o,
+  output logic [3:0]  m_wstrb_o,
+  output logic        m_wlast_o,
+  output logic        m_bready_o,
+  input  logic        m_bvalid_i,
+  input  logic [1:0]  m_bresp_i,
+  input  logic [3:0]  m_bid_i,
+  input  logic        m_arready_i,
+  output logic        m_arvalid_o,
+  output logic [31:0] m_araddr_o,
+  output logic [3:0]  m_arid_o,
+  output logic [7:0]  m_arlen_o,
+  output logic [2:0]  m_arsize_o,
+  output logic [1:0]  m_arburst_o,
+  output logic        m_rready_o,
+  input  logic        m_rvalid_i,
+  input  logic [1:0]  m_rresp_i,
+  input  logic [31:0] m_rdata_i,
+  input  logic        m_rlast_i,
+  input  logic [3:0]  m_rid_i
+);
+
+  typedef enum logic [2:0] {
+    StateIdle,
+    StateReadAddress,
+    StateReadResponse,
+    StateWriteData,
+    StateWriteResponse
+  } state_e;
+
+  state_e state_q;
+  logic owner_dmem_q;
+  logic [31:0] addr_q;
+  logic [31:0] wdata_q;
+  logic [3:0] wstrb_q;
+  logic aw_sent_q;
+  logic w_sent_q;
+  logic selected_rsp_ready;
+  logic read_error;
+  logic write_error;
+
+  assign selected_rsp_ready = owner_dmem_q ? dmem_rsp_ready_i : imem_rsp_ready_i;
+  assign read_error = (m_rresp_i != 2'b00) || !m_rlast_i ||
+                      (m_rid_i != (owner_dmem_q ? 4'd1 : 4'd0));
+  assign write_error = (m_bresp_i != 2'b00) || (m_bid_i != 4'd1);
+
+  assign dmem_req_ready_o = (state_q == StateIdle) && dmem_req_valid_i;
+  assign imem_req_ready_o = (state_q == StateIdle) && !dmem_req_valid_i &&
+                            imem_req_valid_i;
+
+  assign m_awvalid_o = (state_q == StateWriteData) && !aw_sent_q;
+  assign m_awaddr_o = addr_q;
+  assign m_awid_o = 4'd1;
+  assign m_awlen_o = 8'd0;
+  assign m_awsize_o = 3'd2;
+  assign m_awburst_o = 2'b01;
+
+  assign m_wvalid_o = (state_q == StateWriteData) && !w_sent_q;
+  assign m_wdata_o = wdata_q;
+  assign m_wstrb_o = wstrb_q;
+  assign m_wlast_o = 1'b1;
+  assign m_bready_o = (state_q == StateWriteResponse) && selected_rsp_ready;
+
+  assign m_arvalid_o = (state_q == StateReadAddress);
+  assign m_araddr_o = addr_q;
+  assign m_arid_o = owner_dmem_q ? 4'd1 : 4'd0;
+  assign m_arlen_o = 8'd0;
+  assign m_arsize_o = 3'd2;
+  assign m_arburst_o = 2'b01;
+  assign m_rready_o = (state_q == StateReadResponse) && selected_rsp_ready;
+
+  assign imem_rsp_valid_o = !owner_dmem_q &&
+                            (((state_q == StateReadResponse) && m_rvalid_i) ||
+                             ((state_q == StateWriteResponse) && m_bvalid_i));
+  assign dmem_rsp_valid_o = owner_dmem_q &&
+                            (((state_q == StateReadResponse) && m_rvalid_i) ||
+                             ((state_q == StateWriteResponse) && m_bvalid_i));
+  assign imem_rsp_rdata_o = (state_q == StateReadResponse) ? m_rdata_i : 32'b0;
+  assign dmem_rsp_rdata_o = (state_q == StateReadResponse) ? m_rdata_i : 32'b0;
+  assign imem_rsp_error_o = !owner_dmem_q &&
+                            (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
+                             ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
+  assign dmem_rsp_error_o = owner_dmem_q &&
+                            (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
+                             ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
+
+  logic unused_imem_write;
+  assign unused_imem_write = ^{imem_req_wdata_i, imem_req_wstrb_i};
+
+  always_ff @(posedge clock or posedge reset) begin
+    if (reset) begin
+      state_q <= StateIdle;
+      owner_dmem_q <= 1'b0;
+      addr_q <= 32'b0;
+      wdata_q <= 32'b0;
+      wstrb_q <= 4'b0;
+      aw_sent_q <= 1'b0;
+      w_sent_q <= 1'b0;
+    end else begin
+      case (state_q)
+        StateIdle: begin
+          aw_sent_q <= 1'b0;
+          w_sent_q <= 1'b0;
+          if (dmem_req_valid_i) begin
+            owner_dmem_q <= 1'b1;
+            addr_q <= dmem_req_addr_i;
+            wdata_q <= dmem_req_wdata_i;
+            wstrb_q <= dmem_req_wstrb_i;
+            state_q <= (dmem_req_wstrb_i == 4'b0) ? StateReadAddress : StateWriteData;
+          end else if (imem_req_valid_i) begin
+            owner_dmem_q <= 1'b0;
+            addr_q <= imem_req_addr_i;
+            wdata_q <= imem_req_wdata_i;
+            wstrb_q <= imem_req_wstrb_i;
+            state_q <= (imem_req_wstrb_i == 4'b0) ? StateReadAddress : StateWriteData;
+          end
+        end
+        StateReadAddress: begin
+          if (m_arready_i) state_q <= StateReadResponse;
+        end
+        StateReadResponse: begin
+          if (m_rvalid_i && selected_rsp_ready) state_q <= StateIdle;
+        end
+        StateWriteData: begin
+          if (m_awready_i && m_awvalid_o) aw_sent_q <= 1'b1;
+          if (m_wready_i && m_wvalid_o) w_sent_q <= 1'b1;
+          if ((aw_sent_q || (m_awready_i && m_awvalid_o)) &&
+              (w_sent_q || (m_wready_i && m_wvalid_o)))
+            state_q <= StateWriteResponse;
+        end
+        StateWriteResponse: begin
+          if (m_bvalid_i && selected_rsp_ready) state_q <= StateIdle;
+        end
+        default: state_q <= StateIdle;
+      endcase
+    end
+  end
+
+endmodule

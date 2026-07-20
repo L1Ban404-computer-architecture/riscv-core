@@ -1,0 +1,6 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="1784517238" />
+    <testcase name="arbitration_channels_ids_and_errors" classname="test_corebus_axi4" file="/home/ban/ysyx-workbench/riscv-core/tests/corebus_axi4/test_corebus_axi4.py" lineno="40" time="0.0015742778778076172" sim_time_ns="121.0" ratio_time="76860.63668029684" />
+  </testsuite>
+</testsuites>

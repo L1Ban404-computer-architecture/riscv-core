@@ -57,7 +57,9 @@ IF -> ID -> EX -> MEM -> WB
 
 ## 3. 顶层结构
 
-`rtl/core/riscv_core.sv` 是结构化顶层。核心数据流和侧带通路如下：
+`rtl/core/riscv_core_impl.sv` 是流水线结构化实现；公开顶层
+`rtl/core/ysyx_25080230.sv` 将内部两路 CoreBus 串行为单路 AXI4 Master。
+核心数据流和侧带通路如下：
 
 ```text
                     CoreBus imem

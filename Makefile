@@ -16,8 +16,8 @@ test:
 	done
 
 verilator:
-	$(VERILATOR) --cc --build --sv \
+	$(VERILATOR) --cc --build --sv -Wno-UNOPTFLAT \
 		--Mdir $(VERILATOR_BUILD_DIR) \
-		--top-module riscv_core \
+		--top-module ysyx_25080230 \
 		--prefix $(VERILATOR_PREFIX) \
 		-f .slang/riscv_core.f
