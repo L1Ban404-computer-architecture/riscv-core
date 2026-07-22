@@ -47,7 +47,8 @@ module wb_stage_tb (
 
   mem_wb_bus_t mem_wb_bus;
   wb_req_bus_t wb_req;
-  core_debug_bus_t core_debug;
+  core_retire_debug_bus_t core_retire_debug;
+  core_state_update_bus_t core_state_update;
   csr_read_rsp_bus_t csr_read_rsp;
   pipeline_control_bus_t control;
 
@@ -74,19 +75,19 @@ module wb_stage_tb (
   assign wb_rd_addr_o = wb_req.rd_addr;
   assign wb_wdata_o = wb_req.wdata;
 
-  assign retire_valid_o = core_debug.valid;
-  assign retire_pc_o = core_debug.pc;
-  assign retire_instr_o = core_debug.instr;
-  assign retire_redirect_valid_o = core_debug.redirect_valid;
-  assign retire_redirect_target_pc_o = core_debug.redirect_target_pc;
-  assign retire_mem_req_valid_o = core_debug.mem_valid;
-  assign retire_mem_req_write_o = core_debug.mem_write;
-  assign retire_mem_req_size_o = core_debug.mem_size;
-  assign retire_mem_req_addr_o = core_debug.mem_addr;
-  assign retire_mem_req_wdata_o = core_debug.mem_wdata;
-  assign retire_gpr_we_o = core_debug.gpr_we;
-  assign retire_gpr_waddr_o = core_debug.gpr_waddr;
-  assign retire_gpr_wdata_o = core_debug.gpr_wdata;
+  assign retire_valid_o = core_retire_debug.valid;
+  assign retire_pc_o = core_retire_debug.pc;
+  assign retire_instr_o = core_retire_debug.instr;
+  assign retire_redirect_valid_o = core_retire_debug.redirect_valid;
+  assign retire_redirect_target_pc_o = core_retire_debug.redirect_target_pc;
+  assign retire_mem_req_valid_o = core_retire_debug.mem_valid;
+  assign retire_mem_req_write_o = core_retire_debug.mem_write;
+  assign retire_mem_req_size_o = core_retire_debug.mem_size;
+  assign retire_mem_req_addr_o = core_retire_debug.mem_addr;
+  assign retire_mem_req_wdata_o = core_retire_debug.mem_wdata;
+  assign retire_gpr_we_o = core_retire_debug.gpr_we;
+  assign retire_gpr_waddr_o = core_retire_debug.gpr_waddr;
+  assign retire_gpr_wdata_o = core_retire_debug.gpr_wdata;
 
   wb_stage u_dut (
     .clk_i,
@@ -98,7 +99,8 @@ module wb_stage_tb (
     .csr_read_rsp_o(csr_read_rsp),
     .control_o(control),
     .wb_req_o(wb_req),
-    .core_debug_o(core_debug)
+    .core_retire_debug_o(core_retire_debug),
+    .core_state_update_o(core_state_update)
   );
 
 endmodule

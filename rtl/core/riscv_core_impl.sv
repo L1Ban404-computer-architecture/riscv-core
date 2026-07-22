@@ -32,9 +32,10 @@ module riscv_core_impl #(
   output core_bus_req_t dmem_req_o,
   input core_bus_resp_t dmem_resp_i,
 
-  // core_debug_o 是面向仿真环境的扁平退休追踪总线。
-  // 当 core_debug_o.valid 为 1 时，表示 WB stage 本周期退休一条指令。
-  output core_debug_bus_t core_debug_o
+  // retire 总线只描述本周期退休事务；state 总线持续提供累计计数和
+  // 最近 trap 快照。两者均只供仿真观察，不参与功能控制。
+  output core_retire_debug_bus_t core_retire_debug_o,
+  output core_state_debug_bus_t core_state_debug_o
 );
 
   // ---------------------------------------------------------------------------
@@ -81,6 +82,28 @@ module riscv_core_impl #(
   wb_req_bus_t mem_wb_req;
   wb_req_bus_t mem_pending_wb_req[MemOutstandingDepth];
   wb_req_bus_t wb_wb_req;
+  core_retire_debug_bus_t core_retire_debug;
+  core_state_update_bus_t core_state_update;
+
+  // 两个对外 debug bus 都以“已完成的时钟沿”为观察边界。state bus 本身
+  // 就是 packed 状态寄存器，无需再为每个字段维护一份影子寄存器。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      core_retire_debug_o <= '0;
+      core_state_debug_o <= '0;
+    end else begin
+      core_retire_debug_o <= core_retire_debug;
+      core_state_debug_o.cycle_count <= core_state_debug_o.cycle_count + 64'd1;
+
+      if (core_state_update.valid) begin
+        core_state_debug_o.instret_count <= core_state_debug_o.instret_count + 64'd1;
+        core_state_debug_o.trap <= core_state_update.trap;
+        core_state_debug_o.intr <= core_state_update.intr;
+        core_state_debug_o.cause <= core_state_update.cause;
+        core_state_debug_o.tval <= core_state_update.tval;
+      end
+    end
+  end
 
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
   // 必须采用 WB 目标，年轻分支随后由后端 flush 清除。
@@ -179,7 +202,8 @@ module riscv_core_impl #(
     .csr_read_rsp_o(csr_read_rsp),
     .control_o(wb_control),
     .wb_req_o(wb_wb_req),
-    .core_debug_o(core_debug_o)
+    .core_retire_debug_o(core_retire_debug),
+    .core_state_update_o(core_state_update)
   );
 
 endmodule

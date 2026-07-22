@@ -57,11 +57,26 @@ typedef struct packed {
   word_t mem_wdata;
   logic redirect_valid;
   pc_t redirect_target_pc;
+  csr_state_bus_t csr;
+} core_retire_debug_bus_t;
+
+// WB 每次退休都产生一次状态更新；普通指令的 trap 字段全为零。
+typedef struct packed {
+  logic valid;
   logic trap;
   logic intr;
   word_t cause;
   word_t tval;
-  csr_state_bus_t csr;
-} core_debug_bus_t;
+} core_state_update_bus_t;
+
+// 面向仿真环境的持续状态快照，与单周期退休事务分离。
+typedef struct packed {
+  logic [63:0] cycle_count;
+  logic [63:0] instret_count;
+  logic trap;
+  logic intr;
+  word_t cause;
+  word_t tval;
+} core_state_debug_bus_t;
 
 `endif

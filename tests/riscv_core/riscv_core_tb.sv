@@ -43,22 +43,25 @@ module riscv_core_tb #(
   output logic debug_retire_gpr_we_o,
   output logic [4:0] debug_retire_gpr_waddr_o,
   output logic [31:0] debug_retire_gpr_wdata_o,
-  output logic debug_retire_trap_o,
-  output logic debug_retire_intr_o,
-  output logic [31:0] debug_retire_cause_o,
-  output logic [31:0] debug_retire_tval_o,
   output logic [31:0] debug_retire_mstatus_o,
   output logic [31:0] debug_retire_mtvec_o,
   output logic [31:0] debug_retire_mepc_o,
   output logic [31:0] debug_retire_mcause_o,
-  output logic [31:0] debug_retire_mtval_o
+  output logic [31:0] debug_retire_mtval_o,
+  output logic debug_state_trap_o,
+  output logic debug_state_intr_o,
+  output logic [31:0] debug_state_cause_o,
+  output logic [31:0] debug_state_tval_o,
+  output logic [63:0] debug_state_cycle_count_o,
+  output logic [63:0] debug_state_instret_count_o
 );
 
   core_bus_req_t imem_req;
   core_bus_resp_t imem_resp;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
-  core_debug_bus_t core_debug;
+  core_retire_debug_bus_t core_retire_debug;
+  core_state_debug_bus_t core_state_debug;
 
   assign imem_req_valid_o = imem_req.req_valid;
   assign imem_req_addr_o = imem_req.req.addr;
@@ -80,28 +83,30 @@ module riscv_core_tb #(
   assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
   assign dmem_resp.rsp.error = dmem_rsp_error_i;
 
-  assign debug_retire_valid_o = core_debug.valid;
-  assign debug_retire_pc_o = core_debug.pc;
-  assign debug_retire_instr_o = core_debug.instr;
-  assign debug_retire_redirect_valid_o = core_debug.redirect_valid;
-  assign debug_retire_redirect_target_o = core_debug.redirect_target_pc;
-  assign debug_retire_mem_valid_o = core_debug.mem_valid;
-  assign debug_retire_mem_write_o = core_debug.mem_write;
-  assign debug_retire_mem_size_o = core_debug.mem_size;
-  assign debug_retire_mem_addr_o = core_debug.mem_addr;
-  assign debug_retire_mem_wdata_o = core_debug.mem_wdata;
-  assign debug_retire_gpr_we_o = core_debug.gpr_we;
-  assign debug_retire_gpr_waddr_o = core_debug.gpr_waddr;
-  assign debug_retire_gpr_wdata_o = core_debug.gpr_wdata;
-  assign debug_retire_trap_o = core_debug.trap;
-  assign debug_retire_intr_o = core_debug.intr;
-  assign debug_retire_cause_o = core_debug.cause;
-  assign debug_retire_tval_o = core_debug.tval;
-  assign debug_retire_mstatus_o = core_debug.csr.mstatus;
-  assign debug_retire_mtvec_o = core_debug.csr.mtvec;
-  assign debug_retire_mepc_o = core_debug.csr.mepc;
-  assign debug_retire_mcause_o = core_debug.csr.mcause;
-  assign debug_retire_mtval_o = core_debug.csr.mtval;
+  assign debug_retire_valid_o = core_retire_debug.valid;
+  assign debug_retire_pc_o = core_retire_debug.pc;
+  assign debug_retire_instr_o = core_retire_debug.instr;
+  assign debug_retire_redirect_valid_o = core_retire_debug.redirect_valid;
+  assign debug_retire_redirect_target_o = core_retire_debug.redirect_target_pc;
+  assign debug_retire_mem_valid_o = core_retire_debug.mem_valid;
+  assign debug_retire_mem_write_o = core_retire_debug.mem_write;
+  assign debug_retire_mem_size_o = core_retire_debug.mem_size;
+  assign debug_retire_mem_addr_o = core_retire_debug.mem_addr;
+  assign debug_retire_mem_wdata_o = core_retire_debug.mem_wdata;
+  assign debug_retire_gpr_we_o = core_retire_debug.gpr_we;
+  assign debug_retire_gpr_waddr_o = core_retire_debug.gpr_waddr;
+  assign debug_retire_gpr_wdata_o = core_retire_debug.gpr_wdata;
+  assign debug_retire_mstatus_o = core_retire_debug.csr.mstatus;
+  assign debug_retire_mtvec_o = core_retire_debug.csr.mtvec;
+  assign debug_retire_mepc_o = core_retire_debug.csr.mepc;
+  assign debug_retire_mcause_o = core_retire_debug.csr.mcause;
+  assign debug_retire_mtval_o = core_retire_debug.csr.mtval;
+  assign debug_state_trap_o = core_state_debug.trap;
+  assign debug_state_intr_o = core_state_debug.intr;
+  assign debug_state_cause_o = core_state_debug.cause;
+  assign debug_state_tval_o = core_state_debug.tval;
+  assign debug_state_cycle_count_o = core_state_debug.cycle_count;
+  assign debug_state_instret_count_o = core_state_debug.instret_count;
 
   riscv_core_impl #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
@@ -115,7 +120,8 @@ module riscv_core_tb #(
     .imem_resp_i(imem_resp),
     .dmem_req_o(dmem_req),
     .dmem_resp_i(dmem_resp),
-    .core_debug_o(core_debug)
+    .core_retire_debug_o(core_retire_debug),
+    .core_state_debug_o(core_state_debug)
   );
 
 endmodule

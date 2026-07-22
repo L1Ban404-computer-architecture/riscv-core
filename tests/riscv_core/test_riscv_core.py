@@ -591,6 +591,11 @@ async def reset_dut(dut):
     dut.dmem_rsp_error_i.value = 0
     for _ in range(4):
         await RisingEdge(dut.clk_i)
+        await ReadOnly()
+        assert int(dut.debug_state_cycle_count_o.value) == 0
+        assert int(dut.debug_state_instret_count_o.value) == 0
+        assert int(dut.debug_state_trap_o.value) == 0
+        await Timer(1, unit="ns")
     dut.rst_ni.value = 1
 
 
@@ -616,7 +621,9 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
     for cycle in range(2000):
         await RisingEdge(dut.clk_i)
         await ReadOnly()
+        assert int(dut.debug_state_cycle_count_o.value) == cycle + 1
         if not int(dut.debug_retire_valid_o.value):
+            assert int(dut.debug_state_instret_count_o.value) == reference.retired
             continue
 
         pc = int(dut.debug_retire_pc_o.value)
@@ -626,6 +633,10 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
             check_equal(pc, reference.pc, "retirement PC", pc, instr)
             check_equal(instr, reference.memory.read_word(pc), "retirement instruction", pc, instr)
             expected = reference.execute(instr)
+            check_equal(
+                int(dut.debug_state_instret_count_o.value), reference.retired,
+                "retirement counter", pc, instr,
+            )
 
             check_equal(int(dut.debug_retire_gpr_we_o.value), int(expected.wb_valid), "GPR write enable", pc, instr)
             if expected.wb_valid:
@@ -831,10 +842,15 @@ async def synchronous_exceptions_report_precise_cause_and_tval(dut):
         20: (0, 22),
     }
     observed = {}
+    held_trap = None
     for _ in range(1200):
         await RisingEdge(dut.clk_i)
         await ReadOnly()
         if not int(dut.debug_retire_valid_o.value):
+            if held_trap is not None:
+                assert int(dut.debug_state_trap_o.value) == 1
+                assert int(dut.debug_state_cause_o.value) == held_trap[0]
+                assert int(dut.debug_state_tval_o.value) == held_trap[1]
             continue
         pc = int(dut.debug_retire_pc_o.value)
         if pc in expected:
@@ -844,10 +860,25 @@ async def synchronous_exceptions_report_precise_cause_and_tval(dut):
             )
             assert int(dut.debug_retire_gpr_we_o.value) == 0
             assert int(dut.debug_retire_mem_valid_o.value) == 0
+            assert int(dut.debug_state_trap_o.value) == 1
+            assert int(dut.debug_state_intr_o.value) == 0
+            assert int(dut.debug_state_cause_o.value) == expected[pc][0]
+            assert int(dut.debug_state_tval_o.value) == expected[pc][1]
+            held_trap = expected[pc]
+        elif held_trap is not None:
+            assert int(dut.debug_state_trap_o.value) == 0
+            assert int(dut.debug_state_intr_o.value) == 0
+            assert int(dut.debug_state_cause_o.value) == 0
+            assert int(dut.debug_state_tval_o.value) == 0
+            held_trap = None
         if pc == 24:
             assert int(dut.debug_retire_gpr_we_o.value) == 1
             assert int(dut.debug_retire_gpr_waddr_o.value) == 10
             assert int(dut.debug_retire_gpr_wdata_o.value) == 9
+            assert int(dut.debug_state_trap_o.value) == 0
+            assert int(dut.debug_state_intr_o.value) == 0
+            assert int(dut.debug_state_cause_o.value) == 0
+            assert int(dut.debug_state_tval_o.value) == 0
             break
     else:
         raise AssertionError("synchronous exception program did not complete")

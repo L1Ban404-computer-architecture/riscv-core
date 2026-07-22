@@ -73,7 +73,8 @@ module ysyx_25080230 (
   core_bus_resp_t imem_resp;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
-  core_debug_bus_t core_debug;
+  core_retire_debug_bus_t core_retire_debug;
+  core_state_debug_bus_t core_state_debug;
 
   logic        debug_retire_valid           /* verilator public_flat_rd */;
   logic [31:0] debug_retire_pc              /* verilator public_flat_rd */;
@@ -88,38 +89,42 @@ module ysyx_25080230 (
   logic        debug_retire_gpr_we          /* verilator public_flat_rd */;
   logic [4:0]  debug_retire_gpr_waddr       /* verilator public_flat_rd */;
   logic [31:0] debug_retire_gpr_wdata       /* verilator public_flat_rd */;
-  logic        debug_retire_trap            /* verilator public_flat_rd */;
-  logic        debug_retire_intr            /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_cause           /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_tval            /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mstatus         /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mtvec           /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mepc            /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mcause          /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mtval           /* verilator public_flat_rd */;
+  logic        debug_state_trap             /* verilator public_flat_rd */;
+  logic        debug_state_intr             /* verilator public_flat_rd */;
+  logic [31:0] debug_state_cause            /* verilator public_flat_rd */;
+  logic [31:0] debug_state_tval             /* verilator public_flat_rd */;
+  logic [63:0] debug_state_cycle_count      /* verilator public_flat_rd */;
+  logic [63:0] debug_state_instret_count    /* verilator public_flat_rd */;
 
-  assign debug_retire_valid = core_debug.valid;
-  assign debug_retire_pc = core_debug.pc;
-  assign debug_retire_instr = core_debug.instr;
-  assign debug_retire_redirect_valid = core_debug.redirect_valid;
-  assign debug_retire_redirect_target = core_debug.redirect_target_pc;
-  assign debug_retire_mem_valid = core_debug.mem_valid;
-  assign debug_retire_mem_write = core_debug.mem_write;
-  assign debug_retire_mem_size = core_debug.mem_size;
-  assign debug_retire_mem_addr = core_debug.mem_addr;
-  assign debug_retire_mem_wdata = core_debug.mem_wdata;
-  assign debug_retire_gpr_we = core_debug.gpr_we;
-  assign debug_retire_gpr_waddr = core_debug.gpr_waddr;
-  assign debug_retire_gpr_wdata = core_debug.gpr_wdata;
-  assign debug_retire_trap = core_debug.trap;
-  assign debug_retire_intr = core_debug.intr;
-  assign debug_retire_cause = core_debug.cause;
-  assign debug_retire_tval = core_debug.tval;
-  assign debug_retire_mstatus = core_debug.csr.mstatus;
-  assign debug_retire_mtvec = core_debug.csr.mtvec;
-  assign debug_retire_mepc = core_debug.csr.mepc;
-  assign debug_retire_mcause = core_debug.csr.mcause;
-  assign debug_retire_mtval = core_debug.csr.mtval;
+  assign debug_retire_valid = core_retire_debug.valid;
+  assign debug_retire_pc = core_retire_debug.pc;
+  assign debug_retire_instr = core_retire_debug.instr;
+  assign debug_retire_redirect_valid = core_retire_debug.redirect_valid;
+  assign debug_retire_redirect_target = core_retire_debug.redirect_target_pc;
+  assign debug_retire_mem_valid = core_retire_debug.mem_valid;
+  assign debug_retire_mem_write = core_retire_debug.mem_write;
+  assign debug_retire_mem_size = core_retire_debug.mem_size;
+  assign debug_retire_mem_addr = core_retire_debug.mem_addr;
+  assign debug_retire_mem_wdata = core_retire_debug.mem_wdata;
+  assign debug_retire_gpr_we = core_retire_debug.gpr_we;
+  assign debug_retire_gpr_waddr = core_retire_debug.gpr_waddr;
+  assign debug_retire_gpr_wdata = core_retire_debug.gpr_wdata;
+  assign debug_retire_mstatus = core_retire_debug.csr.mstatus;
+  assign debug_retire_mtvec = core_retire_debug.csr.mtvec;
+  assign debug_retire_mepc = core_retire_debug.csr.mepc;
+  assign debug_retire_mcause = core_retire_debug.csr.mcause;
+  assign debug_retire_mtval = core_retire_debug.csr.mtval;
+  assign debug_state_trap = core_state_debug.trap;
+  assign debug_state_intr = core_state_debug.intr;
+  assign debug_state_cause = core_state_debug.cause;
+  assign debug_state_tval = core_state_debug.tval;
+  assign debug_state_cycle_count = core_state_debug.cycle_count;
+  assign debug_state_instret_count = core_state_debug.instret_count;
 
   assign io_slave_awready = 1'b0;
   assign io_slave_wready = 1'b0;
@@ -150,7 +155,8 @@ module ysyx_25080230 (
     .imem_resp_i(imem_resp),
     .dmem_req_o(dmem_req),
     .dmem_resp_i(dmem_resp),
-    .core_debug_o(core_debug)
+    .core_retire_debug_o(core_retire_debug),
+    .core_state_debug_o(core_state_debug)
   );
 
   corebus_axi4 u_axi4 (
