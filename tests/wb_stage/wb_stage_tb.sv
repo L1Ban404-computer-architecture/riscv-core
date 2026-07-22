@@ -42,13 +42,17 @@ module wb_stage_tb (
   output logic [31:0] retire_mem_req_wdata_o,
   output logic retire_gpr_we_o,
   output logic [4:0] retire_gpr_waddr_o,
-  output logic [31:0] retire_gpr_wdata_o
+  output logic [31:0] retire_gpr_wdata_o,
+  output logic [63:0] state_cycle_count_o,
+  output logic [63:0] state_instret_count_o,
+  output logic state_trap_o
 );
 
   mem_wb_bus_t mem_wb_bus;
   wb_req_bus_t wb_req;
+  logic core_retire_valid;
   core_retire_debug_bus_t core_retire_debug;
-  core_state_update_bus_t core_state_update;
+  core_state_debug_bus_t core_state_debug;
   csr_read_rsp_bus_t csr_read_rsp;
   pipeline_control_bus_t control;
 
@@ -75,7 +79,7 @@ module wb_stage_tb (
   assign wb_rd_addr_o = wb_req.rd_addr;
   assign wb_wdata_o = wb_req.wdata;
 
-  assign retire_valid_o = core_retire_debug.valid;
+  assign retire_valid_o = core_retire_valid;
   assign retire_pc_o = core_retire_debug.pc;
   assign retire_instr_o = core_retire_debug.instr;
   assign retire_redirect_valid_o = core_retire_debug.redirect_valid;
@@ -88,6 +92,9 @@ module wb_stage_tb (
   assign retire_gpr_we_o = core_retire_debug.gpr_we;
   assign retire_gpr_waddr_o = core_retire_debug.gpr_waddr;
   assign retire_gpr_wdata_o = core_retire_debug.gpr_wdata;
+  assign state_cycle_count_o = core_state_debug.cycle_count;
+  assign state_instret_count_o = core_state_debug.instret_count;
+  assign state_trap_o = core_state_debug.trap;
 
   wb_stage u_dut (
     .clk_i,
@@ -99,8 +106,9 @@ module wb_stage_tb (
     .csr_read_rsp_o(csr_read_rsp),
     .control_o(control),
     .wb_req_o(wb_req),
+    .core_retire_valid_o(core_retire_valid),
     .core_retire_debug_o(core_retire_debug),
-    .core_state_update_o(core_state_update)
+    .core_state_debug_o(core_state_debug)
   );
 
 endmodule

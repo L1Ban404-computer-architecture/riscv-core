@@ -618,16 +618,24 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
     await reset_dut(dut)
 
     trace = deque(maxlen=12)
+    last_state_cycle = 0
+    last_retire_payload = None
     for cycle in range(2000):
         await RisingEdge(dut.clk_i)
         await ReadOnly()
-        assert int(dut.debug_state_cycle_count_o.value) == cycle + 1
         if not int(dut.debug_retire_valid_o.value):
+            assert int(dut.debug_state_cycle_count_o.value) == last_state_cycle
             assert int(dut.debug_state_instret_count_o.value) == reference.retired
+            if last_retire_payload is not None:
+                assert int(dut.debug_retire_pc_o.value) == last_retire_payload[0]
+                assert int(dut.debug_retire_instr_o.value) == last_retire_payload[1]
             continue
 
         pc = int(dut.debug_retire_pc_o.value)
         instr = int(dut.debug_retire_instr_o.value)
+        last_state_cycle = cycle + 1
+        last_retire_payload = (pc, instr)
+        assert int(dut.debug_state_cycle_count_o.value) == last_state_cycle
         trace.append((pc, instr))
         try:
             check_equal(pc, reference.pc, "retirement PC", pc, instr)

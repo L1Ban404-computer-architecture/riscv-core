@@ -43,8 +43,7 @@ typedef struct packed {
 } mem_debug_bus_t;
 
 typedef struct packed {
-  // 面向上层仿真环境的退休追踪总线。valid 为 1 表示本周期退休一条指令。
-  logic valid;
+  // 面向上层仿真环境的最后一次退休指令快照；有效脉冲由独立信号提供。
   pc_t pc;
   instr_t instr;
   logic gpr_we;
@@ -60,16 +59,7 @@ typedef struct packed {
   csr_state_bus_t csr;
 } core_retire_debug_bus_t;
 
-// WB 每次退休都产生一次状态更新；普通指令的 trap 字段全为零。
-typedef struct packed {
-  logic valid;
-  logic trap;
-  logic intr;
-  word_t cause;
-  word_t tval;
-} core_state_update_bus_t;
-
-// 面向仿真环境的持续状态快照，与单周期退休事务分离。
+// 面向仿真环境的最后一次退休状态快照，与退休有效脉冲分离。
 typedef struct packed {
   logic [63:0] cycle_count;
   logic [63:0] instret_count;

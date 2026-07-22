@@ -18,8 +18,9 @@ module wb_stage (
   output pipeline_control_bus_t control_o,
 
   output wb_req_bus_t wb_req_o,
+  output logic core_retire_valid_o,
   output core_retire_debug_bus_t core_retire_debug_o,
-  output core_state_update_bus_t core_state_update_o
+  output core_state_debug_bus_t core_state_debug_o
 );
 
   logic wb_fire;
@@ -29,6 +30,7 @@ module wb_stage (
   csr_write_bus_t csr_write;
   csr_state_bus_t csr_state;
   csr_state_bus_t csr_current_state;
+  logic [63:0] debug_cycle_count_q;
 
   // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
   // wb_fire 门控，避免无效 MEM/WB payload 产生副作用。
@@ -73,38 +75,45 @@ module wb_stage (
     if (wb_fire && !trap_commit && !mret_commit) wb_req_o = mem_wb_bus_i.wb_req;
   end
 
-  // Trace 是提交结果的纯观察者，与 CSR 下一状态计算分块，避免观察通路被综合器
-  // 误认为会反向影响 trap/CSR 控制。
-  always_comb begin
-    core_retire_debug_o = '0;
-    core_retire_debug_o.csr = csr_state;
-    core_state_update_o = '0;
+  // valid 每周期指示是否发生退休；两个结构体只在退休沿更新并保持最后一次
+  // 退休快照。周期计数器独立运行，退休时采样包含当前提交沿的周期号。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      debug_cycle_count_q <= '0;
+      core_retire_valid_o <= 1'b0;
+      core_retire_debug_o <= '0;
+      core_state_debug_o <= '0;
+    end else begin
+      debug_cycle_count_q <= debug_cycle_count_q + 64'd1;
+      core_retire_valid_o <= wb_fire;
 
-    if (wb_fire) begin
-      core_retire_debug_o.valid = 1'b1;
-      core_retire_debug_o.pc = mem_wb_bus_i.debug.pc;
-      core_retire_debug_o.instr = mem_wb_bus_i.debug.instr;
-      core_retire_debug_o.gpr_we = wb_req_o.valid && wb_req_o.data_valid;
-      core_retire_debug_o.gpr_waddr = wb_req_o.rd_addr;
-      core_retire_debug_o.gpr_wdata = wb_req_o.wdata;
-      core_retire_debug_o.mem_valid = mem_wb_bus_i.debug.mem_valid && !trap_commit && !mret_commit;
-      core_retire_debug_o.mem_write = mem_wb_bus_i.debug.mem_write;
-      core_retire_debug_o.mem_size = mem_wb_bus_i.debug.mem_size;
-      core_retire_debug_o.mem_addr = mem_wb_bus_i.debug.mem_addr;
-      core_retire_debug_o.mem_wdata = mem_wb_bus_i.debug.mem_wdata;
-      core_retire_debug_o.redirect_valid = mem_wb_bus_i.debug.redirect_valid;
-      core_retire_debug_o.redirect_target_pc = mem_wb_bus_i.debug.redirect_target_pc;
+      if (wb_fire) begin
+        core_retire_debug_o <= '{
+          pc: mem_wb_bus_i.debug.pc,
+          instr: mem_wb_bus_i.debug.instr,
+          gpr_we: wb_req_o.valid && wb_req_o.data_valid,
+          gpr_waddr: wb_req_o.rd_addr,
+          gpr_wdata: wb_req_o.wdata,
+          mem_valid: mem_wb_bus_i.debug.mem_valid && !trap_commit && !mret_commit,
+          mem_write: mem_wb_bus_i.debug.mem_write,
+          mem_size: mem_wb_bus_i.debug.mem_size,
+          mem_addr: mem_wb_bus_i.debug.mem_addr,
+          mem_wdata: mem_wb_bus_i.debug.mem_wdata,
+          redirect_valid: control_o.redirect.valid || mem_wb_bus_i.debug.redirect_valid,
+          redirect_target_pc: control_o.redirect.valid ?
+              control_o.redirect.target_pc : mem_wb_bus_i.debug.redirect_target_pc,
+          csr: csr_state
+        };
 
-      core_state_update_o.valid = 1'b1;
-      core_state_update_o.trap = trap_commit;
-      core_state_update_o.intr = trap_commit && effective_exception.is_interrupt;
-      core_state_update_o.cause = trap_commit ?
-          {{(XLen-4) {1'b0}}, effective_exception.cause} : '0;
-      core_state_update_o.tval = trap_commit ? effective_exception.tval : '0;
-
-      if (control_o.redirect.valid) begin
-        core_retire_debug_o.redirect_valid = 1'b1;
-        core_retire_debug_o.redirect_target_pc = control_o.redirect.target_pc;
+        core_state_debug_o <= '{
+          cycle_count: debug_cycle_count_q + 64'd1,
+          instret_count: core_state_debug_o.instret_count + 64'd1,
+          trap: trap_commit,
+          intr: trap_commit && effective_exception.is_interrupt,
+          cause: trap_commit ?
+              {{(XLen-4) {1'b0}}, effective_exception.cause} : '0,
+          tval: trap_commit ? effective_exception.tval : '0
+        };
       end
     end
   end

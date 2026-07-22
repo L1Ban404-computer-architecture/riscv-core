@@ -60,6 +60,7 @@ module riscv_core_tb #(
   core_bus_resp_t imem_resp;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
+  logic core_retire_valid;
   core_retire_debug_bus_t core_retire_debug;
   core_state_debug_bus_t core_state_debug;
 
@@ -83,7 +84,7 @@ module riscv_core_tb #(
   assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
   assign dmem_resp.rsp.error = dmem_rsp_error_i;
 
-  assign debug_retire_valid_o = core_retire_debug.valid;
+  assign debug_retire_valid_o = core_retire_valid;
   assign debug_retire_pc_o = core_retire_debug.pc;
   assign debug_retire_instr_o = core_retire_debug.instr;
   assign debug_retire_redirect_valid_o = core_retire_debug.redirect_valid;
@@ -120,6 +121,7 @@ module riscv_core_tb #(
     .imem_resp_i(imem_resp),
     .dmem_req_o(dmem_req),
     .dmem_resp_i(dmem_resp),
+    .core_retire_valid_o(core_retire_valid),
     .core_retire_debug_o(core_retire_debug),
     .core_state_debug_o(core_state_debug)
   );

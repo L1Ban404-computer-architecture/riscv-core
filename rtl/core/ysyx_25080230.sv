@@ -73,10 +73,10 @@ module ysyx_25080230 (
   core_bus_resp_t imem_resp;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
+  logic core_retire_valid /* verilator public_flat_rd */;
   core_retire_debug_bus_t core_retire_debug;
   core_state_debug_bus_t core_state_debug;
 
-  logic        debug_retire_valid           /* verilator public_flat_rd */;
   logic [31:0] debug_retire_pc              /* verilator public_flat_rd */;
   logic [31:0] debug_retire_instr           /* verilator public_flat_rd */;
   logic        debug_retire_redirect_valid  /* verilator public_flat_rd */;
@@ -101,7 +101,6 @@ module ysyx_25080230 (
   logic [63:0] debug_state_cycle_count      /* verilator public_flat_rd */;
   logic [63:0] debug_state_instret_count    /* verilator public_flat_rd */;
 
-  assign debug_retire_valid = core_retire_debug.valid;
   assign debug_retire_pc = core_retire_debug.pc;
   assign debug_retire_instr = core_retire_debug.instr;
   assign debug_retire_redirect_valid = core_retire_debug.redirect_valid;
@@ -155,6 +154,7 @@ module ysyx_25080230 (
     .imem_resp_i(imem_resp),
     .dmem_req_o(dmem_req),
     .dmem_resp_i(dmem_resp),
+    .core_retire_valid_o(core_retire_valid),
     .core_retire_debug_o(core_retire_debug),
     .core_state_debug_o(core_state_debug)
   );

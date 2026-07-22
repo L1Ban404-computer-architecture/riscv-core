@@ -3,7 +3,7 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import FallingEdge, ReadOnly, RisingEdge
 
 
 MASK32 = 0xFFFFFFFF
@@ -56,13 +56,17 @@ def assert_zeroed_outputs(dut):
     assert int(dut.retire_pc_o.value) == 0
     assert int(dut.retire_instr_o.value) == 0
     assert int(dut.retire_gpr_we_o.value) == 0
+    assert int(dut.state_cycle_count_o.value) == 0
+    assert int(dut.state_instret_count_o.value) == 0
+    assert int(dut.state_trap_o.value) == 0
 
 
 @cocotb.test()
 async def valid_transaction_writes_back_and_flattens_debug(dut):
     await reset_dut(dut)
     drive_payload(dut)
-    await Timer(1, unit="ns")
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
 
     assert int(dut.mem_wb_ready_o.value) == 1
     assert int(dut.wb_valid_o.value) == 1
@@ -83,6 +87,8 @@ async def valid_transaction_writes_back_and_flattens_debug(dut):
     assert int(dut.retire_gpr_we_o.value) == 1
     assert int(dut.retire_gpr_waddr_o.value) == 7
     assert int(dut.retire_gpr_wdata_o.value) == 0x12345678
+    assert int(dut.state_cycle_count_o.value) == 2
+    assert int(dut.state_instret_count_o.value) == 1
 
 
 @cocotb.test()
@@ -97,7 +103,8 @@ async def instruction_without_register_write_still_retires(dut):
         pc=0x80000020,
         instr=0x00B52023,
     )
-    await Timer(1, unit="ns")
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
 
     assert int(dut.mem_wb_ready_o.value) == 1
     assert int(dut.retire_valid_o.value) == 1
@@ -111,18 +118,54 @@ async def instruction_without_register_write_still_retires(dut):
 async def bubble_masks_stale_payload(dut):
     await reset_dut(dut)
     drive_payload(dut, valid=0)
-    await Timer(1, unit="ns")
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
 
     assert int(dut.mem_wb_ready_o.value) == 1
     assert_zeroed_outputs(dut)
 
+    await FallingEdge(dut.clk_i)
     drive_payload(dut, valid=1, wb_rd=0, wb_data=0xFFFFFFFF)
-    await Timer(1, unit="ns")
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
     # WB preserves the request semantics; the register file owns x0 filtering.
     assert int(dut.wb_valid_o.value) == 1
     assert int(dut.wb_rd_addr_o.value) == 0
     assert int(dut.retire_valid_o.value) == 1
 
+    await FallingEdge(dut.clk_i)
     dut.mem_wb_valid_i.value = 0
-    await Timer(1, unit="ns")
-    assert_zeroed_outputs(dut)
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
+    assert int(dut.wb_valid_o.value) == 0
+    assert int(dut.retire_valid_o.value) == 0
+    assert int(dut.retire_pc_o.value) == 0x80000000
+    assert int(dut.retire_instr_o.value) == 0x00C585B3
+    assert int(dut.retire_gpr_waddr_o.value) == 0
+    assert int(dut.retire_gpr_wdata_o.value) == 0xFFFFFFFF
+    assert int(dut.state_cycle_count_o.value) == 3
+    assert int(dut.state_instret_count_o.value) == 1
+
+
+@cocotb.test()
+async def consecutive_retirements_keep_valid_high_and_replace_snapshots(dut):
+    await reset_dut(dut)
+    drive_payload(dut, pc=0x80000000, instr=0x00100093, wb_rd=1, wb_data=1)
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
+    assert int(dut.retire_valid_o.value) == 1
+    assert int(dut.retire_pc_o.value) == 0x80000000
+    assert int(dut.state_cycle_count_o.value) == 2
+    assert int(dut.state_instret_count_o.value) == 1
+
+    await FallingEdge(dut.clk_i)
+    drive_payload(dut, pc=0x80000004, instr=0x00200113, wb_rd=2, wb_data=2)
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
+    assert int(dut.retire_valid_o.value) == 1
+    assert int(dut.retire_pc_o.value) == 0x80000004
+    assert int(dut.retire_instr_o.value) == 0x00200113
+    assert int(dut.retire_gpr_waddr_o.value) == 2
+    assert int(dut.retire_gpr_wdata_o.value) == 2
+    assert int(dut.state_cycle_count_o.value) == 3
+    assert int(dut.state_instret_count_o.value) == 2
