@@ -10,11 +10,12 @@
 // 顺序事务接口。每周期最多接受一个请求，但允许存在多个 outstanding 请求；
 // slave 必须为每个请求（包括写请求）按接受顺序返回且只返回一个响应。
 //
-// 固定字宽访问不携带 size。读请求读取 addr 所在的完整总线字，load 的
-// byte/half 选择和符号扩展由 MEM 根据流水线元数据完成。wstrb 全 0 表示读，
-// 非 0 表示写；写数据已经按照目标 byte lane 对齐。
+// 请求携带完整有效地址与访问宽度。write 独立表示事务方向，wstrb 只表示
+// 写请求的有效 byte lane；写数据和窄读响应均按照 addr 对应的总线 lane 对齐。
 typedef struct packed {
   word_t addr;
+  logic write;
+  mem_size_e size;
   word_t wdata;
   byte_en_t wstrb;
 } core_bus_req_chan_t;

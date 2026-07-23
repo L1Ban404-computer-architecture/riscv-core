@@ -11,6 +11,8 @@ module corebus_axi4 (
   input  logic        imem_req_valid_i,
   output logic        imem_req_ready_o,
   input  logic [31:0] imem_req_addr_i,
+  input  logic        imem_req_write_i,
+  input  logic [1:0]  imem_req_size_i,
   input  logic [31:0] imem_req_wdata_i,
   input  logic [3:0]  imem_req_wstrb_i,
   output logic        imem_rsp_valid_o,
@@ -21,6 +23,8 @@ module corebus_axi4 (
   input  logic        dmem_req_valid_i,
   output logic        dmem_req_ready_o,
   input  logic [31:0] dmem_req_addr_i,
+  input  logic        dmem_req_write_i,
+  input  logic [1:0]  dmem_req_size_i,
   input  logic [31:0] dmem_req_wdata_i,
   input  logic [3:0]  dmem_req_wstrb_i,
   output logic        dmem_rsp_valid_o,
@@ -70,6 +74,7 @@ module corebus_axi4 (
   state_e state_q;
   logic owner_dmem_q;
   logic [31:0] addr_q;
+  logic [1:0] size_q;
   logic [31:0] wdata_q;
   logic [3:0] wstrb_q;
   logic aw_sent_q;
@@ -91,7 +96,7 @@ module corebus_axi4 (
   assign m_awaddr_o = addr_q;
   assign m_awid_o = 4'd1;
   assign m_awlen_o = 8'd0;
-  assign m_awsize_o = 3'd2;
+  assign m_awsize_o = {1'b0, size_q};
   assign m_awburst_o = 2'b01;
 
   assign m_wvalid_o = (state_q == StateWriteData) && !w_sent_q;
@@ -104,7 +109,7 @@ module corebus_axi4 (
   assign m_araddr_o = addr_q;
   assign m_arid_o = owner_dmem_q ? 4'd1 : 4'd0;
   assign m_arlen_o = 8'd0;
-  assign m_arsize_o = 3'd2;
+  assign m_arsize_o = {1'b0, size_q};
   assign m_arburst_o = 2'b01;
   assign m_rready_o = (state_q == StateReadResponse) && selected_rsp_ready;
 
@@ -123,14 +128,15 @@ module corebus_axi4 (
                             (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
                              ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
 
-  logic unused_imem_write;
-  assign unused_imem_write = ^{imem_req_wdata_i, imem_req_wstrb_i};
+  logic unused_imem_payload;
+  assign unused_imem_payload = ^{imem_req_wdata_i, imem_req_wstrb_i};
 
   always_ff @(posedge clock or posedge reset) begin
     if (reset) begin
       state_q <= StateIdle;
       owner_dmem_q <= 1'b0;
       addr_q <= 32'b0;
+      size_q <= 2'b0;
       wdata_q <= 32'b0;
       wstrb_q <= 4'b0;
       aw_sent_q <= 1'b0;
@@ -143,15 +149,17 @@ module corebus_axi4 (
           if (dmem_req_valid_i) begin
             owner_dmem_q <= 1'b1;
             addr_q <= dmem_req_addr_i;
+            size_q <= dmem_req_size_i;
             wdata_q <= dmem_req_wdata_i;
             wstrb_q <= dmem_req_wstrb_i;
-            state_q <= (dmem_req_wstrb_i == 4'b0) ? StateReadAddress : StateWriteData;
+            state_q <= dmem_req_write_i ? StateWriteData : StateReadAddress;
           end else if (imem_req_valid_i) begin
             owner_dmem_q <= 1'b0;
             addr_q <= imem_req_addr_i;
+            size_q <= imem_req_size_i;
             wdata_q <= imem_req_wdata_i;
             wstrb_q <= imem_req_wstrb_i;
-            state_q <= (imem_req_wstrb_i == 4'b0) ? StateReadAddress : StateWriteData;
+            state_q <= imem_req_write_i ? StateWriteData : StateReadAddress;
           end
         end
         StateReadAddress: begin

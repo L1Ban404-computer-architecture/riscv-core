@@ -57,7 +57,8 @@ make test ALL=riscv_core WAVE=vcd
 - 响应到达时，同周期完成旧响应 pop 和新请求 push。
 
 模型记录请求、响应和写事务历史。它还检查请求及被背压响应的 valid/payload
-稳定性、请求/响应计数、字对齐、读请求零 `wdata`，以及 IF 永不写。失败信息会
+稳定性、请求/响应计数、按 size 自然对齐、读请求零 `wdata/wstrb`，以及 IF
+固定 word read。失败信息会
 附带最近的退休记录及取指请求/响应地址，便于区分“流水线 PC 错误”和“总线模型
 配对错误”。
 

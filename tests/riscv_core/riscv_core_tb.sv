@@ -13,6 +13,8 @@ module riscv_core_tb #(
   output logic imem_req_valid_o,
   input logic imem_req_ready_i,
   output logic [31:0] imem_req_addr_o,
+  output logic imem_req_write_o,
+  output logic [1:0] imem_req_size_o,
   output logic [31:0] imem_req_wdata_o,
   output logic [3:0] imem_req_wstrb_o,
   input logic imem_rsp_valid_i,
@@ -23,6 +25,8 @@ module riscv_core_tb #(
   output logic dmem_req_valid_o,
   input logic dmem_req_ready_i,
   output logic [31:0] dmem_req_addr_o,
+  output logic dmem_req_write_o,
+  output logic [1:0] dmem_req_size_o,
   output logic [31:0] dmem_req_wdata_o,
   output logic [3:0] dmem_req_wstrb_o,
   input logic dmem_rsp_valid_i,
@@ -65,6 +69,8 @@ module riscv_core_tb #(
 
   assign imem_req_valid_o = imem_req.req_valid;
   assign imem_req_addr_o = imem_req.req.addr;
+  assign imem_req_write_o = imem_req.req.write;
+  assign imem_req_size_o = imem_req.req.size;
   assign imem_req_wdata_o = imem_req.req.wdata;
   assign imem_req_wstrb_o = imem_req.req.wstrb;
   assign imem_rsp_ready_o = imem_req.rsp_ready;
@@ -75,6 +81,8 @@ module riscv_core_tb #(
 
   assign dmem_req_valid_o = dmem_req.req_valid;
   assign dmem_req_addr_o = dmem_req.req.addr;
+  assign dmem_req_write_o = dmem_req.req.write;
+  assign dmem_req_size_o = dmem_req.req.size;
   assign dmem_req_wdata_o = dmem_req.req.wdata;
   assign dmem_req_wstrb_o = dmem_req.req.wstrb;
   assign dmem_rsp_ready_o = dmem_req.rsp_ready;

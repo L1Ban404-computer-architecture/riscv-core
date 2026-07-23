@@ -27,6 +27,8 @@ async def read_request_monitor(dut):
     while True:
         await ReadOnly()
         if int(dut.rst_ni.value):
+            assert int(dut.imem_req_write_o.value) == 0
+            assert int(dut.imem_req_size_o.value) == 2
             assert int(dut.imem_req_wdata_o.value) == 0
             assert int(dut.imem_req_wstrb_o.value) == 0
             if int(dut.imem_req_valid_o.value):
@@ -106,6 +108,8 @@ async def wait_cycles(dut, count):
 async def accept_requests(dut, count, ready_pattern=None, check_stable=True):
     accepted = []
     wait_addr = None
+    wait_write = None
+    wait_size = None
     wait_wdata = None
     wait_wstrb = None
 
@@ -116,26 +120,36 @@ async def accept_requests(dut, count, ready_pattern=None, check_stable=True):
         await ReadOnly()
         valid = int(dut.imem_req_valid_o.value)
         addr = int(dut.imem_req_addr_o.value)
+        write = int(dut.imem_req_write_o.value)
+        size = int(dut.imem_req_size_o.value)
         wdata = int(dut.imem_req_wdata_o.value)
         wstrb = int(dut.imem_req_wstrb_o.value)
 
         if check_stable and wait_addr is not None:
             assert valid == 1, "request valid dropped before handshake"
             assert addr == wait_addr, "request addr changed before handshake"
+            assert write == wait_write, "request write changed before handshake"
+            assert size == wait_size, "request size changed before handshake"
             assert wdata == wait_wdata, "request wdata changed before handshake"
             assert wstrb == wait_wstrb, "request wstrb changed before handshake"
 
         if valid and not ready:
             if wait_addr is None:
                 wait_addr = addr
+                wait_write = write
+                wait_size = size
                 wait_wdata = wdata
                 wait_wstrb = wstrb
 
         if valid and ready:
             accepted.append(addr)
+            assert write == 0
+            assert size == 2
             assert wdata == 0
             assert wstrb == 0
             wait_addr = None
+            wait_write = None
+            wait_size = None
             wait_wdata = None
             wait_wstrb = None
             await RisingEdge(dut.clk_i)
@@ -447,6 +461,8 @@ async def redirect_during_request_wait_preserves_core_bus_request(dut):
             dut.imem_req_ready_i.value
         )
         held_addr = int(dut.imem_req_addr_o.value)
+        held_write = int(dut.imem_req_write_o.value)
+        held_size = int(dut.imem_req_size_o.value)
         held_wdata = int(dut.imem_req_wdata_o.value)
         held_wstrb = int(dut.imem_req_wstrb_o.value)
         await RisingEdge(dut.clk_i)
@@ -463,6 +479,8 @@ async def redirect_during_request_wait_preserves_core_bus_request(dut):
 
     assert int(dut.imem_req_valid_o.value) == 1
     assert int(dut.imem_req_addr_o.value) == held_addr
+    assert int(dut.imem_req_write_o.value) == held_write
+    assert int(dut.imem_req_size_o.value) == held_size
     assert int(dut.imem_req_wdata_o.value) == held_wdata
     assert int(dut.imem_req_wstrb_o.value) == held_wstrb
 
@@ -566,6 +584,8 @@ async def randomized_ready_redirect_smoke(dut):
 
         if req_fire:
             assert len(outstanding) < 1, "depth-1 IF accepted a second outstanding request"
+            assert int(dut.imem_req_write_o.value) == 0
+            assert int(dut.imem_req_size_o.value) == 2
             assert int(dut.imem_req_wdata_o.value) == 0
             assert int(dut.imem_req_wstrb_o.value) == 0
             outstanding.append((req_addr, active_epoch))

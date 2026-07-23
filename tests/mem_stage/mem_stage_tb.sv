@@ -23,6 +23,8 @@ module mem_stage_tb (
   input logic [31:0] ex_mem_wb_wdata_i,
 
   output logic [31:0] dmem_req_addr_o,
+  output logic dmem_req_write_o,
+  output logic [1:0] dmem_req_size_o,
   output logic [31:0] dmem_req_wdata_o,
   output logic [3:0] dmem_req_wstrb_o,
   output logic dmem_req_valid_o,
@@ -88,6 +90,8 @@ module mem_stage_tb (
   assign dmem_resp.rsp_valid = dmem_rsp_valid_i;
 
   assign dmem_req_addr_o = dmem_req.req.addr;
+  assign dmem_req_write_o = dmem_req.req.write;
+  assign dmem_req_size_o = dmem_req.req.size;
   assign dmem_req_wdata_o = dmem_req.req.wdata;
   assign dmem_req_wstrb_o = dmem_req.req.wstrb;
   assign dmem_req_valid_o = dmem_req.req_valid;

@@ -19,7 +19,7 @@ module riscv_core_impl #(
   // CoreBus 取指接口
   // ---------------------------------------------------------------------------
   //
-  // IF 只发起 wstrb=0 的固定字宽读事务。
+  // IF 只发起 write=0、size=word 的固定字宽读事务。
   output core_bus_req_t imem_req_o,
   input core_bus_resp_t imem_resp_i,
 

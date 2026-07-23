@@ -16,6 +16,8 @@ module if_stage_tb #(
   input pc_t redirect_target_pc_i,
 
   output logic [31:0] imem_req_addr_o,
+  output logic imem_req_write_o,
+  output logic [1:0] imem_req_size_o,
   output logic [31:0] imem_req_wdata_o,
   output logic [3:0] imem_req_wstrb_o,
   output logic imem_req_valid_o,
@@ -52,6 +54,8 @@ module if_stage_tb #(
   assign imem_resp.rsp_valid = imem_rsp_valid_i;
 
   assign imem_req_addr_o = imem_req.req.addr;
+  assign imem_req_write_o = imem_req.req.write;
+  assign imem_req_size_o = imem_req.req.size;
   assign imem_req_wdata_o = imem_req.req.wdata;
   assign imem_req_wstrb_o = imem_req.req.wstrb;
   assign imem_req_valid_o = imem_req.req_valid;

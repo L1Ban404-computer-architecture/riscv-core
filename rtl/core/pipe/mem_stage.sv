@@ -20,7 +20,7 @@ module mem_stage #(
   input ex_mem_bus_t ex_mem_bus_i,
 
   // CoreBus 数据接口。每个 load/store 都使用同一条请求流，并按请求接受
-  // 顺序获得响应；wstrb=0 表示读，非 0 表示写。
+  // 顺序获得响应；write 表示方向，size 表示访问宽度。
   output core_bus_req_t dmem_req_o,
   input core_bus_resp_t dmem_resp_i,
 
@@ -61,6 +61,17 @@ module mem_stage #(
   logic mem_wb_input_valid;
   logic mem_wb_input_ready;
 
+  // EX/MEM 与 MEM/WB 的公共 payload 只差 mem_req；两个 debug struct
+  // 位宽和字段顺序一致，显式类型转换集中表达 stage 边界。
+  function automatic mem_wb_bus_t toMemWbBus(ex_mem_bus_t source);
+    toMemWbBus = '{
+      wb_req: source.wb_req,
+      exception: source.exception,
+      commit: source.commit,
+      debug: mem_debug_bus_t'(source.debug)
+    };
+  endfunction
+
   // Store lane 对齐和 load lane 提取是独立的组合数据单元。请求端可能处理
   // 年轻 store，同时响应端处理另一条更老 load，因此两套元数据不能共用。
   store_data_unit u_store_data_unit (
@@ -75,7 +86,9 @@ module mem_stage #(
 
   // EX/MEM 本身已经满足严格 ready/valid 保持规则，因此 CoreBus 请求可以
   // 直接由它驱动。请求握手和 outstanding FIFO push 是同一个原子事件。
-  assign dmem_req_o.req.addr = {ex_mem_bus_i.mem_req.addr[XLen-1:2], 2'b00};
+  assign dmem_req_o.req.addr = ex_mem_bus_i.mem_req.addr;
+  assign dmem_req_o.req.write = ex_mem_bus_i.mem_req.write;
+  assign dmem_req_o.req.size = ex_mem_bus_i.mem_req.size;
   assign dmem_req_o.req.wdata = ex_mem_bus_i.mem_req.write ? aligned_store_data : '0;
   assign dmem_req_o.req.wstrb = ex_mem_bus_i.mem_req.write ? store_byte_en : '0;
   // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助 FIFO
@@ -144,10 +157,7 @@ module mem_stage #(
   );
 
   always_comb begin
-    completed_mem_bus = '0;
-    completed_mem_bus.wb_req = outstanding_head.wb_req;
-    completed_mem_bus.exception = outstanding_head.exception;
-    completed_mem_bus.commit = outstanding_head.commit;
+    completed_mem_bus = toMemWbBus(outstanding_head);
     if (!completed_mem_bus.exception.valid && dmem_resp_i.rsp.error) begin
       completed_mem_bus.exception.valid = 1'b1;
       completed_mem_bus.exception.cause = outstanding_head.mem_req.write ?
@@ -160,29 +170,11 @@ module mem_stage #(
     end else if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req = '0;
     end
-    completed_mem_bus.debug.pc = outstanding_head.debug.pc;
-    completed_mem_bus.debug.instr = outstanding_head.debug.instr;
-    completed_mem_bus.debug.mem_op = outstanding_head.debug.mem_op;
-    completed_mem_bus.debug.mem_size = outstanding_head.debug.mem_size;
-    completed_mem_bus.debug.mem_addr = outstanding_head.debug.mem_addr;
     completed_mem_bus.debug.mem_data = outstanding_head.mem_req.write ?
         outstanding_head.debug.mem_data : loaded_data;
-    completed_mem_bus.debug.redirect_valid = outstanding_head.debug.redirect_valid;
-    completed_mem_bus.debug.redirect_target_pc = outstanding_head.debug.redirect_target_pc;
     if (completed_mem_bus.exception.valid) completed_mem_bus.debug.mem_op = RETIRE_MEM_NONE;
 
-    bypass_mem_bus = '0;
-    bypass_mem_bus.wb_req = ex_mem_bus_i.wb_req;
-    bypass_mem_bus.exception = ex_mem_bus_i.exception;
-    bypass_mem_bus.commit = ex_mem_bus_i.commit;
-    bypass_mem_bus.debug.pc = ex_mem_bus_i.debug.pc;
-    bypass_mem_bus.debug.instr = ex_mem_bus_i.debug.instr;
-    bypass_mem_bus.debug.mem_op = ex_mem_bus_i.debug.mem_op;
-    bypass_mem_bus.debug.mem_size = ex_mem_bus_i.debug.mem_size;
-    bypass_mem_bus.debug.mem_addr = ex_mem_bus_i.debug.mem_addr;
-    bypass_mem_bus.debug.mem_data = ex_mem_bus_i.debug.mem_data;
-    bypass_mem_bus.debug.redirect_valid = ex_mem_bus_i.debug.redirect_valid;
-    bypass_mem_bus.debug.redirect_target_pc = ex_mem_bus_i.debug.redirect_target_pc;
+    bypass_mem_bus = toMemWbBus(ex_mem_bus_i);
 
     // outstanding 响应优先；FIFO 非空时 ex_mem_ready_o 会阻止非访存输入。
     if (outstanding_head_valid) begin

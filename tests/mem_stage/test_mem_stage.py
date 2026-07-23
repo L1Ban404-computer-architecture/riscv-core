@@ -147,13 +147,33 @@ async def store_alignment_and_load_extraction(dut):
         addr=0x1003,
         store_data=0xA1B2C3D4,
     )
-    assert int(dut.dmem_req_addr_o.value) == 0x1000
+    assert int(dut.dmem_req_addr_o.value) == 0x1003
+    assert int(dut.dmem_req_write_o.value) == 1
+    assert int(dut.dmem_req_size_o.value) == MEM_BYTE
     assert int(dut.dmem_req_wdata_o.value) == 0xD4000000
     assert int(dut.dmem_req_wstrb_o.value) == 0b1000
     drive_transaction(dut, valid=0)
     await return_response(dut, 0)
     assert int(dut.mem_wb_mem_op_o.value) == 2
     assert int(dut.mem_wb_mem_data_o.value) == 0xA1B2C3D4
+    await RisingEdge(dut.clk_i)
+
+    await issue_memory(
+        dut,
+        pc=0x2002,
+        instr=0x2225,
+        write=1,
+        size=MEM_HALF,
+        addr=0x2002,
+        store_data=0xA1B2C3D4,
+    )
+    assert int(dut.dmem_req_addr_o.value) == 0x2002
+    assert int(dut.dmem_req_write_o.value) == 1
+    assert int(dut.dmem_req_size_o.value) == MEM_HALF
+    assert int(dut.dmem_req_wdata_o.value) == 0xC3D40000
+    assert int(dut.dmem_req_wstrb_o.value) == 0b1100
+    drive_transaction(dut, valid=0)
+    await return_response(dut, 0)
     await RisingEdge(dut.clk_i)
 
     await issue_memory(
@@ -167,7 +187,9 @@ async def store_alignment_and_load_extraction(dut):
         wb_valid=1,
         rd=7,
     )
-    assert int(dut.dmem_req_addr_o.value) == 0x3000
+    assert int(dut.dmem_req_addr_o.value) == 0x3001
+    assert int(dut.dmem_req_write_o.value) == 0
+    assert int(dut.dmem_req_size_o.value) == MEM_BYTE
     assert int(dut.dmem_req_wdata_o.value) == 0
     assert int(dut.dmem_req_wstrb_o.value) == 0
     drive_transaction(dut, valid=0)

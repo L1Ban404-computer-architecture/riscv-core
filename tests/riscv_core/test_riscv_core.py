@@ -262,6 +262,8 @@ class CoreBusSlave:
         self.req_valid = getattr(dut, f"{prefix}_req_valid_o")
         self.req_ready = getattr(dut, f"{prefix}_req_ready_i")
         self.req_addr = getattr(dut, f"{prefix}_req_addr_o")
+        self.req_write = getattr(dut, f"{prefix}_req_write_o")
+        self.req_size = getattr(dut, f"{prefix}_req_size_o")
         self.req_wdata = getattr(dut, f"{prefix}_req_wdata_o")
         self.req_wstrb = getattr(dut, f"{prefix}_req_wstrb_o")
         self.rsp_valid = getattr(dut, f"{prefix}_rsp_valid_i")
@@ -315,6 +317,8 @@ class CoreBusSlave:
             valid = int(self.req_valid.value)
             payload = (
                 int(self.req_addr.value),
+                int(self.req_write.value),
+                int(self.req_size.value),
                 int(self.req_wdata.value),
                 int(self.req_wstrb.value),
             )
@@ -330,6 +334,8 @@ class CoreBusSlave:
                     valid = int(self.req_valid.value)
                     payload = (
                         int(self.req_addr.value),
+                        int(self.req_write.value),
+                        int(self.req_size.value),
                         int(self.req_wdata.value),
                         int(self.req_wstrb.value),
                     )
@@ -339,11 +345,18 @@ class CoreBusSlave:
                 assert valid, f"{self.prefix}: req_valid dropped while blocked"
                 assert payload == self.blocked_request, f"{self.prefix}: request payload changed while blocked"
             if valid:
-                assert payload[0] & 0x3 == 0, f"{self.prefix}: request address is not word aligned"
-                if payload[2] == 0:
-                    assert payload[1] == 0, f"{self.prefix}: read request wdata must be zero"
+                addr, write, size, wdata, wstrb = payload
+                assert size in (0, 1, 2), f"{self.prefix}: invalid request size"
+                assert addr & ((1 << size) - 1) == 0, (
+                    f"{self.prefix}: request address is not naturally aligned"
+                )
+                if not write:
+                    assert wdata == 0, f"{self.prefix}: read request wdata must be zero"
+                    assert wstrb == 0, f"{self.prefix}: read request wstrb must be zero"
                 if self.prefix == "imem":
-                    assert payload[1:] == (0, 0), "imem: instruction fetch must be a read"
+                    assert payload[1:] == (0, 2, 0, 0), (
+                        "imem: instruction fetch must be a word read"
+                    )
 
             response_payload = None if response is None else (response.rdata, response.error)
             if self.blocked_response is not None:
@@ -363,12 +376,12 @@ class CoreBusSlave:
                 self.response_log.append((response.addr, response.rdata))
 
             if request_fire:
-                addr, wdata, wstrb = payload
+                addr, write, size, wdata, wstrb = payload
                 self.request_count += 1
-                self.request_log.append((addr, wdata, wstrb))
-                if wstrb:
+                self.request_log.append(payload)
+                if write:
                     self.memory.write_word(addr, wdata, wstrb)
-                    self.write_log.append((addr, wdata, wstrb))
+                    self.write_log.append(payload)
                 if immediate:
                     if response_fire:
                         self.response_count += 1
@@ -672,7 +685,9 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
                 )
         except AssertionError as error:
             history = "\n".join(f"  pc=0x{p:08x} instr=0x{i:08x}" for p, i in trace)
-            requests = " ".join(f"{addr:08x}" for addr, _, _ in imem.request_log[-16:])
+            requests = " ".join(
+                f"{addr:08x}" for addr, _, _, _, _ in imem.request_log[-16:]
+            )
             responses = " ".join(f"{addr:08x}" for addr, _ in imem.response_log[-16:])
             raise AssertionError(
                 f"{error}\nrecent retirement history:\n{history}"
@@ -684,7 +699,9 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
             assert reference.retired >= 35
             assert reference.memory.read_word(DATA_BASE + 12) == 0, "wrong-path store reached reference memory"
             assert memory.read_word(DATA_BASE + 12) == 0, "wrong-path store reached CoreBus"
-            assert all(addr != DATA_BASE + 12 for addr, _, _ in dmem.write_log)
+            assert all(
+                addr != DATA_BASE + 12 for addr, _, _, _, _ in dmem.write_log
+            )
             dut._log.info(
                 "program completed: seed=%d cycles=%d retired=%d imem=%d dmem=%d",
                 seed, cycle + 1, reference.retired, imem.request_count, dmem.request_count,
@@ -891,4 +908,4 @@ async def synchronous_exceptions_report_precise_cause_and_tval(dut):
         raise AssertionError("synchronous exception program did not complete")
 
     assert observed == expected
-    assert all(addr != 0 for addr, _, _ in dmem.request_log)
+    assert all(addr != 0 for addr, _, _, _, _ in dmem.request_log)

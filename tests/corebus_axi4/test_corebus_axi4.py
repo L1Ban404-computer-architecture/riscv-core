@@ -11,11 +11,15 @@ async def initialize(dut):
     dut.reset.value = 1
     dut.imem_req_valid_i.value = 0
     dut.imem_req_addr_i.value = 0
+    dut.imem_req_write_i.value = 0
+    dut.imem_req_size_i.value = 2
     dut.imem_req_wdata_i.value = 0
     dut.imem_req_wstrb_i.value = 0
     dut.imem_rsp_ready_i.value = 0
     dut.dmem_req_valid_i.value = 0
     dut.dmem_req_addr_i.value = 0
+    dut.dmem_req_write_i.value = 0
+    dut.dmem_req_size_i.value = 2
     dut.dmem_req_wdata_i.value = 0
     dut.dmem_req_wstrb_i.value = 0
     dut.dmem_rsp_ready_i.value = 0
@@ -46,6 +50,8 @@ async def arbitration_channels_ids_and_errors(dut):
     dut.imem_req_addr_i.value = 0x30000000
     dut.dmem_req_valid_i.value = 1
     dut.dmem_req_addr_i.value = 0x80000000
+    dut.dmem_req_write_i.value = 1
+    dut.dmem_req_size_i.value = 2
     dut.dmem_req_wdata_i.value = 0xAABBCCDD
     dut.dmem_req_wstrb_i.value = 0x5
     dut.dmem_rsp_ready_i.value = 1
@@ -125,6 +131,7 @@ async def arbitration_channels_ids_and_errors(dut):
 
     # Reset abandons any partially issued transaction.
     dut.dmem_req_valid_i.value = 1
+    dut.dmem_req_write_i.value = 1
     dut.dmem_req_wstrb_i.value = 0xF
     await RisingEdge(dut.clock)
     dut.reset.value = 1
@@ -135,3 +142,46 @@ async def arbitration_channels_ids_and_errors(dut):
     assert dut.m_awvalid_o.value == 0
     assert dut.m_wvalid_o.value == 0
     assert dut.m_arvalid_o.value == 0
+
+
+@cocotb.test()
+async def narrow_addresses_sizes_and_explicit_direction(dut):
+    await initialize(dut)
+
+    # A nonzero read strobe must not turn an explicitly marked read into a write.
+    dut.dmem_req_valid_i.value = 1
+    dut.dmem_req_addr_i.value = 0x10000003
+    dut.dmem_req_write_i.value = 0
+    dut.dmem_req_size_i.value = 0
+    dut.dmem_req_wstrb_i.value = 0xF
+    dut.dmem_rsp_ready_i.value = 1
+    await RisingEdge(dut.clock)
+    dut.dmem_req_valid_i.value = 0
+    await settle()
+    assert dut.m_arvalid_o.value == 1
+    assert dut.m_awvalid_o.value == 0
+    assert int(dut.m_araddr_o.value) == 0x10000003
+    assert int(dut.m_arsize_o.value) == 0
+    dut.m_arready_i.value = 1
+    await RisingEdge(dut.clock)
+    dut.m_arready_i.value = 0
+    dut.m_rvalid_i.value = 1
+    dut.m_rid_i.value = 1
+    dut.m_rlast_i.value = 1
+    await RisingEdge(dut.clock)
+    dut.m_rvalid_i.value = 0
+
+    # Explicit write remains a write even when all byte strobes are zero.
+    dut.dmem_req_valid_i.value = 1
+    dut.dmem_req_addr_i.value = 0x10000002
+    dut.dmem_req_write_i.value = 1
+    dut.dmem_req_size_i.value = 1
+    dut.dmem_req_wstrb_i.value = 0
+    await RisingEdge(dut.clock)
+    dut.dmem_req_valid_i.value = 0
+    await settle()
+    assert dut.m_awvalid_o.value == 1
+    assert dut.m_wvalid_o.value == 1
+    assert int(dut.m_awaddr_o.value) == 0x10000002
+    assert int(dut.m_awsize_o.value) == 1
+    assert int(dut.m_wstrb_o.value) == 0

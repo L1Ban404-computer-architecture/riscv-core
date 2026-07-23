@@ -24,7 +24,7 @@ module if_stage #(
   // frontend_flush，使 PC 更新与旧路径事务作废保持原子。
   input redirect_bus_t redirect_i,
 
-  // CoreBus 取指接口。IF 只发出 wstrb=0 的固定字宽读请求，读请求和
+  // CoreBus 取指接口。IF 只发出固定字宽读请求，读请求和
   // 顺序响应通过内部 FIFO 解耦。
   output core_bus_req_t imem_req_o,
   input core_bus_resp_t imem_resp_i,
@@ -96,6 +96,8 @@ module if_stage #(
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
   assign imem_req_o.req.addr = req_hold_data.pc;
+  assign imem_req_o.req.write = 1'b0;
+  assign imem_req_o.req.size = MEM_SIZE_WORD;
   assign imem_req_o.req.wdata = '0;
   assign imem_req_o.req.wstrb = '0;
   assign imem_req_o.req_valid = req_hold_valid && pc_fifo_ready;
