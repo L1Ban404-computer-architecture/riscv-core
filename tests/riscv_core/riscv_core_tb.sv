@@ -35,11 +35,10 @@ module riscv_core_tb #(
   output logic [31:0] debug_retire_instr_o,
   output logic debug_retire_redirect_valid_o,
   output logic [31:0] debug_retire_redirect_target_o,
-  output logic debug_retire_mem_valid_o,
-  output logic debug_retire_mem_write_o,
+  output logic [1:0] debug_retire_mem_op_o,
   output logic [1:0] debug_retire_mem_size_o,
   output logic [31:0] debug_retire_mem_addr_o,
-  output logic [31:0] debug_retire_mem_wdata_o,
+  output logic [31:0] debug_retire_mem_data_o,
   output logic debug_retire_gpr_we_o,
   output logic [4:0] debug_retire_gpr_waddr_o,
   output logic [31:0] debug_retire_gpr_wdata_o,
@@ -89,11 +88,10 @@ module riscv_core_tb #(
   assign debug_retire_instr_o = core_retire_debug.instr;
   assign debug_retire_redirect_valid_o = core_retire_debug.redirect_valid;
   assign debug_retire_redirect_target_o = core_retire_debug.redirect_target_pc;
-  assign debug_retire_mem_valid_o = core_retire_debug.mem_valid;
-  assign debug_retire_mem_write_o = core_retire_debug.mem_write;
+  assign debug_retire_mem_op_o = core_retire_debug.mem_op;
   assign debug_retire_mem_size_o = core_retire_debug.mem_size;
   assign debug_retire_mem_addr_o = core_retire_debug.mem_addr;
-  assign debug_retire_mem_wdata_o = core_retire_debug.mem_wdata;
+  assign debug_retire_mem_data_o = core_retire_debug.mem_data;
   assign debug_retire_gpr_we_o = core_retire_debug.gpr_we;
   assign debug_retire_gpr_waddr_o = core_retire_debug.gpr_waddr;
   assign debug_retire_gpr_wdata_o = core_retire_debug.gpr_wdata;

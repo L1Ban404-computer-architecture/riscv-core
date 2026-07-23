@@ -152,9 +152,8 @@ async def store_alignment_and_load_extraction(dut):
     assert int(dut.dmem_req_wstrb_o.value) == 0b1000
     drive_transaction(dut, valid=0)
     await return_response(dut, 0)
-    assert int(dut.mem_wb_mem_valid_o.value) == 1
-    assert int(dut.mem_wb_mem_write_o.value) == 1
-    assert int(dut.mem_wb_mem_wdata_o.value) == 0xA1B2C3D4
+    assert int(dut.mem_wb_mem_op_o.value) == 2
+    assert int(dut.mem_wb_mem_data_o.value) == 0xA1B2C3D4
     await RisingEdge(dut.clk_i)
 
     await issue_memory(
@@ -177,6 +176,8 @@ async def store_alignment_and_load_extraction(dut):
     assert int(dut.mem_wb_req_data_valid_o.value) == 1
     assert int(dut.mem_wb_req_rd_addr_o.value) == 7
     assert int(dut.mem_wb_req_wdata_o.value) == 0xFFFFFF80
+    assert int(dut.mem_wb_mem_op_o.value) == 1
+    assert int(dut.mem_wb_mem_data_o.value) == 0xFFFFFF80
 
     # LBU must zero-extend the selected byte instead of inheriting LB's sign extension.
     await RisingEdge(dut.clk_i)
@@ -197,6 +198,8 @@ async def store_alignment_and_load_extraction(dut):
     assert int(dut.mem_wb_req_data_valid_o.value) == 1
     assert int(dut.mem_wb_req_rd_addr_o.value) == 8
     assert int(dut.mem_wb_req_wdata_o.value) == 0x00000080
+    assert int(dut.mem_wb_mem_op_o.value) == 1
+    assert int(dut.mem_wb_mem_data_o.value) == 0x00000080
 
 
 @cocotb.test()
@@ -264,4 +267,4 @@ async def access_fault_blocks_same_cycle_handoff_and_suppresses_writeback(dut):
     assert int(dut.mem_wb_exception_cause_o.value) == 5
     assert int(dut.mem_wb_exception_tval_o.value) == 0x1000
     assert int(dut.mem_wb_req_valid_o.value) == 0
-    assert int(dut.mem_wb_mem_valid_o.value) == 0
+    assert int(dut.mem_wb_mem_op_o.value) == 0

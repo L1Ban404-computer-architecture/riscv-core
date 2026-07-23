@@ -392,12 +392,11 @@ class RetireResult:
     wb_valid: bool = False
     rd: int = 0
     wdata: int = 0
-    mem_valid: bool = False
-    mem_write: bool = False
+    mem_op: int = 0
     mem_size: int = 2
     mem_sign_ext: bool = False
     mem_addr: int = 0
-    mem_wdata: int = 0
+    mem_data: int = 0
     raw_rdata: int = 0
     redirect_valid: bool = False
     redirect_target: int = 0
@@ -492,10 +491,11 @@ class Rv32iReference:
                 value = raw
             result.wb_valid = True
             result.wdata = u32(value)
-            result.mem_valid = True
+            result.mem_op = 1
             result.mem_size = size
             result.mem_sign_ext = sign_ext
             result.mem_addr = addr
+            result.mem_data = u32(value)
             result.raw_rdata = raw
         elif opcode == 0x23:                  # STORE
             imm = sext(((instr >> 25) << 5) | ((instr >> 7) & 0x1F), 12)
@@ -512,11 +512,10 @@ class Rv32iReference:
                 wstrb = 0xF
                 aligned = rhs
             self.memory.write_word(addr, aligned, wstrb)
-            result.mem_valid = True
-            result.mem_write = True
+            result.mem_op = 2
             result.mem_size = size
             result.mem_addr = addr
-            result.mem_wdata = rhs
+            result.mem_data = rhs
             result.done = addr == TOHOST and (rhs & MASK32) == 1
         elif opcode == 0x13:                  # OP-IMM
             imm = sext(instr >> 20, 12)
@@ -651,16 +650,16 @@ async def run_program(dut, seed, ready_probability, immediate_probability, max_l
                 check_equal(int(dut.debug_retire_gpr_waddr_o.value), expected.rd, "GPR write address", pc, instr)
                 check_equal(int(dut.debug_retire_gpr_wdata_o.value), expected.wdata, "GPR write data", pc, instr)
 
-            check_equal(int(dut.debug_retire_mem_valid_o.value), int(expected.mem_valid), "memory valid", pc, instr)
-            if expected.mem_valid:
-                check_equal(int(dut.debug_retire_mem_write_o.value), int(expected.mem_write), "memory write", pc, instr)
+            check_equal(int(dut.debug_retire_mem_op_o.value), expected.mem_op, "memory operation", pc, instr)
+            if expected.mem_op:
                 check_equal(int(dut.debug_retire_mem_size_o.value), expected.mem_size, "memory size", pc, instr)
                 check_equal(int(dut.debug_retire_mem_addr_o.value), expected.mem_addr, "memory address", pc, instr)
-                if expected.mem_write:
-                    check_equal(
-                        int(dut.debug_retire_mem_wdata_o.value), expected.mem_wdata,
-                        "store source data", pc, instr,
-                    )
+                data_mask = {0: 0xFF, 1: 0xFFFF, 2: MASK32}[expected.mem_size]
+                check_equal(
+                    int(dut.debug_retire_mem_data_o.value) & data_mask,
+                    expected.mem_data & data_mask,
+                    "memory data", pc, instr,
+                )
 
             check_equal(
                 int(dut.debug_retire_redirect_valid_o.value), int(expected.redirect_valid),
@@ -867,7 +866,7 @@ async def synchronous_exceptions_report_precise_cause_and_tval(dut):
                 int(dut.debug_retire_mtval_o.value),
             )
             assert int(dut.debug_retire_gpr_we_o.value) == 0
-            assert int(dut.debug_retire_mem_valid_o.value) == 0
+            assert int(dut.debug_retire_mem_op_o.value) == 0
             assert int(dut.debug_state_trap_o.value) == 1
             assert int(dut.debug_state_intr_o.value) == 0
             assert int(dut.debug_state_cause_o.value) == expected[pc][0]

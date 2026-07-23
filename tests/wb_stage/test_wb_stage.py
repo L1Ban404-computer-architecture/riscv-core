@@ -79,11 +79,10 @@ async def valid_transaction_writes_back_and_flattens_debug(dut):
     assert int(dut.retire_instr_o.value) == 0x00C585B3
     assert int(dut.retire_redirect_valid_o.value) == 1
     assert int(dut.retire_redirect_target_pc_o.value) == 0x80000100
-    assert int(dut.retire_mem_req_valid_o.value) == 1
-    assert int(dut.retire_mem_req_write_o.value) == 0
+    assert int(dut.retire_mem_op_o.value) == 1
     assert int(dut.retire_mem_req_size_o.value) == 2
     assert int(dut.retire_mem_req_addr_o.value) == 0x1003
-    assert int(dut.retire_mem_req_wdata_o.value) == 0xA5A55A5A
+    assert int(dut.retire_mem_data_o.value) == 0xA5A55A5A
     assert int(dut.retire_gpr_we_o.value) == 1
     assert int(dut.retire_gpr_waddr_o.value) == 7
     assert int(dut.retire_gpr_wdata_o.value) == 0x12345678

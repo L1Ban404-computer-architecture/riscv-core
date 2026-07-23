@@ -227,11 +227,11 @@ module ex_stage #(
     executed_ex_mem_bus.commit = commit_ctrl;
     executed_ex_mem_bus.debug.pc = id_ex_bus_i.debug.pc;
     executed_ex_mem_bus.debug.instr = id_ex_bus_i.debug.instr;
-    executed_ex_mem_bus.debug.mem_valid = mem_req.valid;
-    executed_ex_mem_bus.debug.mem_write = mem_req.write;
+    executed_ex_mem_bus.debug.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
+        (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
     executed_ex_mem_bus.debug.mem_size = mem_req.size;
     executed_ex_mem_bus.debug.mem_addr = mem_req.addr;
-    executed_ex_mem_bus.debug.mem_wdata = mem_req.wdata;
+    executed_ex_mem_bus.debug.mem_data = mem_req.wdata;
     executed_ex_mem_bus.debug.redirect_valid = redirect_o.valid;
     executed_ex_mem_bus.debug.redirect_target_pc = redirect_o.target_pc;
   end

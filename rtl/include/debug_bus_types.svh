@@ -8,6 +8,12 @@
 
 // Debug 总线只描述“这条指令退休时对外可观察到什么”，不应反向参与功能控制。
 // 各级 debug payload 直接列出本级以后仍需要的字段，避免逐级嵌套。
+typedef enum logic [1:0] {
+  RETIRE_MEM_NONE = 2'd0,
+  RETIRE_MEM_READ = 2'd1,
+  RETIRE_MEM_WRITE = 2'd2
+} retire_mem_op_e;
+
 typedef struct packed {
   pc_t pc;
   instr_t instr;
@@ -21,11 +27,10 @@ typedef struct packed {
 typedef struct packed {
   pc_t pc;
   instr_t instr;
-  logic mem_valid;
-  logic mem_write;
+  retire_mem_op_e mem_op;
   mem_size_e mem_size;
   word_t mem_addr;
-  word_t mem_wdata;
+  word_t mem_data;
   logic redirect_valid;
   pc_t redirect_target_pc;
 } ex_debug_bus_t;
@@ -33,11 +38,10 @@ typedef struct packed {
 typedef struct packed {
   pc_t pc;
   instr_t instr;
-  logic mem_valid;
-  logic mem_write;
+  retire_mem_op_e mem_op;
   mem_size_e mem_size;
   word_t mem_addr;
-  word_t mem_wdata;
+  word_t mem_data;
   logic redirect_valid;
   pc_t redirect_target_pc;
 } mem_debug_bus_t;
@@ -49,11 +53,10 @@ typedef struct packed {
   logic gpr_we;
   reg_addr_t gpr_waddr;
   word_t gpr_wdata;
-  logic mem_valid;
-  logic mem_write;
+  retire_mem_op_e mem_op;
   mem_size_e mem_size;
   word_t mem_addr;
-  word_t mem_wdata;
+  word_t mem_data;
   logic redirect_valid;
   pc_t redirect_target_pc;
   csr_state_bus_t csr;

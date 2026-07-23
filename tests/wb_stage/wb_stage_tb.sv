@@ -35,11 +35,10 @@ module wb_stage_tb (
   output logic [31:0] retire_instr_o,
   output logic retire_redirect_valid_o,
   output logic [31:0] retire_redirect_target_pc_o,
-  output logic retire_mem_req_valid_o,
-  output logic retire_mem_req_write_o,
+  output logic [1:0] retire_mem_op_o,
   output logic [1:0] retire_mem_req_size_o,
   output logic [31:0] retire_mem_req_addr_o,
-  output logic [31:0] retire_mem_req_wdata_o,
+  output logic [31:0] retire_mem_data_o,
   output logic retire_gpr_we_o,
   output logic [4:0] retire_gpr_waddr_o,
   output logic [31:0] retire_gpr_wdata_o,
@@ -67,11 +66,11 @@ module wb_stage_tb (
     mem_wb_bus.debug.instr = fetch_instr_i;
     mem_wb_bus.debug.redirect_valid = redirect_valid_i;
     mem_wb_bus.debug.redirect_target_pc = redirect_target_pc_i;
-    mem_wb_bus.debug.mem_valid = mem_req_valid_i;
-    mem_wb_bus.debug.mem_write = mem_req_write_i;
+    mem_wb_bus.debug.mem_op = !mem_req_valid_i ? RETIRE_MEM_NONE :
+        (mem_req_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
     mem_wb_bus.debug.mem_size = mem_size_e'(mem_req_size_i);
     mem_wb_bus.debug.mem_addr = mem_req_addr_i;
-    mem_wb_bus.debug.mem_wdata = mem_req_wdata_i;
+    mem_wb_bus.debug.mem_data = mem_req_wdata_i;
   end
 
   assign wb_valid_o = wb_req.valid;
@@ -84,11 +83,10 @@ module wb_stage_tb (
   assign retire_instr_o = core_retire_debug.instr;
   assign retire_redirect_valid_o = core_retire_debug.redirect_valid;
   assign retire_redirect_target_pc_o = core_retire_debug.redirect_target_pc;
-  assign retire_mem_req_valid_o = core_retire_debug.mem_valid;
-  assign retire_mem_req_write_o = core_retire_debug.mem_write;
+  assign retire_mem_op_o = core_retire_debug.mem_op;
   assign retire_mem_req_size_o = core_retire_debug.mem_size;
   assign retire_mem_req_addr_o = core_retire_debug.mem_addr;
-  assign retire_mem_req_wdata_o = core_retire_debug.mem_wdata;
+  assign retire_mem_data_o = core_retire_debug.mem_data;
   assign retire_gpr_we_o = core_retire_debug.gpr_we;
   assign retire_gpr_waddr_o = core_retire_debug.gpr_waddr;
   assign retire_gpr_wdata_o = core_retire_debug.gpr_wdata;

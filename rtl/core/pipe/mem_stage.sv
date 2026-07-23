@@ -162,14 +162,14 @@ module mem_stage #(
     end
     completed_mem_bus.debug.pc = outstanding_head.debug.pc;
     completed_mem_bus.debug.instr = outstanding_head.debug.instr;
-    completed_mem_bus.debug.mem_valid = outstanding_head.debug.mem_valid;
-    completed_mem_bus.debug.mem_write = outstanding_head.debug.mem_write;
+    completed_mem_bus.debug.mem_op = outstanding_head.debug.mem_op;
     completed_mem_bus.debug.mem_size = outstanding_head.debug.mem_size;
     completed_mem_bus.debug.mem_addr = outstanding_head.debug.mem_addr;
-    completed_mem_bus.debug.mem_wdata = outstanding_head.debug.mem_wdata;
+    completed_mem_bus.debug.mem_data = outstanding_head.mem_req.write ?
+        outstanding_head.debug.mem_data : loaded_data;
     completed_mem_bus.debug.redirect_valid = outstanding_head.debug.redirect_valid;
     completed_mem_bus.debug.redirect_target_pc = outstanding_head.debug.redirect_target_pc;
-    if (completed_mem_bus.exception.valid) completed_mem_bus.debug.mem_valid = 1'b0;
+    if (completed_mem_bus.exception.valid) completed_mem_bus.debug.mem_op = RETIRE_MEM_NONE;
 
     bypass_mem_bus = '0;
     bypass_mem_bus.wb_req = ex_mem_bus_i.wb_req;
@@ -177,11 +177,10 @@ module mem_stage #(
     bypass_mem_bus.commit = ex_mem_bus_i.commit;
     bypass_mem_bus.debug.pc = ex_mem_bus_i.debug.pc;
     bypass_mem_bus.debug.instr = ex_mem_bus_i.debug.instr;
-    bypass_mem_bus.debug.mem_valid = ex_mem_bus_i.debug.mem_valid;
-    bypass_mem_bus.debug.mem_write = ex_mem_bus_i.debug.mem_write;
+    bypass_mem_bus.debug.mem_op = ex_mem_bus_i.debug.mem_op;
     bypass_mem_bus.debug.mem_size = ex_mem_bus_i.debug.mem_size;
     bypass_mem_bus.debug.mem_addr = ex_mem_bus_i.debug.mem_addr;
-    bypass_mem_bus.debug.mem_wdata = ex_mem_bus_i.debug.mem_wdata;
+    bypass_mem_bus.debug.mem_data = ex_mem_bus_i.debug.mem_data;
     bypass_mem_bus.debug.redirect_valid = ex_mem_bus_i.debug.redirect_valid;
     bypass_mem_bus.debug.redirect_target_pc = ex_mem_bus_i.debug.redirect_target_pc;
 

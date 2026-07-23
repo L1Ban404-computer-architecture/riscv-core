@@ -81,11 +81,10 @@ module ysyx_25080230 (
   logic [31:0] debug_retire_instr           /* verilator public_flat_rd */;
   logic        debug_retire_redirect_valid  /* verilator public_flat_rd */;
   logic [31:0] debug_retire_redirect_target /* verilator public_flat_rd */;
-  logic        debug_retire_mem_valid       /* verilator public_flat_rd */;
-  logic        debug_retire_mem_write       /* verilator public_flat_rd */;
+  logic [1:0]  debug_retire_mem_op          /* verilator public_flat_rd */;
   logic [1:0]  debug_retire_mem_size        /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mem_addr        /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mem_wdata       /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mem_data        /* verilator public_flat_rd */;
   logic        debug_retire_gpr_we          /* verilator public_flat_rd */;
   logic [4:0]  debug_retire_gpr_waddr       /* verilator public_flat_rd */;
   logic [31:0] debug_retire_gpr_wdata       /* verilator public_flat_rd */;
@@ -105,11 +104,10 @@ module ysyx_25080230 (
   assign debug_retire_instr = core_retire_debug.instr;
   assign debug_retire_redirect_valid = core_retire_debug.redirect_valid;
   assign debug_retire_redirect_target = core_retire_debug.redirect_target_pc;
-  assign debug_retire_mem_valid = core_retire_debug.mem_valid;
-  assign debug_retire_mem_write = core_retire_debug.mem_write;
+  assign debug_retire_mem_op = core_retire_debug.mem_op;
   assign debug_retire_mem_size = core_retire_debug.mem_size;
   assign debug_retire_mem_addr = core_retire_debug.mem_addr;
-  assign debug_retire_mem_wdata = core_retire_debug.mem_wdata;
+  assign debug_retire_mem_data = core_retire_debug.mem_data;
   assign debug_retire_gpr_we = core_retire_debug.gpr_we;
   assign debug_retire_gpr_waddr = core_retire_debug.gpr_waddr;
   assign debug_retire_gpr_wdata = core_retire_debug.gpr_wdata;

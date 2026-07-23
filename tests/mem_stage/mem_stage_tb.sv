@@ -45,11 +45,10 @@ module mem_stage_tb (
   input logic mem_wb_ready_i,
   output logic [31:0] mem_wb_pc_o,
   output logic [31:0] mem_wb_instr_o,
-  output logic mem_wb_mem_valid_o,
-  output logic mem_wb_mem_write_o,
+  output logic [1:0] mem_wb_mem_op_o,
   output logic [1:0] mem_wb_mem_size_o,
   output logic [31:0] mem_wb_mem_addr_o,
-  output logic [31:0] mem_wb_mem_wdata_o,
+  output logic [31:0] mem_wb_mem_data_o,
   output logic mem_wb_exception_valid_o,
   output logic [3:0] mem_wb_exception_cause_o,
   output logic [31:0] mem_wb_exception_tval_o
@@ -76,11 +75,11 @@ module mem_stage_tb (
     ex_mem_bus.wb_req.wdata = ex_mem_wb_wdata_i;
     ex_mem_bus.debug.pc = ex_mem_pc_i;
     ex_mem_bus.debug.instr = ex_mem_instr_i;
-    ex_mem_bus.debug.mem_valid = ex_mem_mem_valid_i;
-    ex_mem_bus.debug.mem_write = ex_mem_mem_write_i;
+    ex_mem_bus.debug.mem_op = !ex_mem_mem_valid_i ? RETIRE_MEM_NONE :
+        (ex_mem_mem_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
     ex_mem_bus.debug.mem_size = mem_size_e'(ex_mem_mem_size_i);
     ex_mem_bus.debug.mem_addr = ex_mem_mem_addr_i;
-    ex_mem_bus.debug.mem_wdata = ex_mem_mem_wdata_i;
+    ex_mem_bus.debug.mem_data = ex_mem_mem_wdata_i;
   end
 
   assign dmem_resp.req_ready = dmem_req_ready_i;
@@ -105,11 +104,10 @@ module mem_stage_tb (
   assign mem_wb_req_wdata_o = mem_wb_req.wdata;
   assign mem_wb_pc_o = mem_wb_bus.debug.pc;
   assign mem_wb_instr_o = mem_wb_bus.debug.instr;
-  assign mem_wb_mem_valid_o = mem_wb_bus.debug.mem_valid;
-  assign mem_wb_mem_write_o = mem_wb_bus.debug.mem_write;
+  assign mem_wb_mem_op_o = mem_wb_bus.debug.mem_op;
   assign mem_wb_mem_size_o = mem_wb_bus.debug.mem_size;
   assign mem_wb_mem_addr_o = mem_wb_bus.debug.mem_addr;
-  assign mem_wb_mem_wdata_o = mem_wb_bus.debug.mem_wdata;
+  assign mem_wb_mem_data_o = mem_wb_bus.debug.mem_data;
   assign mem_wb_exception_valid_o = mem_wb_bus.exception.valid;
   assign mem_wb_exception_cause_o = mem_wb_bus.exception.cause;
   assign mem_wb_exception_tval_o = mem_wb_bus.exception.tval;

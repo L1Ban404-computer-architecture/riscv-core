@@ -94,11 +94,10 @@ module wb_stage (
           gpr_we: wb_req_o.valid && wb_req_o.data_valid,
           gpr_waddr: wb_req_o.rd_addr,
           gpr_wdata: wb_req_o.wdata,
-          mem_valid: mem_wb_bus_i.debug.mem_valid && !trap_commit && !mret_commit,
-          mem_write: mem_wb_bus_i.debug.mem_write,
+          mem_op: (trap_commit || mret_commit) ? RETIRE_MEM_NONE : mem_wb_bus_i.debug.mem_op,
           mem_size: mem_wb_bus_i.debug.mem_size,
           mem_addr: mem_wb_bus_i.debug.mem_addr,
-          mem_wdata: mem_wb_bus_i.debug.mem_wdata,
+          mem_data: mem_wb_bus_i.debug.mem_data,
           redirect_valid: control_o.redirect.valid || mem_wb_bus_i.debug.redirect_valid,
           redirect_target_pc: control_o.redirect.valid ?
               control_o.redirect.target_pc : mem_wb_bus_i.debug.redirect_target_pc,
