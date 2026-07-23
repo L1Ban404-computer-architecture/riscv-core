@@ -6,22 +6,13 @@
 
 `include "transaction_bus_types.svh"
 
-// 退休元数据只描述“这条指令退休时对外可观察到什么”，不反向参与功能控制。
+// 随指令流动的退休调试 payload，只描述对外可观察事件。功能控制、异常提交
+// 和存储事务不得读取该结构；所需架构信息必须由对应流水事务字段独立携带。
 typedef enum logic [1:0] {
   RETIRE_MEM_NONE = 2'd0,
   RETIRE_MEM_READ = 2'd1,
   RETIRE_MEM_WRITE = 2'd2
 } retire_mem_op_e;
-
-typedef struct packed {
-  instruction_bus_t instruction;
-  retire_mem_op_e mem_op;
-  mem_size_e mem_size;
-  word_t mem_addr;
-  word_t mem_data;
-  logic redirect_valid;
-  pc_t redirect_target_pc;
-} retire_meta_bus_t;
 
 typedef struct packed {
   // 面向上层仿真环境的最后一次退休指令快照；有效脉冲由独立信号提供。

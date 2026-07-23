@@ -42,7 +42,7 @@ module id_stage (
   logic id_ex_input_ready;
 
   decoder u_decoder (
-    .instr_i(if_id_bus_i.instruction.instr),
+    .instr_i(if_id_bus_i.instr),
     .reg_addr_o(decoded_reg_addr),
     .imm_type_o(decoded_imm_type),
     .ctrl_o(decoded_ctrl),
@@ -50,7 +50,7 @@ module id_stage (
   );
 
   imm_gen u_imm_gen (
-    .instr_i(if_id_bus_i.instruction.instr[31:7]),
+    .instr_i(if_id_bus_i.instr[31:7]),
     .imm_type_i(decoded_imm_type),
     .imm_o(decoded_imm)
   );
@@ -66,12 +66,14 @@ module id_stage (
 
   always_comb begin
     decoded_id_ex_bus = '0;
-    decoded_id_ex_bus.instruction = if_id_bus_i.instruction;
+    decoded_id_ex_bus.pc = if_id_bus_i.pc;
+    decoded_id_ex_bus.instr = if_id_bus_i.instr;
     decoded_id_ex_bus.reg_addr = decoded_reg_addr;
     decoded_id_ex_bus.exec_data.rs1_value = rs1_value;
     decoded_id_ex_bus.exec_data.rs2_value = rs2_value;
     decoded_id_ex_bus.exec_data.imm = decoded_imm;
     decoded_id_ex_bus.ctrl = decoded_ctrl;
+    decoded_id_ex_bus.debug = if_id_bus_i.debug;
     // IF 异常年龄更老且优先。仅在取指正常时，ID 才根据译码补充同步异常。
     decoded_id_ex_bus.exception = if_id_bus_i.exception;
     if (!if_id_bus_i.exception.valid) begin
@@ -79,7 +81,7 @@ module id_stage (
         decoded_id_ex_bus.exception = '0;
         decoded_id_ex_bus.exception.valid = 1'b1;
         decoded_id_ex_bus.exception.cause = EXC_ILLEGAL_INSTR;
-        decoded_id_ex_bus.exception.tval = if_id_bus_i.instruction.instr;
+        decoded_id_ex_bus.exception.tval = if_id_bus_i.instr;
       end else if (decoded_ctrl.system_op == SYS_ECALL) begin
         decoded_id_ex_bus.exception = '0;
         decoded_id_ex_bus.exception.valid = 1'b1;

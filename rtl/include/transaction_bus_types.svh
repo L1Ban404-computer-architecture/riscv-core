@@ -10,11 +10,6 @@
 // 可复用于阶段边界的事务级子总线。valid/ready 一般属于模块或 FIFO
 // 控制；只有“请求是否存在”本身有语义的 payload 才内含 valid。
 typedef struct packed {
-  pc_t pc;
-  instr_t instr;
-} instruction_bus_t;
-
-typedef struct packed {
   reg_addr_t rs1_addr;
   reg_addr_t rs2_addr;
   reg_addr_t rd_addr;

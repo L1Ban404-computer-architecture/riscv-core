@@ -21,6 +21,7 @@ module mem_stage_tb (
   input logic ex_mem_wb_data_valid_i,
   input logic [4:0] ex_mem_wb_rd_addr_i,
   input logic [31:0] ex_mem_wb_wdata_i,
+  input logic debug_poison_i,
 
   output logic [31:0] dmem_req_addr_o,
   output logic dmem_req_write_o,
@@ -76,25 +77,30 @@ module mem_stage_tb (
     ex_mem_bus.wb_req.data_valid = ex_mem_wb_data_valid_i;
     ex_mem_bus.wb_req.rd_addr = ex_mem_wb_rd_addr_i;
     ex_mem_bus.wb_req.wdata = ex_mem_wb_wdata_i;
-    ex_mem_bus.retire.instruction.pc = ex_mem_pc_i;
-    ex_mem_bus.retire.instruction.instr = ex_mem_instr_i;
-    ex_mem_bus.retire.mem_op = !ex_mem_mem_valid_i ? RETIRE_MEM_NONE :
-        (ex_mem_mem_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    ex_mem_bus.retire.mem_size = mem_size_e'(ex_mem_mem_size_i);
-    ex_mem_bus.retire.mem_addr = ex_mem_mem_addr_i;
-    ex_mem_bus.retire.mem_data = ex_mem_mem_wdata_i;
+    ex_mem_bus.pc = ex_mem_pc_i;
+    ex_mem_bus.debug.pc = ex_mem_pc_i;
+    ex_mem_bus.debug.instr = ex_mem_instr_i;
+    ex_mem_bus.debug.mem_op = debug_poison_i ? RETIRE_MEM_NONE :
+        (!ex_mem_mem_valid_i ? RETIRE_MEM_NONE :
+         (ex_mem_mem_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ));
+    ex_mem_bus.debug.mem_size =
+        debug_poison_i ? MEM_SIZE_BYTE : mem_size_e'(ex_mem_mem_size_i);
+    ex_mem_bus.debug.mem_addr =
+        debug_poison_i ? 32'hdead_beef : ex_mem_mem_addr_i;
+    ex_mem_bus.debug.mem_data =
+        debug_poison_i ? 32'hcafe_f00d : ex_mem_mem_wdata_i;
   end
 
   assign dmem_resp.req_ready = dmem_req_ready_i;
-  assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
-  assign dmem_resp.rsp.error = dmem_rsp_error_i;
+  assign dmem_resp.rdata = dmem_rsp_rdata_i;
+  assign dmem_resp.error = dmem_rsp_error_i;
   assign dmem_resp.rsp_valid = dmem_rsp_valid_i;
 
-  assign dmem_req_addr_o = dmem_req.req.addr;
-  assign dmem_req_write_o = dmem_req.req.write;
-  assign dmem_req_size_o = dmem_req.req.size;
-  assign dmem_req_wdata_o = dmem_req.req.wdata;
-  assign dmem_req_wstrb_o = dmem_req.req.wstrb;
+  assign dmem_req_addr_o = dmem_req.addr;
+  assign dmem_req_write_o = dmem_req.write;
+  assign dmem_req_size_o = dmem_req.size;
+  assign dmem_req_wdata_o = dmem_req.wdata;
+  assign dmem_req_wstrb_o = dmem_req.wstrb;
   assign dmem_req_valid_o = dmem_req.req_valid;
   assign dmem_rsp_ready_o = dmem_req.rsp_ready;
 
@@ -107,12 +113,12 @@ module mem_stage_tb (
   assign mem_wb_req_data_valid_o = mem_wb_req.data_valid;
   assign mem_wb_req_rd_addr_o = mem_wb_req.rd_addr;
   assign mem_wb_req_wdata_o = mem_wb_req.wdata;
-  assign mem_wb_pc_o = mem_wb_bus.retire.instruction.pc;
-  assign mem_wb_instr_o = mem_wb_bus.retire.instruction.instr;
-  assign mem_wb_mem_op_o = mem_wb_bus.retire.mem_op;
-  assign mem_wb_mem_size_o = mem_wb_bus.retire.mem_size;
-  assign mem_wb_mem_addr_o = mem_wb_bus.retire.mem_addr;
-  assign mem_wb_mem_data_o = mem_wb_bus.retire.mem_data;
+  assign mem_wb_pc_o = mem_wb_bus.debug.pc;
+  assign mem_wb_instr_o = mem_wb_bus.debug.instr;
+  assign mem_wb_mem_op_o = mem_wb_bus.debug.mem_op;
+  assign mem_wb_mem_size_o = mem_wb_bus.debug.mem_size;
+  assign mem_wb_mem_addr_o = mem_wb_bus.debug.mem_addr;
+  assign mem_wb_mem_data_o = mem_wb_bus.debug.mem_data;
   assign mem_wb_exception_valid_o = mem_wb_bus.exception.valid;
   assign mem_wb_exception_cause_o = mem_wb_bus.exception.cause;
   assign mem_wb_exception_tval_o = mem_wb_bus.exception.tval;

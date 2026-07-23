@@ -12,30 +12,22 @@
 //
 // 请求携带完整有效地址与访问宽度。write 独立表示事务方向，wstrb 只表示
 // 写请求的有效 byte lane；写数据和窄读响应均按照 addr 对应的总线 lane 对齐。
+// master -> slave：请求 payload/valid 及响应通道 ready。
 typedef struct packed {
   word_t addr;
   logic write;
   mem_size_e size;
   word_t wdata;
   byte_en_t wstrb;
-} core_bus_req_chan_t;
-
-typedef struct packed {
-  word_t rdata;
-  logic error;
-} core_bus_rsp_chan_t;
-
-// master -> slave：请求通道及响应通道 ready。
-typedef struct packed {
-  core_bus_req_chan_t req;
   logic req_valid;
   logic rsp_ready;
 } core_bus_req_t;
 
-// slave -> master：请求通道 ready 及响应通道。
+// slave -> master：请求通道 ready 及响应 payload/valid。
 typedef struct packed {
   logic req_ready;
-  core_bus_rsp_chan_t rsp;
+  word_t rdata;
+  logic error;
   logic rsp_valid;
 } core_bus_resp_t;
 

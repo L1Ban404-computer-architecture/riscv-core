@@ -199,6 +199,7 @@ def check_fetch_outputs(dut, expected_fetches, context=""):
         assert got_instr == instr_for_pc(expected_pc)
         assert int(dut.if_id_debug_pc_o.value) == expected_pc
         assert int(dut.if_id_debug_instr_o.value) == instr_for_pc(expected_pc)
+        assert int(dut.if_id_debug_rest_zero_o.value) == 1
 
 
 async def collect_fetches(dut, count):

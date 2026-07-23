@@ -6,29 +6,16 @@
 // ID 0 is instruction fetch and ID 1 is data access.
 `include "common/assertions.svh"
 
+import riscv_core_pkg::*;
+
 module corebus_axi4 (
-  input  logic        clock,
-  input  logic        reset,
+  input logic clock,
+  input logic reset,
 
-  input  logic        imem_req_valid_i,
-  output logic        imem_req_ready_o,
-  input  logic [31:0] imem_req_addr_i,
-  output logic        imem_rsp_valid_o,
-  input  logic        imem_rsp_ready_i,
-  output logic [31:0] imem_rsp_rdata_o,
-  output logic        imem_rsp_error_o,
-
-  input  logic        dmem_req_valid_i,
-  output logic        dmem_req_ready_o,
-  input  logic [31:0] dmem_req_addr_i,
-  input  logic        dmem_req_write_i,
-  input  logic [1:0]  dmem_req_size_i,
-  input  logic [31:0] dmem_req_wdata_i,
-  input  logic [3:0]  dmem_req_wstrb_i,
-  output logic        dmem_rsp_valid_o,
-  input  logic        dmem_rsp_ready_i,
-  output logic [31:0] dmem_rsp_rdata_o,
-  output logic        dmem_rsp_error_o,
+  input  core_bus_req_t  imem_req_i,
+  output core_bus_resp_t imem_resp_o,
+  input  core_bus_req_t  dmem_req_i,
+  output core_bus_resp_t dmem_resp_o,
 
   input  logic        m_awready_i,
   output logic        m_awvalid_o,
@@ -93,13 +80,13 @@ module corebus_axi4 (
     endcase
   endfunction
 
-  assign selected_rsp_ready = owner_dmem_q ? dmem_rsp_ready_i : imem_rsp_ready_i;
+  assign selected_rsp_ready = owner_dmem_q ? dmem_req_i.rsp_ready : imem_req_i.rsp_ready;
   assign read_error = (m_rresp_i != 2'b00) || !m_rlast_i ||
                       (m_rid_i != (owner_dmem_q ? 4'd1 : 4'd0));
   assign write_error = (m_bresp_i != 2'b00) || (m_bid_i != 4'd1);
 
-  assign dmem_req_ready_o = (state_q == StateIdle);
-  assign imem_req_ready_o = (state_q == StateIdle) && !dmem_req_valid_i;
+  assign dmem_resp_o.req_ready = (state_q == StateIdle);
+  assign imem_resp_o.req_ready = (state_q == StateIdle) && !dmem_req_i.req_valid;
 
   assign m_awvalid_o = (state_q == StateWriteData) && !aw_sent_q;
   assign m_awaddr_o = addr_q;
@@ -122,20 +109,20 @@ module corebus_axi4 (
   assign m_arburst_o = 2'b01;
   assign m_rready_o = (state_q == StateReadResponse) && selected_rsp_ready;
 
-  assign imem_rsp_valid_o = !owner_dmem_q &&
-                            (((state_q == StateReadResponse) && m_rvalid_i) ||
-                             ((state_q == StateWriteResponse) && m_bvalid_i));
-  assign dmem_rsp_valid_o = owner_dmem_q &&
-                            (((state_q == StateReadResponse) && m_rvalid_i) ||
-                             ((state_q == StateWriteResponse) && m_bvalid_i));
-  assign imem_rsp_rdata_o = (state_q == StateReadResponse) ? m_rdata_i : 32'b0;
-  assign dmem_rsp_rdata_o = (state_q == StateReadResponse) ? m_rdata_i : 32'b0;
-  assign imem_rsp_error_o = !owner_dmem_q &&
-                            (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
-                             ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
-  assign dmem_rsp_error_o = owner_dmem_q &&
-                            (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
-                             ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
+  assign imem_resp_o.rsp_valid = !owner_dmem_q &&
+                                 (((state_q == StateReadResponse) && m_rvalid_i) ||
+                                  ((state_q == StateWriteResponse) && m_bvalid_i));
+  assign dmem_resp_o.rsp_valid = owner_dmem_q &&
+                                 (((state_q == StateReadResponse) && m_rvalid_i) ||
+                                  ((state_q == StateWriteResponse) && m_bvalid_i));
+  assign imem_resp_o.rdata = (state_q == StateReadResponse) ? m_rdata_i : 32'b0;
+  assign dmem_resp_o.rdata = (state_q == StateReadResponse) ? m_rdata_i : 32'b0;
+  assign imem_resp_o.error = !owner_dmem_q &&
+                             (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
+                              ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
+  assign dmem_resp_o.error = owner_dmem_q &&
+                             (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
+                              ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
 
   always_ff @(posedge clock or posedge reset) begin
     if (reset) begin
@@ -152,16 +139,16 @@ module corebus_axi4 (
         StateIdle: begin
           aw_sent_q <= 1'b0;
           w_sent_q <= 1'b0;
-          if (dmem_req_valid_i) begin
+          if (dmem_req_i.req_valid) begin
             owner_dmem_q <= 1'b1;
-            addr_q <= dmem_req_addr_i;
-            size_q <= dmem_req_size_i;
-            wdata_q <= dmem_req_wdata_i;
-            wstrb_q <= dmem_req_wstrb_i;
-            state_q <= dmem_req_write_i ? StateWriteData : StateReadAddress;
-          end else if (imem_req_valid_i) begin
+            addr_q <= dmem_req_i.addr;
+            size_q <= dmem_req_i.size;
+            wdata_q <= dmem_req_i.wdata;
+            wstrb_q <= dmem_req_i.wstrb;
+            state_q <= dmem_req_i.write ? StateWriteData : StateReadAddress;
+          end else if (imem_req_i.req_valid) begin
             owner_dmem_q <= 1'b0;
-            addr_q <= imem_req_addr_i;
+            addr_q <= imem_req_i.addr;
             size_q <= 2'd2;
             wdata_q <= '0;
             wstrb_q <= '0;
@@ -190,9 +177,14 @@ module corebus_axi4 (
   end
 
   // verilog_format: off
+  `ASSERT(CoreBusImemReadOnly,
+          imem_req_i.req_valid && imem_resp_o.req_ready |->
+              !imem_req_i.write && (imem_req_i.size == MEM_SIZE_WORD) &&
+              (imem_req_i.wdata == '0) && (imem_req_i.wstrb == '0),
+          clock, reset, "Instruction CoreBus requests must be word reads.")
   `ASSERT(CoreBusDmemAligned,
-          dmem_req_valid_i && dmem_req_ready_o |->
-              naturally_aligned(dmem_req_addr_i[1:0], dmem_req_size_i),
+          dmem_req_i.req_valid && dmem_resp_o.req_ready |->
+              naturally_aligned(dmem_req_i.addr[1:0], dmem_req_i.size),
           clock, reset, "Data CoreBus requests must be naturally aligned.")
   `ASSERT_STABLE(AxiAwStable, m_awvalid_o, m_awready_i,
                  {m_awaddr_o, m_awid_o, m_awlen_o, m_awsize_o, m_awburst_o},
@@ -209,21 +201,21 @@ module corebus_axi4 (
   `ASSERT_STABLE(AxiBStable, m_bvalid_i, m_bready_o,
                  {m_bresp_i, m_bid_i},
                  '0, clock, reset, "AXI B payload must remain stable while blocked.")
-  `ASSERT_STABLE(CoreBusImemRspStable, imem_rsp_valid_o, imem_rsp_ready_i,
-                 {imem_rsp_rdata_o, imem_rsp_error_o},
+  `ASSERT_STABLE(CoreBusImemRspStable, imem_resp_o.rsp_valid, imem_req_i.rsp_ready,
+                 {imem_resp_o.rdata, imem_resp_o.error},
                  '0, clock, reset,
                  "Instruction CoreBus response must remain stable while blocked.")
-  `ASSERT_STABLE(CoreBusDmemRspStable, dmem_rsp_valid_o, dmem_rsp_ready_i,
-                 {dmem_rsp_rdata_o, dmem_rsp_error_o},
+  `ASSERT_STABLE(CoreBusDmemRspStable, dmem_resp_o.rsp_valid, dmem_req_i.rsp_ready,
+                 {dmem_resp_o.rdata, dmem_resp_o.error},
                  '0, clock, reset,
                  "Data CoreBus response must remain stable while blocked.")
   `ASSERT(AxiReadErrorPropagated,
           (state_q == StateReadResponse) && m_rvalid_i && read_error |->
-              (owner_dmem_q ? dmem_rsp_error_o : imem_rsp_error_o),
+              (owner_dmem_q ? dmem_resp_o.error : imem_resp_o.error),
           clock, reset, "Malformed AXI read responses must reach CoreBus as errors.")
   `ASSERT(AxiWriteErrorPropagated,
           (state_q == StateWriteResponse) && m_bvalid_i && write_error |->
-              (owner_dmem_q ? dmem_rsp_error_o : imem_rsp_error_o),
+              (owner_dmem_q ? dmem_resp_o.error : imem_resp_o.error),
           clock, reset, "Malformed AXI write responses must reach CoreBus as errors.")
   // verilog_format: on
 

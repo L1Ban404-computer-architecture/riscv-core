@@ -82,9 +82,13 @@ SUITES = {
         ],
     ),
     "corebus_axi4": Suite(
-        top="corebus_axi4",
+        top="corebus_axi4_tb",
         test_module="test_corebus_axi4",
-        sources=["rtl/core/corebus_axi4.sv"],
+        sources=[
+            RTL_PACKAGE,
+            "rtl/core/corebus_axi4.sv",
+            "tests/corebus_axi4/corebus_axi4_tb.sv",
+        ],
     ),
     "if_stage": Suite(
         top="if_stage_tb",

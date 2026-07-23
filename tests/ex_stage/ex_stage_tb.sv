@@ -11,6 +11,8 @@ module ex_stage_tb (
   output logic id_ex_ready_o,
   input logic [31:0] id_ex_pc_i,
   input logic [31:0] id_ex_instr_i,
+  input logic [31:0] id_ex_debug_pc_i,
+  input logic [31:0] id_ex_debug_instr_i,
   input logic [4:0] id_ex_rs1_addr_i,
   input logic [4:0] id_ex_rs2_addr_i,
   input logic [4:0] id_ex_rd_addr_i,
@@ -65,8 +67,10 @@ module ex_stage_tb (
 
   always_comb begin
     id_ex_bus = '0;
-    id_ex_bus.instruction.pc = id_ex_pc_i;
-    id_ex_bus.instruction.instr = id_ex_instr_i;
+    id_ex_bus.pc = id_ex_pc_i;
+    id_ex_bus.instr = id_ex_instr_i;
+    id_ex_bus.debug.pc = id_ex_debug_pc_i;
+    id_ex_bus.debug.instr = id_ex_debug_instr_i;
     id_ex_bus.reg_addr.rs1_addr = id_ex_rs1_addr_i;
     id_ex_bus.reg_addr.rs2_addr = id_ex_rs2_addr_i;
     id_ex_bus.reg_addr.rd_addr = id_ex_rd_addr_i;
@@ -96,8 +100,8 @@ module ex_stage_tb (
   assign redirect_valid_o = redirect.valid;
   assign redirect_target_pc_o = redirect.target_pc;
 
-  assign ex_mem_pc_o = ex_mem_bus.retire.instruction.pc;
-  assign ex_mem_instr_o = ex_mem_bus.retire.instruction.instr;
+  assign ex_mem_pc_o = ex_mem_bus.debug.pc;
+  assign ex_mem_instr_o = ex_mem_bus.debug.instr;
   assign ex_mem_mem_valid_o = ex_mem_bus.mem_req.valid;
   assign ex_mem_mem_write_o = ex_mem_bus.mem_req.write;
   assign ex_mem_mem_size_o = ex_mem_bus.mem_req.size;
@@ -108,8 +112,8 @@ module ex_stage_tb (
   assign ex_mem_wb_data_valid_o = ex_mem_bus.wb_req.data_valid;
   assign ex_mem_wb_rd_addr_o = ex_mem_bus.wb_req.rd_addr;
   assign ex_mem_wb_wdata_o = ex_mem_bus.wb_req.wdata;
-  assign ex_mem_debug_redirect_valid_o = ex_mem_bus.retire.redirect_valid;
-  assign ex_mem_debug_redirect_target_o = ex_mem_bus.retire.redirect_target_pc;
+  assign ex_mem_debug_redirect_valid_o = ex_mem_bus.debug.redirect_valid;
+  assign ex_mem_debug_redirect_target_o = ex_mem_bus.debug.redirect_target_pc;
 
   ex_stage u_dut (
     .clk_i,

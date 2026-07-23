@@ -101,11 +101,11 @@ module if_stage #(
   assign fetch_req_data = '{pc: pc_q};
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
-  assign imem_req_o.req.addr = req_hold_data.pc;
-  assign imem_req_o.req.write = 1'b0;
-  assign imem_req_o.req.size = MEM_SIZE_WORD;
-  assign imem_req_o.req.wdata = '0;
-  assign imem_req_o.req.wstrb = '0;
+  assign imem_req_o.addr = req_hold_data.pc;
+  assign imem_req_o.write = 1'b0;
+  assign imem_req_o.size = MEM_SIZE_WORD;
+  assign imem_req_o.wdata = '0;
+  assign imem_req_o.wstrb = '0;
   assign imem_req_o.req_valid = req_hold_valid && pc_fifo_ready;
   // valid_i 不依赖 pc_fifo_ready；stream_fifo 内部再与 ready_o 相与得到的
   // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
@@ -149,13 +149,17 @@ module if_stage #(
     if (frontend_flush) discard_count_d = pc_fifo_usage_next;
   end
 
-  assign fetch_fifo_data.instruction.pc = pc_fifo_data.pc;
-  assign fetch_fifo_data.instruction.instr = instr_t'(imem_resp_i.rsp.rdata);
-  assign fetch_fifo_data.exception.valid = imem_resp_i.rsp.error;
-  assign fetch_fifo_data.exception.is_interrupt = 1'b0;
-  assign fetch_fifo_data.exception.cause = imem_resp_i.rsp.error ? EXC_INST_ACCESS_FAULT :
-      exception_cause_e'('0);
-  assign fetch_fifo_data.exception.tval = imem_resp_i.rsp.error ? pc_fifo_data.pc : '0;
+  always_comb begin
+    fetch_fifo_data = '0;
+    fetch_fifo_data.pc = pc_fifo_data.pc;
+    fetch_fifo_data.instr = instr_t'(imem_resp_i.rdata);
+    fetch_fifo_data.exception.valid = imem_resp_i.error;
+    fetch_fifo_data.exception.cause = imem_resp_i.error ? EXC_INST_ACCESS_FAULT :
+        exception_cause_e'('0);
+    fetch_fifo_data.exception.tval = imem_resp_i.error ? pc_fifo_data.pc : '0;
+    fetch_fifo_data.debug.pc = pc_fifo_data.pc;
+    fetch_fifo_data.debug.instr = instr_t'(imem_resp_i.rdata);
+  end
 
   // fetch FIFO 在 frontend flush 周期同步清空；组合输出同时屏蔽，
   // 避免同周期把旧路径指令继续交给 ID。
@@ -253,8 +257,8 @@ module if_stage #(
     ImemReqStable,
     imem_req_o.req_valid,
     imem_resp_i.req_ready,
-    imem_req_o.req,
-    core_bus_req_chan_t'(0),
+    {imem_req_o.addr, imem_req_o.write, imem_req_o.size, imem_req_o.wdata, imem_req_o.wstrb},
+    '0,
     clk_i,
     !rst_ni,
     "CoreBus request payload must remain stable while valid is waiting for ready."

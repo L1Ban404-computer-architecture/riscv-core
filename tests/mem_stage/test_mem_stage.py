@@ -26,6 +26,7 @@ def drive_transaction(
     wb_data_valid=0,
     rd=0,
     wb_data=0,
+    debug_poison=0,
 ):
     dut.ex_mem_valid_i.value = valid
     dut.ex_mem_pc_i.value = pc & MASK32
@@ -40,6 +41,7 @@ def drive_transaction(
     dut.ex_mem_wb_data_valid_i.value = wb_data_valid
     dut.ex_mem_wb_rd_addr_i.value = rd
     dut.ex_mem_wb_wdata_i.value = wb_data & MASK32
+    dut.debug_poison_i.value = debug_poison
 
 
 def drive_response(dut, *, valid=0, data=0, error=0):
@@ -70,6 +72,31 @@ async def reset_dut(dut):
     await NextTimeStep()
     assert int(dut.mem_wb_valid_o.value) == 0
     assert pending_entries(dut) == []
+
+
+@cocotb.test()
+async def corebus_request_is_independent_from_debug_payload(dut):
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    await reset_dut(dut)
+
+    dut.dmem_req_ready_i.value = 1
+    drive_transaction(
+        dut,
+        mem_valid=1,
+        write=1,
+        size=MEM_WORD,
+        addr=0x200,
+        store_data=0x12345678,
+        debug_poison=1,
+    )
+    await Timer(1, unit="ns")
+
+    assert int(dut.dmem_req_valid_o.value) == 1
+    assert int(dut.dmem_req_write_o.value) == 1
+    assert int(dut.dmem_req_size_o.value) == MEM_WORD
+    assert int(dut.dmem_req_addr_o.value) == 0x200
+    assert int(dut.dmem_req_wdata_o.value) == 0x12345678
+    assert int(dut.dmem_req_wstrb_o.value) == 0xF
 
 
 async def issue_memory(dut, **kwargs):

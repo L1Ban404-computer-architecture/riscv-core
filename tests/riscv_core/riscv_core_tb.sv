@@ -67,28 +67,28 @@ module riscv_core_tb #(
   core_state_debug_bus_t core_state_debug;
 
   assign imem_req_valid_o = imem_req.req_valid;
-  assign imem_req_addr_o = imem_req.req.addr;
-  assign imem_req_write_o = imem_req.req.write;
-  assign imem_req_size_o = imem_req.req.size;
-  assign imem_req_wdata_o = imem_req.req.wdata;
-  assign imem_req_wstrb_o = imem_req.req.wstrb;
+  assign imem_req_addr_o = imem_req.addr;
+  assign imem_req_write_o = imem_req.write;
+  assign imem_req_size_o = imem_req.size;
+  assign imem_req_wdata_o = imem_req.wdata;
+  assign imem_req_wstrb_o = imem_req.wstrb;
   assign imem_rsp_ready_o = imem_req.rsp_ready;
   assign imem_resp.req_ready = imem_req_ready_i;
   assign imem_resp.rsp_valid = imem_rsp_valid_i;
-  assign imem_resp.rsp.rdata = imem_rsp_rdata_i;
-  assign imem_resp.rsp.error = imem_rsp_error_i;
+  assign imem_resp.rdata = imem_rsp_rdata_i;
+  assign imem_resp.error = imem_rsp_error_i;
 
   assign dmem_req_valid_o = dmem_req.req_valid;
-  assign dmem_req_addr_o = dmem_req.req.addr;
-  assign dmem_req_write_o = dmem_req.req.write;
-  assign dmem_req_size_o = dmem_req.req.size;
-  assign dmem_req_wdata_o = dmem_req.req.wdata;
-  assign dmem_req_wstrb_o = dmem_req.req.wstrb;
+  assign dmem_req_addr_o = dmem_req.addr;
+  assign dmem_req_write_o = dmem_req.write;
+  assign dmem_req_size_o = dmem_req.size;
+  assign dmem_req_wdata_o = dmem_req.wdata;
+  assign dmem_req_wstrb_o = dmem_req.wstrb;
   assign dmem_rsp_ready_o = dmem_req.rsp_ready;
   assign dmem_resp.req_ready = dmem_req_ready_i;
   assign dmem_resp.rsp_valid = dmem_rsp_valid_i;
-  assign dmem_resp.rsp.rdata = dmem_rsp_rdata_i;
-  assign dmem_resp.rsp.error = dmem_rsp_error_i;
+  assign dmem_resp.rdata = dmem_rsp_rdata_i;
+  assign dmem_resp.error = dmem_rsp_error_i;
 
   assign debug_retire_valid_o = core_retire_valid;
   assign debug_retire_pc_o = core_retire_debug.pc;

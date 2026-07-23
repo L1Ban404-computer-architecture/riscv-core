@@ -10,6 +10,8 @@ module id_stage_tb (
   output logic if_id_ready_o,
   input logic [31:0] if_id_pc_i,
   input logic [31:0] if_id_instr_i,
+  input logic [31:0] if_id_debug_pc_i,
+  input logic [31:0] if_id_debug_instr_i,
   input logic wb_valid_i,
   input logic wb_data_valid_i,
   input logic [4:0] wb_rd_addr_i,
@@ -18,6 +20,8 @@ module id_stage_tb (
   input logic id_ex_ready_i,
   output logic [31:0] id_ex_pc_o,
   output logic [31:0] id_ex_instr_o,
+  output logic [31:0] id_ex_debug_pc_o,
+  output logic [31:0] id_ex_debug_instr_o,
   output logic [4:0] id_ex_rs1_addr_o,
   output logic [4:0] id_ex_rs2_addr_o,
   output logic [4:0] id_ex_rd_addr_o,
@@ -40,15 +44,20 @@ module id_stage_tb (
   wb_req_bus_t wb_req;
   id_ex_bus_t id_ex_bus;
 
-  assign if_id_bus = '{
-    instruction: '{pc: if_id_pc_i, instr: if_id_instr_i},
-    exception: '0
-  };
+  always_comb begin
+    if_id_bus = '0;
+    if_id_bus.pc = if_id_pc_i;
+    if_id_bus.instr = if_id_instr_i;
+    if_id_bus.debug.pc = if_id_debug_pc_i;
+    if_id_bus.debug.instr = if_id_debug_instr_i;
+  end
   assign wb_req = '{valid: wb_valid_i, data_valid: wb_data_valid_i,
                     rd_addr: wb_rd_addr_i, wdata: wb_wdata_i};
 
-  assign id_ex_pc_o = id_ex_bus.instruction.pc;
-  assign id_ex_instr_o = id_ex_bus.instruction.instr;
+  assign id_ex_pc_o = id_ex_bus.pc;
+  assign id_ex_instr_o = id_ex_bus.instr;
+  assign id_ex_debug_pc_o = id_ex_bus.debug.pc;
+  assign id_ex_debug_instr_o = id_ex_bus.debug.instr;
   assign id_ex_rs1_addr_o = id_ex_bus.reg_addr.rs1_addr;
   assign id_ex_rs2_addr_o = id_ex_bus.reg_addr.rs2_addr;
   assign id_ex_rd_addr_o = id_ex_bus.reg_addr.rd_addr;

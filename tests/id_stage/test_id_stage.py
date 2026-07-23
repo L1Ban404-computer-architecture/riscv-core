@@ -39,6 +39,8 @@ async def reset_dut(dut):
     dut.if_id_valid_i.value = 0
     dut.if_id_pc_i.value = 0
     dut.if_id_instr_i.value = 0
+    dut.if_id_debug_pc_i.value = 0
+    dut.if_id_debug_instr_i.value = 0
     dut.id_ex_ready_i.value = 1
     dut.wb_valid_i.value = 0
     dut.wb_data_valid_i.value = 0
@@ -62,15 +64,40 @@ async def wb_write(dut, rd, value):
     dut.wb_data_valid_i.value = 0
 
 
-async def push(dut, instr, pc=0x80000000):
+async def push(dut, instr, pc=0x80000000, debug_pc=None, debug_instr=None):
     assert int(dut.if_id_ready_o.value) == 1
     dut.if_id_instr_i.value = instr
     dut.if_id_pc_i.value = pc
+    dut.if_id_debug_pc_i.value = pc if debug_pc is None else debug_pc
+    dut.if_id_debug_instr_i.value = instr if debug_instr is None else debug_instr
     dut.if_id_valid_i.value = 1
     await RisingEdge(dut.clk_i)
     await NextTimeStep()
     dut.if_id_valid_i.value = 0
     assert int(dut.id_ex_valid_o.value) == 1
+
+
+@cocotb.test()
+async def functional_instruction_is_independent_from_debug_payload(dut):
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    await reset_dut(dut)
+
+    addi = encode_i(7, 0, 0, 3)
+    await push(
+        dut,
+        addi,
+        pc=0x80000100,
+        debug_pc=0xDEAD0000,
+        debug_instr=0xFFFFFFFF,
+    )
+
+    assert int(dut.id_ex_pc_o.value) == 0x80000100
+    assert int(dut.id_ex_instr_o.value) == addi
+    assert int(dut.id_ex_debug_pc_o.value) == 0xDEAD0000
+    assert int(dut.id_ex_debug_instr_o.value) == 0xFFFFFFFF
+    assert int(dut.id_ex_illegal_instr_o.value) == 0
+    assert int(dut.id_ex_rd_addr_o.value) == 3
+    assert int(dut.id_ex_imm_o.value) == 7
 
 
 async def consume(dut):

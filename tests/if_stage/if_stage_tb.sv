@@ -34,6 +34,7 @@ module if_stage_tb #(
   output logic [31:0] if_id_instr_o,
   output logic [31:0] if_id_debug_pc_o,
   output logic [31:0] if_id_debug_instr_o,
+  output logic if_id_debug_rest_zero_o,
   output logic if_id_exception_valid_o,
   output logic [3:0] if_id_exception_cause_o,
   output logic [31:0] if_id_exception_tval_o
@@ -48,22 +49,34 @@ module if_stage_tb #(
   assign redirect_bus.target_pc = redirect_target_pc_i;
 
   assign imem_resp.req_ready = imem_req_ready_i;
-  assign imem_resp.rsp.rdata = imem_rsp_rdata_i;
-  assign imem_resp.rsp.error = imem_rsp_error_i;
+  assign imem_resp.rdata = imem_rsp_rdata_i;
+  assign imem_resp.error = imem_rsp_error_i;
   assign imem_resp.rsp_valid = imem_rsp_valid_i;
 
-  assign imem_req_addr_o = imem_req.req.addr;
-  assign imem_req_write_o = imem_req.req.write;
-  assign imem_req_size_o = imem_req.req.size;
-  assign imem_req_wdata_o = imem_req.req.wdata;
-  assign imem_req_wstrb_o = imem_req.req.wstrb;
+  assign imem_req_addr_o = imem_req.addr;
+  assign imem_req_write_o = imem_req.write;
+  assign imem_req_size_o = imem_req.size;
+  assign imem_req_wdata_o = imem_req.wdata;
+  assign imem_req_wstrb_o = imem_req.wstrb;
   assign imem_req_valid_o = imem_req.req_valid;
   assign imem_rsp_ready_o = imem_req.rsp_ready;
 
-  assign if_id_pc_o = if_id_bus.instruction.pc;
-  assign if_id_instr_o = if_id_bus.instruction.instr;
-  assign if_id_debug_pc_o = if_id_bus.instruction.pc;
-  assign if_id_debug_instr_o = if_id_bus.instruction.instr;
+  assign if_id_pc_o = if_id_bus.pc;
+  assign if_id_instr_o = if_id_bus.instr;
+  assign if_id_debug_pc_o = if_id_bus.debug.pc;
+  assign if_id_debug_instr_o = if_id_bus.debug.instr;
+  assign if_id_debug_rest_zero_o = !(|{
+    if_id_bus.debug.gpr_we,
+    if_id_bus.debug.gpr_waddr,
+    if_id_bus.debug.gpr_wdata,
+    if_id_bus.debug.mem_op,
+    if_id_bus.debug.mem_size,
+    if_id_bus.debug.mem_addr,
+    if_id_bus.debug.mem_data,
+    if_id_bus.debug.redirect_valid,
+    if_id_bus.debug.redirect_target_pc,
+    if_id_bus.debug.csr
+  });
   assign if_id_exception_valid_o = if_id_bus.exception.valid;
   assign if_id_exception_cause_o = if_id_bus.exception.cause;
   assign if_id_exception_tval_o = if_id_bus.exception.tval;

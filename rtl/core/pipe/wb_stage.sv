@@ -32,6 +32,7 @@ module wb_stage (
   word_t current_mtvec;
   word_t current_mepc;
   logic [63:0] debug_cycle_count_q;
+  core_retire_debug_bus_t committed_debug;
 
   // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
   // wb_fire 门控，避免无效 MEM/WB payload 产生副作用。
@@ -65,6 +66,19 @@ module wb_stage (
 
     wb_req_o = '0;
     if (wb_fire && !trap_commit && !mret_commit) wb_req_o = mem_wb_bus_i.wb_req;
+
+    // 最终退休快照以随流水前进的 debug payload 为基础，只在提交点覆盖
+    // 会受 trap/MRET 或最终写回资格影响的字段，并加入提交后的 CSR 状态。
+    committed_debug = mem_wb_bus_i.debug;
+    committed_debug.gpr_we = wb_req_o.valid && wb_req_o.data_valid;
+    committed_debug.gpr_waddr = wb_req_o.rd_addr;
+    committed_debug.gpr_wdata = wb_req_o.wdata;
+    if (trap_commit || mret_commit) committed_debug.mem_op = RETIRE_MEM_NONE;
+    committed_debug.redirect_valid =
+        control_o.redirect.valid || mem_wb_bus_i.debug.redirect_valid;
+    if (control_o.redirect.valid)
+      committed_debug.redirect_target_pc = control_o.redirect.target_pc;
+    committed_debug.csr = csr_state;
   end
 
   // valid 每周期指示是否发生退休；两个结构体只在退休沿更新并保持最后一次
@@ -80,24 +94,7 @@ module wb_stage (
       core_retire_valid_o <= wb_fire;
 
       if (wb_fire) begin
-        core_retire_debug_o <= '{
-          pc: mem_wb_bus_i.retire.instruction.pc,
-          instr: mem_wb_bus_i.retire.instruction.instr,
-          gpr_we: wb_req_o.valid && wb_req_o.data_valid,
-          gpr_waddr: wb_req_o.rd_addr,
-          gpr_wdata: wb_req_o.wdata,
-          mem_op: (trap_commit || mret_commit) ?
-              RETIRE_MEM_NONE : mem_wb_bus_i.retire.mem_op,
-          mem_size: mem_wb_bus_i.retire.mem_size,
-          mem_addr: mem_wb_bus_i.retire.mem_addr,
-          mem_data: mem_wb_bus_i.retire.mem_data,
-          redirect_valid: control_o.redirect.valid ||
-              mem_wb_bus_i.retire.redirect_valid,
-          redirect_target_pc: control_o.redirect.valid ?
-              control_o.redirect.target_pc :
-              mem_wb_bus_i.retire.redirect_target_pc,
-          csr: csr_state
-        };
+        core_retire_debug_o <= committed_debug;
 
         core_state_debug_o <= '{
           cycle_count: debug_cycle_count_q + 64'd1,
@@ -121,7 +118,7 @@ module wb_stage (
     .read_rsp_o(csr_read_rsp_o),
     .write_i(csr_write),
     .trap_i(trap_commit),
-    .trap_epc_i(mem_wb_bus_i.retire.instruction.pc),
+    .trap_epc_i(mem_wb_bus_i.pc),
     .trap_is_interrupt_i(effective_exception.is_interrupt),
     .trap_cause_i(effective_exception.cause),
     .trap_tval_i(effective_exception.tval),

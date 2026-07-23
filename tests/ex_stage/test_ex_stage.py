@@ -35,6 +35,8 @@ def drive_instruction(
     *,
     tag=0x00000013,
     pc=0x80000000,
+    debug_pc=None,
+    debug_instr=None,
     rs1_addr=0,
     rs2_addr=0,
     rd=0,
@@ -56,6 +58,8 @@ def drive_instruction(
     dut.id_ex_valid_i.value = valid
     dut.id_ex_pc_i.value = pc & MASK32
     dut.id_ex_instr_i.value = tag & MASK32
+    dut.id_ex_debug_pc_i.value = (pc if debug_pc is None else debug_pc) & MASK32
+    dut.id_ex_debug_instr_i.value = (tag if debug_instr is None else debug_instr) & MASK32
     dut.id_ex_rs1_addr_i.value = rs1_addr
     dut.id_ex_rs2_addr_i.value = rs2_addr
     dut.id_ex_rd_addr_i.value = rd
@@ -86,6 +90,30 @@ async def reset_dut(dut):
     await RisingEdge(dut.clk_i)
     await NextTimeStep()
     assert int(dut.ex_mem_valid_o.value) == 0
+
+
+@cocotb.test()
+async def functional_pc_is_independent_from_debug_payload(dut):
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    await reset_dut(dut)
+
+    drive_instruction(
+        dut,
+        pc=0x80000100,
+        debug_pc=0xDEAD0000,
+        debug_instr=0xFFFFFFFF,
+        imm=8,
+        op_a=OP_A_PC,
+        op_b=OP_B_IMM,
+        wb=WB_ALU,
+        rd=3,
+        rd_write=1,
+    )
+    await accept_current(dut)
+
+    assert int(dut.ex_mem_wb_wdata_o.value) == 0x80000108
+    assert int(dut.ex_mem_pc_o.value) == 0xDEAD0000
+    assert int(dut.ex_mem_instr_o.value) == 0xFFFFFFFF
 
 
 async def accept_current(dut):

@@ -105,7 +105,7 @@ module ex_stage (
   end
 
   assign operand_a = (id_ex_bus_i.ctrl.op_a_sel == OP_A_PC) ?
-      id_ex_bus_i.instruction.pc : rs1_value;
+      id_ex_bus_i.pc : rs1_value;
   assign
       operand_b = (id_ex_bus_i.ctrl.op_b_sel == OP_B_IMM) ? id_ex_bus_i.exec_data.imm : rs2_value;
 
@@ -154,7 +154,7 @@ module ex_stage (
                  !csr_read_rsp_i.valid) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_ILLEGAL_INSTR;
-      executed_exception.tval = id_ex_bus_i.instruction.instr;
+      executed_exception.tval = id_ex_bus_i.instr;
     end
 
     redirect_o = branch_redirect;
@@ -165,7 +165,7 @@ module ex_stage (
       redirect_o.valid = 1'b0;
   end
 
-  assign pc_plus_4 = id_ex_bus_i.instruction.pc + word_t'(4);
+  assign pc_plus_4 = id_ex_bus_i.pc + word_t'(4);
 
   always_comb begin
     wb_req = '0;
@@ -238,18 +238,22 @@ module ex_stage (
 
   always_comb begin
     executed_ex_mem_bus = '0;
+    executed_ex_mem_bus.pc = id_ex_bus_i.pc;
     executed_ex_mem_bus.mem_req = mem_req;
     executed_ex_mem_bus.wb_req = wb_req;
     executed_ex_mem_bus.exception = executed_exception;
     executed_ex_mem_bus.commit = commit_ctrl;
-    executed_ex_mem_bus.retire.instruction = id_ex_bus_i.instruction;
-    executed_ex_mem_bus.retire.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
+    executed_ex_mem_bus.debug = id_ex_bus_i.debug;
+    executed_ex_mem_bus.debug.gpr_we = wb_req.valid && wb_req.data_valid;
+    executed_ex_mem_bus.debug.gpr_waddr = wb_req.rd_addr;
+    executed_ex_mem_bus.debug.gpr_wdata = wb_req.wdata;
+    executed_ex_mem_bus.debug.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
         (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    executed_ex_mem_bus.retire.mem_size = mem_req.size;
-    executed_ex_mem_bus.retire.mem_addr = mem_req.addr;
-    executed_ex_mem_bus.retire.mem_data = mem_req.wdata;
-    executed_ex_mem_bus.retire.redirect_valid = redirect_o.valid;
-    executed_ex_mem_bus.retire.redirect_target_pc = redirect_o.target_pc;
+    executed_ex_mem_bus.debug.mem_size = mem_req.size;
+    executed_ex_mem_bus.debug.mem_addr = mem_req.addr;
+    executed_ex_mem_bus.debug.mem_data = mem_req.wdata;
+    executed_ex_mem_bus.debug.redirect_valid = redirect_o.valid;
+    executed_ex_mem_bus.debug.redirect_target_pc = redirect_o.target_pc;
   end
 
   // EX/MEM 与 ID/EX 一样使用单入口双向握手寄存器。满载且 MEM ready 时

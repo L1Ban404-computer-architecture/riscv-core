@@ -17,6 +17,8 @@ module wb_stage_tb (
 
   input logic [31:0] fetch_pc_i,
   input logic [31:0] fetch_instr_i,
+  input logic [31:0] commit_pc_i,
+  input logic exception_valid_i,
   input logic redirect_valid_i,
   input logic [31:0] redirect_target_pc_i,
   input logic mem_req_valid_i,
@@ -44,7 +46,8 @@ module wb_stage_tb (
   output logic [31:0] retire_gpr_wdata_o,
   output logic [63:0] state_cycle_count_o,
   output logic [63:0] state_instret_count_o,
-  output logic state_trap_o
+  output logic state_trap_o,
+  output logic [31:0] csr_mepc_o
 );
 
   mem_wb_bus_t mem_wb_bus;
@@ -62,15 +65,18 @@ module wb_stage_tb (
     mem_wb_bus.wb_req.rd_addr = wb_rd_addr_i;
     mem_wb_bus.wb_req.wdata = wb_wdata_i;
 
-    mem_wb_bus.retire.instruction.pc = fetch_pc_i;
-    mem_wb_bus.retire.instruction.instr = fetch_instr_i;
-    mem_wb_bus.retire.redirect_valid = redirect_valid_i;
-    mem_wb_bus.retire.redirect_target_pc = redirect_target_pc_i;
-    mem_wb_bus.retire.mem_op = !mem_req_valid_i ? RETIRE_MEM_NONE :
+    mem_wb_bus.pc = commit_pc_i;
+    mem_wb_bus.exception.valid = exception_valid_i;
+    mem_wb_bus.exception.cause = EXC_BREAKPOINT;
+    mem_wb_bus.debug.pc = fetch_pc_i;
+    mem_wb_bus.debug.instr = fetch_instr_i;
+    mem_wb_bus.debug.redirect_valid = redirect_valid_i;
+    mem_wb_bus.debug.redirect_target_pc = redirect_target_pc_i;
+    mem_wb_bus.debug.mem_op = !mem_req_valid_i ? RETIRE_MEM_NONE :
         (mem_req_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    mem_wb_bus.retire.mem_size = mem_size_e'(mem_req_size_i);
-    mem_wb_bus.retire.mem_addr = mem_req_addr_i;
-    mem_wb_bus.retire.mem_data = mem_req_wdata_i;
+    mem_wb_bus.debug.mem_size = mem_size_e'(mem_req_size_i);
+    mem_wb_bus.debug.mem_addr = mem_req_addr_i;
+    mem_wb_bus.debug.mem_data = mem_req_wdata_i;
   end
 
   assign wb_valid_o = wb_req.valid;
@@ -93,6 +99,7 @@ module wb_stage_tb (
   assign state_cycle_count_o = core_state_debug.cycle_count;
   assign state_instret_count_o = core_state_debug.instret_count;
   assign state_trap_o = core_state_debug.trap;
+  assign csr_mepc_o = csr_read_rsp.data;
 
   wb_stage u_dut (
     .clk_i,
@@ -100,7 +107,7 @@ module wb_stage_tb (
     .mem_wb_valid_i,
     .mem_wb_ready_o,
     .mem_wb_bus_i(mem_wb_bus),
-    .csr_read_addr_i(CsrMstatus),
+    .csr_read_addr_i(CsrMepc),
     .csr_read_rsp_o(csr_read_rsp),
     .control_o(control),
     .wb_req_o(wb_req),

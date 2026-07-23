@@ -29,6 +29,8 @@ def drive_payload(
     wb_data=0x12345678,
     pc=0x80000000,
     instr=0x00C585B3,
+    commit_pc=None,
+    exception_valid=0,
 ):
     dut.mem_wb_valid_i.value = valid
     dut.wb_valid_i.value = wb_valid
@@ -38,6 +40,8 @@ def drive_payload(
 
     dut.fetch_pc_i.value = pc & MASK32
     dut.fetch_instr_i.value = instr & MASK32
+    dut.commit_pc_i.value = (pc if commit_pc is None else commit_pc) & MASK32
+    dut.exception_valid_i.value = exception_valid
     dut.redirect_valid_i.value = 1
     dut.redirect_target_pc_i.value = 0x80000100
     dut.mem_req_valid_i.value = 1
@@ -168,3 +172,22 @@ async def consecutive_retirements_keep_valid_high_and_replace_snapshots(dut):
     assert int(dut.retire_gpr_wdata_o.value) == 2
     assert int(dut.state_cycle_count_o.value) == 3
     assert int(dut.state_instret_count_o.value) == 2
+
+
+@cocotb.test()
+async def trap_epc_uses_functional_pc_not_debug_payload(dut):
+    await reset_dut(dut)
+    drive_payload(
+        dut,
+        wb_valid=0,
+        wb_data_valid=0,
+        pc=0xDEAD0000,
+        commit_pc=0x80000100,
+        exception_valid=1,
+    )
+    await RisingEdge(dut.clk_i)
+    await ReadOnly()
+
+    assert int(dut.state_trap_o.value) == 1
+    assert int(dut.retire_pc_o.value) == 0xDEAD0000
+    assert int(dut.csr_mepc_o.value) == 0x80000100
