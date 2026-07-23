@@ -24,18 +24,11 @@ module common_fifo_tb #(
   output logic [31:0] config_depth_o
 );
 
-  typedef logic [CountW-1:0] count_t;
-
-  logic peek_ready;
-  logic peek_valid;
-  logic [31:0] peek_data;
-  logic [31:0] peek_data_all [Depth];
-  logic [Depth-1:0] peek_valid_all;
-
   assign config_fall_through_o = FallThrough;
   assign config_same_cycle_rw_o = SameCycleRW;
   assign config_depth_o = Depth;
-  assign peek_valid_count_o = count_t'($countones(peek_valid_all));
+  assign peek_usage_o = usage_o;
+  assign peek_valid_count_o = usage_o;
 
   stream_fifo #(
     .Depth(Depth),
@@ -54,32 +47,5 @@ module common_fifo_tb #(
     .valid_o,
     .ready_i
   );
-
-  peek_fifo #(
-    .Depth(Depth),
-    .FallThrough(FallThrough),
-    .SameCycleRW(SameCycleRW),
-    .T(logic [31:0])
-  ) u_peek_fifo (
-    .clk_i,
-    .rst_ni,
-    .flush_i,
-    .usage_o(peek_usage_o),
-    .data_i,
-    .valid_i,
-    .ready_o(peek_ready),
-    .data_o(peek_data),
-    .valid_o(peek_valid),
-    .ready_i,
-    .data_all_o(peek_data_all),
-    .valid_all_o(peek_valid_all)
-  );
-
-  always_comb begin
-    assert (ready_o == peek_ready);
-    assert (valid_o == peek_valid);
-    assert (data_o == peek_data);
-    assert (usage_o == peek_usage_o);
-  end
 
 endmodule

@@ -12,7 +12,7 @@
 typedef struct packed {
   pc_t pc;
   instr_t instr;
-} fetch_bus_t;
+} instruction_bus_t;
 
 typedef struct packed {
   reg_addr_t rs1_addr;
@@ -21,7 +21,6 @@ typedef struct packed {
 } reg_addr_bus_t;
 
 typedef struct packed {
-  pc_t pc;
   word_t rs1_value;
   word_t rs2_value;
   word_t imm;
@@ -44,6 +43,24 @@ typedef struct packed {
   system_op_e system_op;
   logic serialize;
 } decode_ctrl_bus_t;
+
+// ID 已经把译码非法状态转换为 exception；后续流水不再重复携带 legality。
+typedef struct packed {
+  alu_op_e alu_op;
+  op_a_sel_e op_a_sel;
+  op_b_sel_e op_b_sel;
+  branch_op_e branch_op;
+  mem_cmd_e mem_cmd;
+  mem_size_e mem_size;
+  logic mem_sign_ext;
+  wb_sel_e wb_sel;
+  logic rd_write;
+  csr_cmd_e csr_cmd;
+  logic csr_use_imm;
+  csr_addr_t csr_addr;
+  system_op_e system_op;
+  logic serialize;
+} execute_ctrl_bus_t;
 
 typedef struct packed {
   logic valid;

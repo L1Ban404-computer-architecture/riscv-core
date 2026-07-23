@@ -38,16 +38,9 @@ module wb_stage (
   assign wb_fire = mem_wb_valid_i && mem_wb_ready_o;
 
   always_comb begin
-    // MRET 的目标来自提交前 mepc。IALIGN=32 下目标未对齐时，不执行 MRET，
-    // 而是把 MRET 指令自身转换为 instruction-address-misaligned trap。
+    // MRET 的目标来自提交前 mepc。csr_unit 按 IALIGN=32 将 mepc[1:0]
+    // 实现为只读零，因此隐式读取的返回地址始终满足指令对齐要求。
     effective_exception = mem_wb_bus_i.exception;
-    if (!effective_exception.valid &&
-        (mem_wb_bus_i.commit.system_op == SYS_MRET) &&
-        (csr_current_state.mepc[1:0] != 2'b00)) begin
-      effective_exception.valid = 1'b1;
-      effective_exception.cause = EXC_INST_ADDR_MISALIGNED;
-      effective_exception.tval = csr_current_state.mepc;
-    end
 
     // 架构提交优先级固定为：trap entry > MRET > 普通 CSR/GPR 写回。
     trap_commit = wb_fire && effective_exception.valid;
@@ -89,18 +82,21 @@ module wb_stage (
 
       if (wb_fire) begin
         core_retire_debug_o <= '{
-          pc: mem_wb_bus_i.debug.pc,
-          instr: mem_wb_bus_i.debug.instr,
+          pc: mem_wb_bus_i.retire.instruction.pc,
+          instr: mem_wb_bus_i.retire.instruction.instr,
           gpr_we: wb_req_o.valid && wb_req_o.data_valid,
           gpr_waddr: wb_req_o.rd_addr,
           gpr_wdata: wb_req_o.wdata,
-          mem_op: (trap_commit || mret_commit) ? RETIRE_MEM_NONE : mem_wb_bus_i.debug.mem_op,
-          mem_size: mem_wb_bus_i.debug.mem_size,
-          mem_addr: mem_wb_bus_i.debug.mem_addr,
-          mem_data: mem_wb_bus_i.debug.mem_data,
-          redirect_valid: control_o.redirect.valid || mem_wb_bus_i.debug.redirect_valid,
+          mem_op: (trap_commit || mret_commit) ?
+              RETIRE_MEM_NONE : mem_wb_bus_i.retire.mem_op,
+          mem_size: mem_wb_bus_i.retire.mem_size,
+          mem_addr: mem_wb_bus_i.retire.mem_addr,
+          mem_data: mem_wb_bus_i.retire.mem_data,
+          redirect_valid: control_o.redirect.valid ||
+              mem_wb_bus_i.retire.redirect_valid,
           redirect_target_pc: control_o.redirect.valid ?
-              control_o.redirect.target_pc : mem_wb_bus_i.debug.redirect_target_pc,
+              control_o.redirect.target_pc :
+              mem_wb_bus_i.retire.redirect_target_pc,
           csr: csr_state
         };
 
@@ -126,7 +122,7 @@ module wb_stage (
     .read_rsp_o(csr_read_rsp_o),
     .write_i(csr_write),
     .trap_i(trap_commit),
-    .trap_epc_i(mem_wb_bus_i.debug.pc),
+    .trap_epc_i(mem_wb_bus_i.retire.instruction.pc),
     .trap_exception_i(effective_exception),
     .mret_i(mret_commit),
     .state_o(csr_state),

@@ -286,7 +286,7 @@ async def single_outstanding_blocks_next_request_until_response(dut):
         await RisingEdge(dut.clk_i)
         await NextTimeStep()
 
-    # peek_fifo 支持满状态同周期 pop/push，因此 PC0 响应释放队首时，
+    # stream_fifo 支持满状态同周期 pop/push，因此 PC0 响应释放队首时，
     # holding register 中预存的 PC1 可以在同周期完成请求握手。
     dut.imem_rsp_rdata_i.value = instr_for_pc(first_pc)
     dut.imem_rsp_error_i.value = 0
@@ -428,7 +428,7 @@ async def redirect_discards_old_outstanding_responses(dut):
     dut.redirect_valid_i.value = 0
 
     # 单 outstanding 下，旧请求返回之前不能发出目标路径请求。旧响应仍需
-    # 被消费，并由 epoch 机制丢弃。
+    # 被消费，并由待丢弃响应计数清除。
     await ReadOnly()
     assert int(dut.imem_req_valid_o.value) == 0
     await RisingEdge(dut.clk_i)
@@ -442,6 +442,35 @@ async def redirect_discards_old_outstanding_responses(dut):
     await send_responses_for_pcs(dut, [new_pc])
     got = await collect_fetches(dut, 1)
     assert got == [(new_pc, instr_for_pc(new_pc))]
+
+
+@cocotb.test()
+async def repeated_redirects_do_not_revive_old_responses(dut):
+    await start_clock(dut)
+    boot_pc = 0x8000_4400
+    branch_target = 0x8000_8800
+    trap_target = 0x8000_C000
+    await reset_dut(dut, boot_pc)
+
+    old_pc = (await accept_requests(dut, 1))[0]
+
+    for target in (branch_target, trap_target):
+        dut.redirect_target_pc_i.value = target
+        dut.redirect_valid_i.value = 1
+        await RisingEdge(dut.clk_i)
+        await NextTimeStep()
+        dut.redirect_valid_i.value = 0
+
+    await send_responses_for_pcs(dut, [old_pc])
+    await wait_cycles(dut, 3)
+    assert int(dut.if_id_valid_o.value) == 0
+
+    new_pc = (await accept_requests(dut, 1))[0]
+    assert new_pc == trap_target
+    await send_responses_for_pcs(dut, [new_pc])
+    assert await collect_fetches(dut, 1) == [
+        (trap_target, instr_for_pc(trap_target))
+    ]
 
 
 @cocotb.test()
@@ -523,7 +552,7 @@ async def randomized_ready_redirect_smoke(dut):
     rng = random.Random(env_int("IF_STAGE_RANDOM_SEED", 0x1F57A6E))
     boot_pc = 0x8000_C000
     next_redirect_pc = 0x8001_0000
-    active_epoch = 0
+    active_generation = 0
     outstanding = deque()
     expected_fetches = deque()
 
@@ -533,7 +562,7 @@ async def randomized_ready_redirect_smoke(dut):
         await ReadWrite()
 
         # 随机 redirect 只在前端完全干净时触发。这样既能覆盖 redirect
-        # 重新定向，又不会违反 IF 里 1-bit epoch 的顺序响应前提。
+        # 重新定向，同时保持 CoreBus 响应严格有序。
         can_redirect = (
             not outstanding
             and not expected_fetches
@@ -578,8 +607,8 @@ async def randomized_ready_redirect_smoke(dut):
         # 同一个时钟沿先完成旧响应的队首 pop，再加入新请求。两者同时
         # fire 表示深度为 1 的 FIFO 原地替换，outstanding 数量仍为 1。
         if rsp_fire:
-            pc, epoch = outstanding.popleft()
-            if not redirect and epoch == active_epoch:
+            pc, generation = outstanding.popleft()
+            if not redirect and generation == active_generation:
                 expected_fetches.append(pc)
 
         if req_fire:
@@ -588,13 +617,13 @@ async def randomized_ready_redirect_smoke(dut):
             assert int(dut.imem_req_size_o.value) == 2
             assert int(dut.imem_req_wdata_o.value) == 0
             assert int(dut.imem_req_wstrb_o.value) == 0
-            outstanding.append((req_addr, active_epoch))
+            outstanding.append((req_addr, active_generation))
 
         await RisingEdge(dut.clk_i)
         await NextTimeStep()
 
         if redirect:
-            active_epoch ^= 1
+            active_generation += 1
             next_redirect_pc += 0x100
 
     dut.redirect_valid_i.value = 0
@@ -619,14 +648,14 @@ async def randomized_ready_redirect_smoke(dut):
             expected_fetches,
             (
                 f"drain outstanding="
-                f"{[hex(pc) + ':' + str(epoch) for pc, epoch in outstanding]} "
+                f"{[hex(pc) + ':' + str(generation) for pc, generation in outstanding]} "
                 f"expected={[hex(pc) for pc in expected_fetches]}"
             ),
         )
 
         if rsp_fire:
-            pc, epoch = outstanding.popleft()
-            if epoch == active_epoch:
+            pc, generation = outstanding.popleft()
+            if generation == active_generation:
                 expected_fetches.append(pc)
 
         await RisingEdge(dut.clk_i)

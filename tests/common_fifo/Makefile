@@ -1,4 +1,4 @@
 .PHONY: test
 
 test:
-	WAVE=$(WAVE) python run_common_fifo.py
+	WAVE=$(WAVE) python ../run.py common_fifo

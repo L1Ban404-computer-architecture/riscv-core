@@ -290,3 +290,76 @@ async def access_fault_blocks_same_cycle_handoff_and_suppresses_writeback(dut):
     assert int(dut.mem_wb_exception_tval_o.value) == 0x1000
     assert int(dut.mem_wb_req_valid_o.value) == 0
     assert int(dut.mem_wb_mem_op_o.value) == 0
+
+
+@cocotb.test()
+async def zero_latency_response_and_all_narrow_lanes(dut):
+    """Cover request/response bypass and every naturally aligned byte/half lane."""
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    await reset_dut(dut)
+    dut.dmem_req_ready_i.value = 1
+
+    # A response may accompany the accepting request in the same cycle.
+    drive_transaction(
+        dut, mem_valid=1, write=0, size=MEM_WORD, addr=0x1000,
+        wb_valid=1, rd=9,
+    )
+    drive_response(dut, valid=1, data=0x89ABCDEF)
+    await Timer(1, unit="ns")
+    assert int(dut.dmem_req_valid_o.value) == 1
+    assert int(dut.dmem_rsp_ready_o.value) == 1
+    await RisingEdge(dut.clk_i)
+    drive_transaction(dut, valid=0)
+    drive_response(dut)
+    await NextTimeStep()
+    assert int(dut.mem_wb_req_wdata_o.value) == 0x89ABCDEF
+    await RisingEdge(dut.clk_i)
+
+    for lane in range(4):
+        await issue_memory(
+            dut, write=1, size=MEM_BYTE, addr=0x2000 + lane,
+            store_data=0xA1B2C3D4,
+        )
+        assert int(dut.dmem_req_wdata_o.value) == (
+            (0xA1B2C3D4 << (8 * lane)) & MASK32
+        )
+        assert int(dut.dmem_req_wstrb_o.value) == (1 << lane)
+        drive_transaction(dut, valid=0)
+        await return_response(dut)
+        await RisingEdge(dut.clk_i)
+
+    for lane in (0, 2):
+        await issue_memory(
+            dut, write=1, size=MEM_HALF, addr=0x3000 + lane,
+            store_data=0xA1B2C3D4,
+        )
+        assert int(dut.dmem_req_wdata_o.value) == (
+            (0xA1B2C3D4 << (8 * lane)) & MASK32
+        )
+        assert int(dut.dmem_req_wstrb_o.value) == (0b11 << lane)
+        drive_transaction(dut, valid=0)
+        await return_response(dut)
+        await RisingEdge(dut.clk_i)
+
+    lane_word = 0x80FF7F01
+    for lane in range(4):
+        byte = (lane_word >> (8 * lane)) & 0xFF
+        await issue_memory(
+            dut, write=0, size=MEM_BYTE, sign_ext=0, addr=0x4000 + lane,
+            wb_valid=1, rd=10,
+        )
+        drive_transaction(dut, valid=0)
+        await return_response(dut, lane_word)
+        assert int(dut.mem_wb_req_wdata_o.value) == byte
+        await RisingEdge(dut.clk_i)
+
+    for lane in (0, 2):
+        half = (lane_word >> (8 * lane)) & 0xFFFF
+        await issue_memory(
+            dut, write=0, size=MEM_HALF, sign_ext=0, addr=0x5000 + lane,
+            wb_valid=1, rd=11,
+        )
+        drive_transaction(dut, valid=0)
+        await return_response(dut, lane_word)
+        assert int(dut.mem_wb_req_wdata_o.value) == half
+        await RisingEdge(dut.clk_i)

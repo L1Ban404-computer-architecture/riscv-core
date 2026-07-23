@@ -14,7 +14,7 @@
         "rtl/include",
         "rtl/common",
         "rtl/core",
-        "tests/cocotb"
+        "tests"
       ],
       "excludeDirs": []
     }

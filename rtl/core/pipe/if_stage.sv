@@ -37,8 +37,11 @@ module if_stage #(
 
   typedef struct packed {
     pc_t pc;
-    logic epoch;
   } fetch_req_t;
+
+  localparam int unsigned FetchCountW =
+      (FetchOutstandingDepth > 1) ? $clog2(FetchOutstandingDepth + 1) : 1;
+  typedef logic [FetchCountW-1:0] fetch_count_t;
 
   // pc_q 是下一次准备发出的取指 PC。boot_pc_i 在复位释放后的第一个周期
   // 被采样，后续 PC 只由顺序取指或 redirect 更新。
@@ -46,8 +49,6 @@ module if_stage #(
   pc_t pc_d;
   logic boot_pending_q;
   logic boot_pending_d;
-  logic fetch_epoch_q;
-  logic fetch_epoch_d;
   logic frontend_flush;
 
   // 请求 holding register 使用本地 fall_through_register。redirect 只
@@ -61,17 +62,22 @@ module if_stage #(
   logic req_hold_flush;
   logic fetch_req_valid;
   logic fetch_req_fire;
+  logic imem_req_fire;
+  logic held_request_stale_q;
 
-  // PC FIFO 由本地 stream_fifo 实现，记录已经完成请求握手、
-  // 但尚未收到响应的请求 PC 及其 epoch。它使用 fall-through 模式，
-  // 支持无延迟存储器在请求握手同周期给出响应。redirect 翻转 epoch。
-  // 这里使用 1 bit epoch 的前提是：IF 只使用单条顺序 CoreBus 请求流，响应
-  // 必须严格按请求握手顺序返回；在 epoch 再次翻转前，更老 epoch 的响应必须
-  // 已按顺序被消费。若以后允许连续重定向跨越未返回请求，应扩展 epoch/tag 宽度。
+  // PC FIFO 记录已经完成请求握手、但尚未收到响应的请求 PC。CoreBus 响应
+  // 严格有序，因此 redirect 只需记录队首有多少响应应被丢弃，无需有限宽度 epoch。
   fetch_req_t pc_fifo_data;
   logic pc_fifo_ready;
   logic pc_fifo_valid;
   logic pc_fifo_input_valid;
+  fetch_count_t pc_fifo_usage;
+  fetch_count_t pc_fifo_usage_next;
+  fetch_count_t discard_count_q;
+  fetch_count_t discard_count_d;
+  logic pc_fifo_push_stored;
+  logic pc_fifo_pop_stored;
+  logic returned_fetch_stale;
 
   // fetch FIFO 同样使用 stream_fifo，保存已经配对完成的 {pc, instr}。
   // 它直接驱动 IF -> ID valid/ready 通道，ID stage 只消费完整 fetch 事务。
@@ -92,7 +98,7 @@ module if_stage #(
   // CoreBus valid 仍由 pc_fifo_ready 门控，确保请求握手和元数据入队原子发生。
   assign frontend_flush = redirect_i.valid;
   assign fetch_req_valid = !boot_pending_q && !frontend_flush;
-  assign fetch_req_data = '{pc: pc_q, epoch: fetch_epoch_q};
+  assign fetch_req_data = '{pc: pc_q};
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
   assign imem_req_o.req.addr = req_hold_data.pc;
@@ -104,27 +110,52 @@ module if_stage #(
   // valid_i 不依赖 pc_fifo_ready；stream_fifo 内部再与 ready_o 相与得到的
   // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
   assign pc_fifo_input_valid = req_hold_valid && imem_resp_i.req_ready;
+  assign imem_req_fire = imem_req_o.req_valid && imem_resp_i.req_ready;
 
   // redirect 可以丢弃尚未向 CoreBus 暴露的预存请求；已经拉高 req_valid 的
   // 请求必须继续保持，直到从设备接受。
   assign req_hold_flush = frontend_flush && !imem_req_o.req_valid;
 
-  // 返回端按 CoreBus 顺序从 PC FIFO 头部取对应 PC。如果该请求 epoch
-  // 与当前 epoch 不同，说明它属于 redirect 前的旧路径，只弹出不写入。
-  assign returned_fetch_kept = (pc_fifo_data.epoch == fetch_epoch_q) && !frontend_flush;
+  // discard_count_q 覆盖 FIFO 中已经接受的旧路径请求；held_request_stale_q
+  // 覆盖 redirect 时已经锁存、但尚未完成请求握手的请求。
+  assign returned_fetch_stale = (discard_count_q != '0) ||
+      ((pc_fifo_usage == '0) && held_request_stale_q);
+  assign returned_fetch_kept = !returned_fetch_stale && !frontend_flush;
   assign imem_req_o.rsp_ready = pc_fifo_valid && (!returned_fetch_kept || fetch_fifo_ready);
   assign imem_rsp_fire = imem_resp_i.rsp_valid && imem_req_o.rsp_ready;
   assign fetch_fifo_push = imem_rsp_fire && returned_fetch_kept;
 
-  assign fetch_fifo_data.fetch.pc = pc_fifo_data.pc;
-  assign fetch_fifo_data.fetch.instr = instr_t'(imem_resp_i.rsp.rdata);
+  // 计算时钟沿之后真正存入 FIFO 的请求数量。空 FIFO 的零延迟请求/响应
+  // 会走 fall-through bypass，不形成存储条目。
+  assign pc_fifo_push_stored = imem_req_fire &&
+      !((pc_fifo_usage == '0) && imem_rsp_fire);
+  assign pc_fifo_pop_stored = imem_rsp_fire && (pc_fifo_usage != '0);
+  always_comb begin
+    pc_fifo_usage_next = pc_fifo_usage;
+    unique case ({pc_fifo_push_stored, pc_fifo_pop_stored})
+      2'b10: pc_fifo_usage_next = pc_fifo_usage + fetch_count_t'(1);
+      2'b01: pc_fifo_usage_next = pc_fifo_usage - fetch_count_t'(1);
+      default: ;
+    endcase
+
+    discard_count_d = discard_count_q;
+    if ((discard_count_q != '0) && pc_fifo_pop_stored)
+      discard_count_d = discard_count_q - fetch_count_t'(1);
+    if (held_request_stale_q && pc_fifo_push_stored)
+      discard_count_d = discard_count_d + fetch_count_t'(1);
+
+    // redirect 使时钟沿后仍在队列中的全部请求失效。重复 redirect 只是重新
+    // 覆盖当前队列用量，不会出现 epoch 翻转回旧值的问题。
+    if (frontend_flush) discard_count_d = pc_fifo_usage_next;
+  end
+
+  assign fetch_fifo_data.instruction.pc = pc_fifo_data.pc;
+  assign fetch_fifo_data.instruction.instr = instr_t'(imem_resp_i.rsp.rdata);
   assign fetch_fifo_data.exception.valid = imem_resp_i.rsp.error;
   assign fetch_fifo_data.exception.is_interrupt = 1'b0;
   assign fetch_fifo_data.exception.cause = imem_resp_i.rsp.error ? EXC_INST_ACCESS_FAULT :
       exception_cause_e'('0);
   assign fetch_fifo_data.exception.tval = imem_resp_i.rsp.error ? pc_fifo_data.pc : '0;
-  assign fetch_fifo_data.debug.pc = pc_fifo_data.pc;
-  assign fetch_fifo_data.debug.instr = instr_t'(imem_resp_i.rsp.rdata);
 
   // fetch FIFO 在 frontend flush 周期同步清空；组合输出同时屏蔽，
   // 避免同周期把旧路径指令继续交给 ID。
@@ -154,7 +185,7 @@ module if_stage #(
     .clk_i,
     .rst_ni,
     .flush_i(1'b0),
-    .usage_o(  /* unused */),
+    .usage_o(pc_fifo_usage),
     .data_i(req_hold_data),
     .valid_i(pc_fifo_input_valid),
     .ready_o(pc_fifo_ready),
@@ -183,7 +214,7 @@ module if_stage #(
 
   always_comb begin
     // redirect 优先于顺序取指。fetch FIFO 由 flush_i 清空；已经发出的
-    // CoreBus 读请求留在 PC FIFO 中，后续返回时通过 epoch 判断并丢弃旧路径。
+    // CoreBus 读请求留在 PC FIFO 中，后续返回时按待丢弃响应计数清除旧路径。
     if (redirect_i.valid) begin
       pc_d = redirect_i.target_pc;
     end else if (boot_pending_q) begin
@@ -198,17 +229,22 @@ module if_stage #(
   // boot_pending_q 只用于复位释放后的第一个正常周期同步采样 boot_pc_i。
   // reset 后它为 1，下一拍无条件清 0。
   assign boot_pending_d = 1'b0;
-  assign fetch_epoch_d = frontend_flush ? ~fetch_epoch_q : fetch_epoch_q;
-
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       pc_q <= '0;
       boot_pending_q <= 1'b1;
-      fetch_epoch_q <= 1'b0;
+      discard_count_q <= '0;
+      held_request_stale_q <= 1'b0;
     end else begin
       pc_q <= pc_d;
       boot_pending_q <= boot_pending_d;
-      fetch_epoch_q <= fetch_epoch_d;
+      discard_count_q <= discard_count_d;
+      if (imem_req_fire)
+        held_request_stale_q <= 1'b0;
+      else if (frontend_flush && imem_req_o.req_valid)
+        held_request_stale_q <= 1'b1;
+      else if (req_hold_flush)
+        held_request_stale_q <= 1'b0;
     end
   end
 

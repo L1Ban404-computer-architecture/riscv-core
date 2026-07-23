@@ -1,6 +1,7 @@
 # riscv-core：RV32I 五级流水线 RTL
 
-`riscv-core` 是一个可综合、单发射、顺序执行/退休的 RISC-V 核心，当前实现范围为 RV32I。顶层模块是 `riscv_core`，通过独立的 CoreBus 指令/数据端口形成 Harvard 风格的外部边界。
+本项目实现可综合、单发射、顺序执行/退休的 RV32I 核心，并包含最小 M-mode
+精确同步异常与 Zicsr 支持。
 
 ```text
 CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
@@ -8,29 +9,34 @@ CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
                  寄存器堆  redirect  CoreBus dmem
 ```
 
-流水级之间使用 ready/valid 事务协议；IF 维护取指与 epoch，ID 完成译码/立即数/寄存器读，EX 负责 ALU、分支和前递，MEM 管理顺序访存，WB 执行写回并输出退休信息。分支在 EX 决议并重定向 IF。共享类型集中在 `rtl/include/riscv_core_pkg.sv`，模块实现位于 `rtl/core/pipe/` 和 `rtl/core/units/`。
+`rtl/core/riscv_core_impl.sv` 是内部结构化核心，通过独立的指令和数据 CoreBus
+端口形成 Harvard 边界。公开顶层 `rtl/core/ysyx_25080230.sv` 将两路 CoreBus
+串行到单路 AXI4 Master，并保持 mini-soc/Verilator 使用的调试 ABI。
 
-## 当前范围
+流水级之间统一使用 ready/valid 事务协议。IF 管理取指请求、旧路径响应丢弃和
+IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、分支、CSR 组合读取
+和数据前递；MEM 管理单 outstanding 顺序访存；WB 是 GPR、CSR、trap 和 MRET 的
+唯一架构提交点。
 
-- 已覆盖 RV32I 整数、分支跳转、load/store 与 FENCE 的主要流水线数据通路；
-- 实现 M-mode 精确同步异常、ECALL/EBREAK/MRET、六条 Zicsr 指令，以及
-  `mstatus/mtvec/mepc/mcause/mtval`；暂不实现中断、其他特权级、M/C/F/A 扩展、
-  MMU、缓存或分支预测；
-- 为保证错误响应下的精确异常，数据侧当前只允许一个 outstanding 事务；
-- 各流水级有 cocotb 模块测试；整核验证仍应与 `mini-soc` + `riscv-runner` 的差分链结合进行。
+## 实现范围
+
+- RV32I 整数、分支跳转、load/store 和 FENCE；
+- ECALL、EBREAK、MRET 和六条 Zicsr 指令；
+- `mstatus/mtvec/mepc/mcause/mtval` 及精确同步异常；
+- CoreBus 零延迟响应和随机背压；
+- 暂不支持中断、其他特权级、M/C/F/A 扩展、MMU、缓存或分支预测。
 
 ## 构建与验证
 
 ```bash
-make test                 # 运行 tests/* 中的测试
-make verilator            # 以 riscv_core 为顶层生成 Verilator C++ 模型
+make lint                         # Verilator 静态检查
+make test                         # 全部模块级与整核 cocotb 回归
+make test ALL=riscv_core          # 单独运行指定套件
+make test ALL=if_stage WAVE=fst   # 生成波形
+make verilator                    # 构建 ysyx_25080230 C++ 模型
+make check                        # lint + test + verilator
 ```
 
-需要 Verilator、GNU Make、Python 3 与测试所需的 cocotb/Python 包。`.slang/riscv_core.f` 是 RTL 文件清单。作为完整 DUT 时不直接加载该核心，而应构建 `../mini-soc`，由其提供 RAM、MMIO 和 runner ABI。
-
-## 深入文档
-
-`docs/CPU核心整体架构.md` 是微架构总览，`docs/异常与CSR设计与验证.md` 定义精确
-异常、CSR 串行化、提交和全流水冲刷契约；其余文档分别覆盖 IF/ID/EX/MEM/WB、
-CoreBus、RTL 编码风格、静态审查和验证方法。改动流水线前，应保持 stage 对
-payload 与 valid 的所有权，避免引入顶层匿名流水寄存器。
+测试构建、波形和 JUnit XML 全部写入 `build/`。环境配置见
+`docs/开发工具链配置.md`；跨级微架构契约见 `docs/CPU核心整体架构.md`；各流水级
+的局部实现与测试由对应设计文档说明。

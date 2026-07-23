@@ -3,8 +3,7 @@
 
 module riscv_core_tb #(
   parameter int unsigned FetchOutstandingDepth = 1,
-  parameter int unsigned IfIdQueueDepth = 2,
-  parameter int unsigned MemOutstandingDepth = 1
+  parameter int unsigned IfIdQueueDepth = 2
 ) (
   input logic clk_i,
   input logic rst_ni,
@@ -117,8 +116,7 @@ module riscv_core_tb #(
 
   riscv_core_impl #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
-    .IfIdQueueDepth(IfIdQueueDepth),
-    .MemOutstandingDepth(MemOutstandingDepth)
+    .IfIdQueueDepth(IfIdQueueDepth)
   ) u_dut (
     .clk_i,
     .rst_ni,

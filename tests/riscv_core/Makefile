@@ -1,4 +1,4 @@
 .PHONY: test
 
 test:
-	WAVE=$(WAVE) python run_riscv_core.py
+	WAVE=$(WAVE) python ../run.py riscv_core

@@ -6,8 +6,7 @@
 
 `include "transaction_bus_types.svh"
 
-// Debug 总线只描述“这条指令退休时对外可观察到什么”，不应反向参与功能控制。
-// 各级 debug payload 直接列出本级以后仍需要的字段，避免逐级嵌套。
+// 退休元数据只描述“这条指令退休时对外可观察到什么”，不反向参与功能控制。
 typedef enum logic [1:0] {
   RETIRE_MEM_NONE = 2'd0,
   RETIRE_MEM_READ = 2'd1,
@@ -15,36 +14,14 @@ typedef enum logic [1:0] {
 } retire_mem_op_e;
 
 typedef struct packed {
-  pc_t pc;
-  instr_t instr;
-} if_debug_bus_t;
-
-typedef struct packed {
-  pc_t pc;
-  instr_t instr;
-} id_debug_bus_t;
-
-typedef struct packed {
-  pc_t pc;
-  instr_t instr;
+  instruction_bus_t instruction;
   retire_mem_op_e mem_op;
   mem_size_e mem_size;
   word_t mem_addr;
   word_t mem_data;
   logic redirect_valid;
   pc_t redirect_target_pc;
-} ex_debug_bus_t;
-
-typedef struct packed {
-  pc_t pc;
-  instr_t instr;
-  retire_mem_op_e mem_op;
-  mem_size_e mem_size;
-  word_t mem_addr;
-  word_t mem_data;
-  logic redirect_valid;
-  pc_t redirect_target_pc;
-} mem_debug_bus_t;
+} retire_meta_bus_t;
 
 typedef struct packed {
   // 面向上层仿真环境的最后一次退休指令快照；有效脉冲由独立信号提供。

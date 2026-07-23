@@ -49,7 +49,8 @@ module csr_unit (
     // 同一退休周期只允许一种 CSR 状态变更。优先级与 WB 架构提交顺序一致：
     // trap entry > MRET > 普通 CSR 写。
     if (trap_i) begin
-      state_d.mepc = trap_epc_i;
+      // IALIGN=32：无论来源是软件写入还是 trap entry，mepc[1:0] 恒为零。
+      state_d.mepc = trap_epc_i & word_t'(~3);
       state_d.mcause =
           {trap_exception_i.is_interrupt, {(XLen-5) {1'b0}}, trap_exception_i.cause};
       state_d.mtval = trap_exception_i.tval;
@@ -66,7 +67,8 @@ module csr_unit (
       unique case (write_i.addr)
         CsrMstatus: state_d.mstatus = (write_i.wdata & ~MstatusMpp) | MstatusMpp;
         CsrMtvec:   state_d.mtvec = write_i.wdata & word_t'(~3);
-        CsrMepc:    state_d.mepc = write_i.wdata;
+        // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
+        CsrMepc:    state_d.mepc = write_i.wdata & word_t'(~3);
         CsrMcause:  state_d.mcause = write_i.wdata;
         CsrMtval:   state_d.mtval = write_i.wdata;
         default: ;

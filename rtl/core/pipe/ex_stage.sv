@@ -5,9 +5,7 @@ import riscv_core_pkg::*;
 
 `include "common/assertions.svh"
 
-module ex_stage #(
-  parameter int unsigned MemOutstandingDepth = 2
-) (
+module ex_stage (
   input logic clk_i,
   input logic rst_ni,
   input logic flush_i,
@@ -21,7 +19,7 @@ module ex_stage #(
 
   // MEM outstanding load 以及 MEM/WB 写回候选。另一路年龄最近的 EX/MEM
   // 候选由本 stage 内部保存。
-  input wb_req_bus_t mem_pending_wb_req_i[MemOutstandingDepth],
+  input wb_req_bus_t mem_pending_wb_req_i,
   input wb_req_bus_t mem_wb_req_i,
 
   output csr_addr_t csr_read_addr_o,
@@ -65,9 +63,7 @@ module ex_stage #(
     ex_mem_wb_req.valid = ex_mem_valid_o && ex_mem_bus_o.wb_req.valid;
   end
 
-  forwarding_unit #(
-    .MemOutstandingDepth(MemOutstandingDepth)
-  ) u_forwarding_unit (
+  forwarding_unit u_forwarding_unit (
     .clk_i,
     .rst_ni,
     .transaction_valid_i(id_ex_valid_i),
@@ -84,7 +80,8 @@ module ex_stage #(
     .stall_o(forward_stall)
   );
 
-  assign operand_a = (id_ex_bus_i.ctrl.op_a_sel == OP_A_PC) ? id_ex_bus_i.exec_data.pc : rs1_value;
+  assign operand_a = (id_ex_bus_i.ctrl.op_a_sel == OP_A_PC) ?
+      id_ex_bus_i.instruction.pc : rs1_value;
   assign
       operand_b = (id_ex_bus_i.ctrl.op_b_sel == OP_B_IMM) ? id_ex_bus_i.exec_data.imm : rs2_value;
 
@@ -97,7 +94,7 @@ module ex_stage #(
 
   branch_unit u_branch_unit (
     .execute_fire_i(ex_execute_fire),
-    .illegal_instr_i(id_ex_bus_i.exception.valid || id_ex_bus_i.ctrl.illegal_instr),
+    .illegal_instr_i(id_ex_bus_i.exception.valid),
     .branch_op_i(id_ex_bus_i.ctrl.branch_op),
     .rs1_value_i(rs1_value),
     .rs2_value_i(rs2_value),
@@ -119,11 +116,7 @@ module ex_stage #(
     // 上游异常不可覆盖。EX 仅在当前 payload 尚无异常时补充控制流目标、
     // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex_bus_i.exception;
-    if (!executed_exception.valid && id_ex_bus_i.ctrl.illegal_instr) begin
-      executed_exception.valid = 1'b1;
-      executed_exception.cause = EXC_ILLEGAL_INSTR;
-      executed_exception.tval = id_ex_bus_i.fetch.instr;
-    end else if (!executed_exception.valid && branch_redirect.valid &&
+    if (!executed_exception.valid && branch_redirect.valid &&
                  (branch_redirect.target_pc[1:0] != 2'b00)) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
@@ -137,22 +130,22 @@ module ex_stage #(
                  !csr_read_rsp_i.valid) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_ILLEGAL_INSTR;
-      executed_exception.tval = id_ex_bus_i.fetch.instr;
+      executed_exception.tval = id_ex_bus_i.instruction.instr;
     end
 
     redirect_o = branch_redirect;
-    // taken 控制流若恰好落到顺序 PC+4，不需要清空前端或翻转 fetch epoch。
+    // taken 控制流若恰好落到顺序 PC+4，不需要产生多余的前端 flush。
     // 这也统一了退休 debug 的 redirect 语义：只报告下一 PC 的实际改道。
     if (executed_exception.valid ||
         (branch_redirect.valid && (branch_redirect.target_pc == pc_plus_4)))
       redirect_o.valid = 1'b0;
   end
 
-  assign pc_plus_4 = id_ex_bus_i.exec_data.pc + word_t'(4);
+  assign pc_plus_4 = id_ex_bus_i.instruction.pc + word_t'(4);
 
   always_comb begin
     wb_req = '0;
-    wb_req.valid = id_ex_bus_i.ctrl.rd_write && !id_ex_bus_i.ctrl.illegal_instr;
+    wb_req.valid = id_ex_bus_i.ctrl.rd_write;
     wb_req.rd_addr = id_ex_bus_i.reg_addr.rd_addr;
 
     case (id_ex_bus_i.ctrl.wb_sel)
@@ -225,15 +218,14 @@ module ex_stage #(
     executed_ex_mem_bus.wb_req = wb_req;
     executed_ex_mem_bus.exception = executed_exception;
     executed_ex_mem_bus.commit = commit_ctrl;
-    executed_ex_mem_bus.debug.pc = id_ex_bus_i.debug.pc;
-    executed_ex_mem_bus.debug.instr = id_ex_bus_i.debug.instr;
-    executed_ex_mem_bus.debug.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
+    executed_ex_mem_bus.retire.instruction = id_ex_bus_i.instruction;
+    executed_ex_mem_bus.retire.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
         (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    executed_ex_mem_bus.debug.mem_size = mem_req.size;
-    executed_ex_mem_bus.debug.mem_addr = mem_req.addr;
-    executed_ex_mem_bus.debug.mem_data = mem_req.wdata;
-    executed_ex_mem_bus.debug.redirect_valid = redirect_o.valid;
-    executed_ex_mem_bus.debug.redirect_target_pc = redirect_o.target_pc;
+    executed_ex_mem_bus.retire.mem_size = mem_req.size;
+    executed_ex_mem_bus.retire.mem_addr = mem_req.addr;
+    executed_ex_mem_bus.retire.mem_data = mem_req.wdata;
+    executed_ex_mem_bus.retire.redirect_valid = redirect_o.valid;
+    executed_ex_mem_bus.retire.redirect_target_pc = redirect_o.target_pc;
   end
 
   // EX/MEM 与 ID/EX 一样使用单入口双向握手寄存器。满载且 MEM ready 时

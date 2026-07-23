@@ -33,6 +33,8 @@ module id_stage (
   reg_addr_bus_t decoded_reg_addr;
   imm_type_e decoded_imm_type;
   decode_ctrl_bus_t decoded_ctrl;
+  execute_ctrl_bus_t execute_ctrl;
+  logic decoded_illegal;
   word_t decoded_imm;
   word_t rs1_value;
   word_t rs2_value;
@@ -41,14 +43,15 @@ module id_stage (
   logic id_ex_input_ready;
 
   decoder u_decoder (
-    .instr_i(if_id_bus_i.fetch.instr),
+    .instr_i(if_id_bus_i.instruction.instr),
     .reg_addr_o(decoded_reg_addr),
     .imm_type_o(decoded_imm_type),
-    .ctrl_o(decoded_ctrl)
+    .ctrl_o(decoded_ctrl),
+    .illegal_o(decoded_illegal)
   );
 
   imm_gen u_imm_gen (
-    .instr_i(if_id_bus_i.fetch.instr),
+    .instr_i(if_id_bus_i.instruction.instr),
     .imm_type_i(decoded_imm_type),
     .imm_o(decoded_imm)
   );
@@ -63,22 +66,37 @@ module id_stage (
   );
 
   always_comb begin
+    execute_ctrl = '0;
+    execute_ctrl.alu_op = decoded_ctrl.alu_op;
+    execute_ctrl.op_a_sel = decoded_ctrl.op_a_sel;
+    execute_ctrl.op_b_sel = decoded_ctrl.op_b_sel;
+    execute_ctrl.branch_op = decoded_ctrl.branch_op;
+    execute_ctrl.mem_cmd = decoded_ctrl.mem_cmd;
+    execute_ctrl.mem_size = decoded_ctrl.mem_size;
+    execute_ctrl.mem_sign_ext = decoded_ctrl.mem_sign_ext;
+    execute_ctrl.wb_sel = decoded_ctrl.wb_sel;
+    execute_ctrl.rd_write = decoded_ctrl.rd_write;
+    execute_ctrl.csr_cmd = decoded_ctrl.csr_cmd;
+    execute_ctrl.csr_use_imm = decoded_ctrl.csr_use_imm;
+    execute_ctrl.csr_addr = decoded_ctrl.csr_addr;
+    execute_ctrl.system_op = decoded_ctrl.system_op;
+    execute_ctrl.serialize = decoded_ctrl.serialize;
+
     decoded_id_ex_bus = '0;
-    decoded_id_ex_bus.fetch = if_id_bus_i.fetch;
+    decoded_id_ex_bus.instruction = if_id_bus_i.instruction;
     decoded_id_ex_bus.reg_addr = decoded_reg_addr;
-    decoded_id_ex_bus.exec_data.pc = if_id_bus_i.fetch.pc;
     decoded_id_ex_bus.exec_data.rs1_value = rs1_value;
     decoded_id_ex_bus.exec_data.rs2_value = rs2_value;
     decoded_id_ex_bus.exec_data.imm = decoded_imm;
-    decoded_id_ex_bus.ctrl = decoded_ctrl;
+    decoded_id_ex_bus.ctrl = execute_ctrl;
     // IF 异常年龄更老且优先。仅在取指正常时，ID 才根据译码补充同步异常。
     decoded_id_ex_bus.exception = if_id_bus_i.exception;
     if (!if_id_bus_i.exception.valid) begin
-      if (decoded_ctrl.illegal_instr) begin
+      if (decoded_illegal) begin
         decoded_id_ex_bus.exception = '0;
         decoded_id_ex_bus.exception.valid = 1'b1;
         decoded_id_ex_bus.exception.cause = EXC_ILLEGAL_INSTR;
-        decoded_id_ex_bus.exception.tval = if_id_bus_i.fetch.instr;
+        decoded_id_ex_bus.exception.tval = if_id_bus_i.instruction.instr;
       end else if (decoded_ctrl.system_op == SYS_ECALL) begin
         decoded_id_ex_bus.exception = '0;
         decoded_id_ex_bus.exception.valid = 1'b1;
@@ -89,8 +107,6 @@ module id_stage (
         decoded_id_ex_bus.exception.cause = EXC_BREAKPOINT;
       end
     end
-    decoded_id_ex_bus.debug.pc = if_id_bus_i.debug.pc;
-    decoded_id_ex_bus.debug.instr = if_id_bus_i.debug.instr;
   end
 
   // 本地 stream_register 实现单入口双向 ready/valid 握手。

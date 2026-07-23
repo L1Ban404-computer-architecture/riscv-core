@@ -762,8 +762,9 @@ async def csr_ecall_handler_and_mret_are_precise(dut):
     resume_pc = ecall_pc + 4
     handler = [
         csr_type(0x341, 0, 0b010, 4),           # csrrs x4, mepc, x0
-        i_type(4, 4, 0, 5),                     # addi x5, x4, 4
+        i_type(7, 4, 0, 5),                     # request an unaligned mepc value
         csr_type(0x341, 5, 0b001, 0),           # csrrw x0, mepc, x5
+        csr_type(0x341, 0, 0b010, 13),          # mepc reads back IALIGN-aligned
         0x30200073,                             # mret
     ]
     memory.load_program(0, program)
@@ -803,7 +804,9 @@ async def csr_ecall_handler_and_mret_are_precise(dut):
     else:
         raise AssertionError("CSR/trap program did not return from MRET")
 
-    expected_prefix = list(range(0, ecall_pc + 4, 4)) + [0x100, 0x104, 0x108, 0x10C, resume_pc]
+    expected_prefix = list(range(0, ecall_pc + 4, 4)) + [
+        0x100, 0x104, 0x108, 0x10C, 0x110, resume_pc
+    ]
     assert retired_pcs == expected_prefix
     assert writes[2] == 0
     assert writes[7] == 0
@@ -813,6 +816,7 @@ async def csr_ecall_handler_and_mret_are_precise(dut):
     assert writes[11] == 5
     assert writes[12] == 7
     assert writes[4] == ecall_pc
+    assert writes[13] == resume_pc
     assert writes[3] == 7
 
     # CSR snapshots describe architectural state after the retiring instruction.
@@ -824,7 +828,8 @@ async def csr_ecall_handler_and_mret_are_precise(dut):
     assert csr_at_pc[32][4] == 6
     assert csr_at_pc[ecall_pc][2:] == (ecall_pc, 11, 0), csr_at_pc[ecall_pc]
     assert csr_at_pc[0x108][2] == resume_pc
-    assert csr_at_pc[0x10C][0] & (1 << 7)
+    assert csr_at_pc[0x10C][2] == resume_pc
+    assert csr_at_pc[0x110][0] & (1 << 7)
 
 
 @cocotb.test()

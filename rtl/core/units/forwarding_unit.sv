@@ -3,9 +3,7 @@
 
 import riscv_core_pkg::*;
 
-module forwarding_unit #(
-  parameter int unsigned MemOutstandingDepth = 2
-) (
+module forwarding_unit (
   input logic clk_i,
   input logic rst_ni,
 
@@ -17,9 +15,9 @@ module forwarding_unit #(
   input reg_addr_bus_t reg_addr_i,
   input word_t rs1_value_i,
   input word_t rs2_value_i,
-  input decode_ctrl_bus_t ctrl_i,
+  input execute_ctrl_bus_t ctrl_i,
   input wb_req_bus_t ex_wb_req_i,
-  input wb_req_bus_t mem_pending_wb_req_i[MemOutstandingDepth],
+  input wb_req_bus_t mem_pending_wb_req_i,
   input wb_req_bus_t mem_wb_req_i,
   output word_t rs1_value_o,
   output word_t rs2_value_o,
@@ -50,14 +48,10 @@ module forwarding_unit #(
     rs1_pending = 1'b0;
     rs2_pending = 1'b0;
 
-    // outstanding FIFO 中只暴露尚未获得数据的 load。这里只需要比较地址
-    // 并产生 stall，不需要为每个条目生成数据选择器。
-    for (int unsigned i = 0; i < MemOutstandingDepth; i++) begin
-      if (mem_pending_wb_req_i[i].valid && (mem_pending_wb_req_i[i].rd_addr == reg_addr_i.rs1_addr))
-        rs1_pending = 1'b1;
-      if (mem_pending_wb_req_i[i].valid && (mem_pending_wb_req_i[i].rd_addr == reg_addr_i.rs2_addr))
-        rs2_pending = 1'b1;
-    end
+    rs1_pending = mem_pending_wb_req_i.valid &&
+        (mem_pending_wb_req_i.rd_addr == reg_addr_i.rs1_addr);
+    rs2_pending = mem_pending_wb_req_i.valid &&
+        (mem_pending_wb_req_i.rd_addr == reg_addr_i.rs2_addr);
   end
 
   always_comb begin

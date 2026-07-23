@@ -1,7 +1,6 @@
 {
-  "venvPath": "/home/ban/.local/riscv-core-tools/python",
-  "venv": "cocotb-venv",
   "include": [
     "tests"
-  ]
+  ],
+  "pythonVersion": "3.10"
 }

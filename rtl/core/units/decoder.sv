@@ -7,7 +7,8 @@ module decoder (
   input instr_t instr_i,
   output reg_addr_bus_t reg_addr_o,
   output imm_type_e imm_type_o,
-  output decode_ctrl_bus_t ctrl_o
+  output decode_ctrl_bus_t ctrl_o,
+  output logic illegal_o
 );
 
   opcode_e opcode;
@@ -309,5 +310,7 @@ module decoder (
       default: ;
     endcase
   end
+
+  assign illegal_o = ctrl_o.illegal_instr;
 
 endmodule

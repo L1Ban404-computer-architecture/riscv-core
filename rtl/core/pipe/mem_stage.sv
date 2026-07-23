@@ -5,16 +5,14 @@ import riscv_core_pkg::*;
 
 `include "common/assertions.svh"
 
-module mem_stage #(
-  parameter int unsigned MemOutstandingDepth = 2
-) (
+module mem_stage (
   input logic clk_i,
   input logic rst_ni,
   input logic flush_i,
   input logic side_effect_block_i,
 
-  // EX -> MEM 事务通道。首版精确异常将 LSU 限制为单 outstanding；内部 FIFO
-  // 仍统一保存请求元数据，以便请求响应解耦并保留未来扩展接口。
+  // EX -> MEM 事务通道。精确异常要求 LSU 固定为单 outstanding；内部
+  // fall-through 槽保存唯一一条请求元数据。
   input logic ex_mem_valid_i,
   output logic ex_mem_ready_o,
   input ex_mem_bus_t ex_mem_bus_i,
@@ -24,9 +22,9 @@ module mem_stage #(
   output core_bus_req_t dmem_req_o,
   input core_bus_resp_t dmem_resp_i,
 
-  // 已经发出、尚未收到响应的 load 写回候选。当前数组只有一个有效槽位；
-  // data_valid 恒为 0，EX 用它检测未解决的 RAW 相关。
-  output wb_req_bus_t mem_pending_wb_req_o[MemOutstandingDepth],
+  // 已经发出、尚未收到响应的 load 写回候选。data_valid 恒为 0，
+  // EX 用它检测未解决的 RAW 相关。
+  output wb_req_bus_t mem_pending_wb_req_o,
 
   // MEM/WB 输出寄存器中的写回候选，用于已完成数据的前递。
   output wb_req_bus_t mem_wb_req_o,
@@ -43,8 +41,6 @@ module mem_stage #(
   word_t loaded_data;
 
   ex_mem_bus_t outstanding_head;
-  ex_mem_bus_t outstanding_entries[MemOutstandingDepth];
-  logic [MemOutstandingDepth-1:0] outstanding_valid;
   logic outstanding_ready;
   logic outstanding_head_valid;
 
@@ -68,7 +64,7 @@ module mem_stage #(
       wb_req: source.wb_req,
       exception: source.exception,
       commit: source.commit,
-      debug: mem_debug_bus_t'(source.debug)
+      retire: source.retire
     };
   endfunction
 
@@ -85,31 +81,31 @@ module mem_stage #(
   assign memory_instruction = ex_mem_bus_i.mem_req.valid;
 
   // EX/MEM 本身已经满足严格 ready/valid 保持规则，因此 CoreBus 请求可以
-  // 直接由它驱动。请求握手和 outstanding FIFO push 是同一个原子事件。
+  // 直接由它驱动。请求握手和 outstanding 槽写入是同一个原子事件。
   assign dmem_req_o.req.addr = ex_mem_bus_i.mem_req.addr;
   assign dmem_req_o.req.write = ex_mem_bus_i.mem_req.write;
   assign dmem_req_o.req.size = ex_mem_bus_i.mem_req.size;
   assign dmem_req_o.req.wdata = ex_mem_bus_i.mem_req.write ? aligned_store_data : '0;
   assign dmem_req_o.req.wstrb = ex_mem_bus_i.mem_req.write ? store_byte_en : '0;
-  // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助 FIFO
+  // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助单槽
   // 同拍 pop/push 发出请求。kill 同周期也必须关闭总线请求及级间交接。
   assign request_blocked = flush_i || side_effect_block_i ||
       (dmem_resp_i.rsp_valid && dmem_resp_i.rsp.error);
   assign dmem_req_valid = ex_mem_valid_i && memory_instruction && outstanding_ready && !request_blocked;
   assign dmem_req_o.req_valid = dmem_req_valid;
-  // FIFO 的 valid_i 不反向依赖 ready_o；FIFO 内部的 valid_i && ready_o
+  // 单槽的 valid_i 不反向依赖 ready_o；内部的 valid_i && ready_o
   // 仍与 dmem_req_fire 完全等价，同时避免 fall-through 路径形成组合环。
   assign outstanding_input_valid = ex_mem_valid_i && memory_instruction && dmem_resp_i.req_ready &&
       !request_blocked;
 
-  // 响应必须和 FIFO 头部事务配对。MEM/WB 输入不可接受时直接反压 CoreBus
+  // 响应必须和槽内事务配对。MEM/WB 输入不可接受时直接反压 CoreBus
   // 响应通道，不需要额外的 response holding register。
   assign dmem_rsp_ready = outstanding_head_valid && mem_wb_input_ready;
   assign dmem_req_o.rsp_ready = dmem_rsp_ready;
   assign dmem_rsp_fire = dmem_resp_i.rsp_valid && dmem_rsp_ready;
 
   // 访存事务在请求被接受后释放 EX/MEM；非访存事务不能越过任何更老的
-  // outstanding 访存事务，但可以在 FIFO 为空时进入 MEM/WB。
+  // outstanding 访存事务，但可以在事务槽为空时进入 MEM/WB。
   always_comb begin
     if (flush_i) ex_mem_ready_o = 1'b0;
     else if (memory_instruction)
@@ -117,35 +113,27 @@ module mem_stage #(
     else ex_mem_ready_o = !outstanding_head_valid && mem_wb_input_ready;
   end
 
-  peek_fifo #(
-    .Depth(MemOutstandingDepth),
-    .FallThrough(1'b1),
-    .SameCycleRW(1'b1),
+  fall_through_register #(
     .T(ex_mem_bus_t)
-  ) u_outstanding_fifo (
+  ) u_outstanding_slot (
     .clk_i,
     .rst_ni,
     .flush_i(1'b0),
-    .usage_o(  /* unused */),
     .data_i(ex_mem_bus_i),
     .valid_i(outstanding_input_valid),
     .ready_o(outstanding_ready),
     .data_o(outstanding_head),
     .valid_o(outstanding_head_valid),
-    .ready_i(dmem_rsp_fire),
-    .data_all_o(outstanding_entries),
-    .valid_all_o(outstanding_valid)
+    .ready_i(dmem_rsp_fire)
   );
 
-  // 全条目输出只表达尚未解决的 load 目标寄存器。常量 data_valid/wdata
-  // 使 forwarding unit 只综合比较器和 stall 归约逻辑。
+  // 单槽输出只表达尚未解决的 load 目标寄存器。
   always_comb begin
-    for (int unsigned i = 0; i < MemOutstandingDepth; i++) begin
-      mem_pending_wb_req_o[i] = outstanding_entries[i].wb_req;
-      mem_pending_wb_req_o[i].valid = outstanding_valid[i] && outstanding_entries[i].wb_req.valid;
-      mem_pending_wb_req_o[i].data_valid = 1'b0;
-      mem_pending_wb_req_o[i].wdata = '0;
-    end
+    mem_pending_wb_req_o = outstanding_head.wb_req;
+    mem_pending_wb_req_o.valid =
+        outstanding_head_valid && outstanding_head.wb_req.valid;
+    mem_pending_wb_req_o.data_valid = 1'b0;
+    mem_pending_wb_req_o.wdata = '0;
   end
 
   load_data_unit u_load_data_unit (
@@ -170,13 +158,14 @@ module mem_stage #(
     end else if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req = '0;
     end
-    completed_mem_bus.debug.mem_data = outstanding_head.mem_req.write ?
-        outstanding_head.debug.mem_data : loaded_data;
-    if (completed_mem_bus.exception.valid) completed_mem_bus.debug.mem_op = RETIRE_MEM_NONE;
+    completed_mem_bus.retire.mem_data = outstanding_head.mem_req.write ?
+        outstanding_head.retire.mem_data : loaded_data;
+    if (completed_mem_bus.exception.valid)
+      completed_mem_bus.retire.mem_op = RETIRE_MEM_NONE;
 
     bypass_mem_bus = toMemWbBus(ex_mem_bus_i);
 
-    // outstanding 响应优先；FIFO 非空时 ex_mem_ready_o 会阻止非访存输入。
+    // outstanding 响应优先；事务槽非空时 ex_mem_ready_o 会阻止非访存输入。
     if (outstanding_head_valid) begin
       mem_wb_input_valid = dmem_resp_i.rsp_valid;
       mem_wb_input_bus = completed_mem_bus;
@@ -206,11 +195,6 @@ module mem_stage #(
   end
 
   assign busy_o = outstanding_head_valid;
-
-  // 多 outstanding store 无法在当前 CoreBus 上撤销；恢复更深队列前必须先引入
-  // 提交式 store buffer。因此暂时在 elaboration 阶段拒绝其它配置。
-  `ASSERT_INIT(MemOutstandingDepthIsOne, MemOutstandingDepth == 1,
-               "Precise exceptions currently require MemOutstandingDepth=1.")
 
   // verilog_format: off
   `ASSERT_STABLE(

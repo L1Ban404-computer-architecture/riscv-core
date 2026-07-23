@@ -4,6 +4,8 @@
 // Serialize the instruction and data CoreBus ports onto one single-beat AXI4
 // master.  Data traffic wins arbitration.  AXI IDs preserve the request source:
 // ID 0 is instruction fetch and ID 1 is data access.
+`include "common/assertions.svh"
+
 module corebus_axi4 (
   input  logic        clock,
   input  logic        reset,
@@ -83,14 +85,25 @@ module corebus_axi4 (
   logic read_error;
   logic write_error;
 
+  function automatic logic naturally_aligned(
+    input logic [31:0] addr,
+    input logic [1:0] size
+  );
+    unique case (size)
+      2'd0: naturally_aligned = 1'b1;
+      2'd1: naturally_aligned = !addr[0];
+      2'd2: naturally_aligned = (addr[1:0] == 2'b00);
+      default: naturally_aligned = 1'b0;
+    endcase
+  endfunction
+
   assign selected_rsp_ready = owner_dmem_q ? dmem_rsp_ready_i : imem_rsp_ready_i;
   assign read_error = (m_rresp_i != 2'b00) || !m_rlast_i ||
                       (m_rid_i != (owner_dmem_q ? 4'd1 : 4'd0));
   assign write_error = (m_bresp_i != 2'b00) || (m_bid_i != 4'd1);
 
-  assign dmem_req_ready_o = (state_q == StateIdle) && dmem_req_valid_i;
-  assign imem_req_ready_o = (state_q == StateIdle) && !dmem_req_valid_i &&
-                            imem_req_valid_i;
+  assign dmem_req_ready_o = (state_q == StateIdle);
+  assign imem_req_ready_o = (state_q == StateIdle) && !dmem_req_valid_i;
 
   assign m_awvalid_o = (state_q == StateWriteData) && !aw_sent_q;
   assign m_awaddr_o = addr_q;
@@ -182,5 +195,47 @@ module corebus_axi4 (
       endcase
     end
   end
+
+  // verilog_format: off
+  `ASSERT(CoreBusImemReadOnly,
+          imem_req_valid_i && imem_req_ready_o |->
+              !imem_req_write_i && (imem_req_size_i == 2'd2),
+          clock, reset, "Instruction CoreBus requests must be word reads.")
+  `ASSERT(CoreBusDmemAligned,
+          dmem_req_valid_i && dmem_req_ready_o |->
+              naturally_aligned(dmem_req_addr_i, dmem_req_size_i),
+          clock, reset, "Data CoreBus requests must be naturally aligned.")
+  `ASSERT_STABLE(AxiAwStable, m_awvalid_o, m_awready_i,
+                 {m_awaddr_o, m_awid_o, m_awlen_o, m_awsize_o, m_awburst_o},
+                 '0, clock, reset, "AXI AW payload must remain stable while blocked.")
+  `ASSERT_STABLE(AxiWStable, m_wvalid_o, m_wready_i,
+                 {m_wdata_o, m_wstrb_o, m_wlast_o},
+                 '0, clock, reset, "AXI W payload must remain stable while blocked.")
+  `ASSERT_STABLE(AxiArStable, m_arvalid_o, m_arready_i,
+                 {m_araddr_o, m_arid_o, m_arlen_o, m_arsize_o, m_arburst_o},
+                 '0, clock, reset, "AXI AR payload must remain stable while blocked.")
+  `ASSERT_STABLE(AxiRStable, m_rvalid_i, m_rready_o,
+                 {m_rdata_i, m_rresp_i, m_rlast_i, m_rid_i},
+                 '0, clock, reset, "AXI R payload must remain stable while blocked.")
+  `ASSERT_STABLE(AxiBStable, m_bvalid_i, m_bready_o,
+                 {m_bresp_i, m_bid_i},
+                 '0, clock, reset, "AXI B payload must remain stable while blocked.")
+  `ASSERT_STABLE(CoreBusImemRspStable, imem_rsp_valid_o, imem_rsp_ready_i,
+                 {imem_rsp_rdata_o, imem_rsp_error_o},
+                 '0, clock, reset,
+                 "Instruction CoreBus response must remain stable while blocked.")
+  `ASSERT_STABLE(CoreBusDmemRspStable, dmem_rsp_valid_o, dmem_rsp_ready_i,
+                 {dmem_rsp_rdata_o, dmem_rsp_error_o},
+                 '0, clock, reset,
+                 "Data CoreBus response must remain stable while blocked.")
+  `ASSERT(AxiReadErrorPropagated,
+          (state_q == StateReadResponse) && m_rvalid_i && read_error |->
+              (owner_dmem_q ? dmem_rsp_error_o : imem_rsp_error_o),
+          clock, reset, "Malformed AXI read responses must reach CoreBus as errors.")
+  `ASSERT(AxiWriteErrorPropagated,
+          (state_q == StateWriteResponse) && m_bvalid_i && write_error |->
+              (owner_dmem_q ? dmem_rsp_error_o : imem_rsp_error_o),
+          clock, reset, "Malformed AXI write responses must reach CoreBus as errors.")
+  // verilog_format: on
 
 endmodule

@@ -59,7 +59,7 @@ module mem_stage_tb (
   ex_mem_bus_t ex_mem_bus;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
-  wb_req_bus_t pending_wb_req [1];
+  wb_req_bus_t pending_wb_req;
   wb_req_bus_t mem_wb_req;
   mem_wb_bus_t mem_wb_bus;
 
@@ -75,13 +75,13 @@ module mem_stage_tb (
     ex_mem_bus.wb_req.data_valid = ex_mem_wb_data_valid_i;
     ex_mem_bus.wb_req.rd_addr = ex_mem_wb_rd_addr_i;
     ex_mem_bus.wb_req.wdata = ex_mem_wb_wdata_i;
-    ex_mem_bus.debug.pc = ex_mem_pc_i;
-    ex_mem_bus.debug.instr = ex_mem_instr_i;
-    ex_mem_bus.debug.mem_op = !ex_mem_mem_valid_i ? RETIRE_MEM_NONE :
+    ex_mem_bus.retire.instruction.pc = ex_mem_pc_i;
+    ex_mem_bus.retire.instruction.instr = ex_mem_instr_i;
+    ex_mem_bus.retire.mem_op = !ex_mem_mem_valid_i ? RETIRE_MEM_NONE :
         (ex_mem_mem_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    ex_mem_bus.debug.mem_size = mem_size_e'(ex_mem_mem_size_i);
-    ex_mem_bus.debug.mem_addr = ex_mem_mem_addr_i;
-    ex_mem_bus.debug.mem_data = ex_mem_mem_wdata_i;
+    ex_mem_bus.retire.mem_size = mem_size_e'(ex_mem_mem_size_i);
+    ex_mem_bus.retire.mem_addr = ex_mem_mem_addr_i;
+    ex_mem_bus.retire.mem_data = ex_mem_mem_wdata_i;
   end
 
   assign dmem_resp.req_ready = dmem_req_ready_i;
@@ -97,8 +97,8 @@ module mem_stage_tb (
   assign dmem_req_valid_o = dmem_req.req_valid;
   assign dmem_rsp_ready_o = dmem_req.rsp_ready;
 
-  assign pending_0_valid_o = pending_wb_req[0].valid;
-  assign pending_0_rd_addr_o = pending_wb_req[0].rd_addr;
+  assign pending_0_valid_o = pending_wb_req.valid;
+  assign pending_0_rd_addr_o = pending_wb_req.rd_addr;
   assign pending_1_valid_o = 1'b0;
   assign pending_1_rd_addr_o = '0;
 
@@ -106,19 +106,17 @@ module mem_stage_tb (
   assign mem_wb_req_data_valid_o = mem_wb_req.data_valid;
   assign mem_wb_req_rd_addr_o = mem_wb_req.rd_addr;
   assign mem_wb_req_wdata_o = mem_wb_req.wdata;
-  assign mem_wb_pc_o = mem_wb_bus.debug.pc;
-  assign mem_wb_instr_o = mem_wb_bus.debug.instr;
-  assign mem_wb_mem_op_o = mem_wb_bus.debug.mem_op;
-  assign mem_wb_mem_size_o = mem_wb_bus.debug.mem_size;
-  assign mem_wb_mem_addr_o = mem_wb_bus.debug.mem_addr;
-  assign mem_wb_mem_data_o = mem_wb_bus.debug.mem_data;
+  assign mem_wb_pc_o = mem_wb_bus.retire.instruction.pc;
+  assign mem_wb_instr_o = mem_wb_bus.retire.instruction.instr;
+  assign mem_wb_mem_op_o = mem_wb_bus.retire.mem_op;
+  assign mem_wb_mem_size_o = mem_wb_bus.retire.mem_size;
+  assign mem_wb_mem_addr_o = mem_wb_bus.retire.mem_addr;
+  assign mem_wb_mem_data_o = mem_wb_bus.retire.mem_data;
   assign mem_wb_exception_valid_o = mem_wb_bus.exception.valid;
   assign mem_wb_exception_cause_o = mem_wb_bus.exception.cause;
   assign mem_wb_exception_tval_o = mem_wb_bus.exception.tval;
 
-  mem_stage #(
-    .MemOutstandingDepth(1)
-  ) u_dut (
+  mem_stage u_dut (
     .clk_i,
     .rst_ni,
     .flush_i(1'b0),

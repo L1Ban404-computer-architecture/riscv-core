@@ -61,10 +61,10 @@ module if_stage_tb #(
   assign imem_req_valid_o = imem_req.req_valid;
   assign imem_rsp_ready_o = imem_req.rsp_ready;
 
-  assign if_id_pc_o = if_id_bus.fetch.pc;
-  assign if_id_instr_o = if_id_bus.fetch.instr;
-  assign if_id_debug_pc_o = if_id_bus.debug.pc;
-  assign if_id_debug_instr_o = if_id_bus.debug.instr;
+  assign if_id_pc_o = if_id_bus.instruction.pc;
+  assign if_id_instr_o = if_id_bus.instruction.instr;
+  assign if_id_debug_pc_o = if_id_bus.instruction.pc;
+  assign if_id_debug_instr_o = if_id_bus.instruction.instr;
   assign if_id_exception_valid_o = if_id_bus.exception.valid;
   assign if_id_exception_cause_o = if_id_bus.exception.cause;
   assign if_id_exception_tval_o = if_id_bus.exception.tval;

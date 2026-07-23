@@ -62,15 +62,15 @@ module wb_stage_tb (
     mem_wb_bus.wb_req.rd_addr = wb_rd_addr_i;
     mem_wb_bus.wb_req.wdata = wb_wdata_i;
 
-    mem_wb_bus.debug.pc = fetch_pc_i;
-    mem_wb_bus.debug.instr = fetch_instr_i;
-    mem_wb_bus.debug.redirect_valid = redirect_valid_i;
-    mem_wb_bus.debug.redirect_target_pc = redirect_target_pc_i;
-    mem_wb_bus.debug.mem_op = !mem_req_valid_i ? RETIRE_MEM_NONE :
+    mem_wb_bus.retire.instruction.pc = fetch_pc_i;
+    mem_wb_bus.retire.instruction.instr = fetch_instr_i;
+    mem_wb_bus.retire.redirect_valid = redirect_valid_i;
+    mem_wb_bus.retire.redirect_target_pc = redirect_target_pc_i;
+    mem_wb_bus.retire.mem_op = !mem_req_valid_i ? RETIRE_MEM_NONE :
         (mem_req_write_i ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    mem_wb_bus.debug.mem_size = mem_size_e'(mem_req_size_i);
-    mem_wb_bus.debug.mem_addr = mem_req_addr_i;
-    mem_wb_bus.debug.mem_data = mem_req_wdata_i;
+    mem_wb_bus.retire.mem_size = mem_size_e'(mem_req_size_i);
+    mem_wb_bus.retire.mem_addr = mem_req_addr_i;
+    mem_wb_bus.retire.mem_data = mem_req_wdata_i;
   end
 
   assign wb_valid_o = wb_req.valid;

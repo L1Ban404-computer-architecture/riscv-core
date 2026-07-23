@@ -5,8 +5,7 @@ import riscv_core_pkg::*;
 
 module riscv_core_impl #(
   parameter int unsigned FetchOutstandingDepth = 1,
-  parameter int unsigned IfIdQueueDepth = 2,
-  parameter int unsigned MemOutstandingDepth = 1
+  parameter int unsigned IfIdQueueDepth = 2
 ) (
   input logic clk_i,
   input logic rst_ni,
@@ -81,7 +80,7 @@ module riscv_core_impl #(
   // 写回请求同时承担寄存器堆写回和 MEM/WB 数据前递角色。EX/MEM 候选
   // 由 EX stage 内部保存，不再经过顶层绕回。
   wb_req_bus_t mem_wb_req;
-  wb_req_bus_t mem_pending_wb_req[MemOutstandingDepth];
+  wb_req_bus_t mem_pending_wb_req;
   wb_req_bus_t wb_wb_req;
 
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
@@ -131,9 +130,7 @@ module riscv_core_impl #(
     .id_ex_bus_o(id_ex_bus)
   );
 
-  ex_stage #(
-    .MemOutstandingDepth(MemOutstandingDepth)
-  ) u_ex_stage (
+  ex_stage u_ex_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .flush_i(pipeline_control.flush_backend),
@@ -151,9 +148,7 @@ module riscv_core_impl #(
     .ex_mem_bus_o(ex_mem_bus)
   );
 
-  mem_stage #(
-    .MemOutstandingDepth(MemOutstandingDepth)
-  ) u_mem_stage (
+  mem_stage u_mem_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .flush_i(pipeline_control.flush_backend),

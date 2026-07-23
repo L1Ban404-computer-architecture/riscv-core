@@ -180,6 +180,55 @@ async def control_decode_representative_rv32i_classes(dut):
 
 
 @cocotb.test()
+async def decoder_legality_matrix(dut):
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    await reset_dut(dut)
+
+    cases = []
+    for funct3 in range(8):
+        for funct7 in (0b0000000, 0b0100000, 0b0000001, 0b1111111):
+            legal = funct7 == 0 or (funct7 == 0b0100000 and funct3 in (0, 5))
+            cases.append((encode_r(funct7, 2, 1, funct3, 3), legal))
+
+    for funct3 in range(8):
+        upper_values = (0, 0b0100000, 0b0000001)
+        for upper in upper_values:
+            instr = encode_i((upper << 5) | 3, 1, funct3, 3)
+            legal = funct3 not in (1, 5) or upper == 0
+            if funct3 == 5:
+                legal = upper in (0, 0b0100000)
+            cases.append((instr, legal))
+
+    for funct3 in range(8):
+        cases.append((encode_b(4, 2, 1, funct3), funct3 in (0, 1, 4, 5, 6, 7)))
+        cases.append((encode_i(0, 1, funct3, 3, 0x03), funct3 in (0, 1, 2, 4, 5)))
+        cases.append((encode_s(0, 2, 1, funct3), funct3 in (0, 1, 2)))
+        cases.append((encode_i(0, 1, funct3, 3, 0x67), funct3 == 0))
+
+    supported_csr = 0x300
+    for funct3 in range(8):
+        instr = (supported_csr << 20) | (1 << 15) | (funct3 << 12) | (3 << 7) | 0x73
+        cases.append((instr, funct3 in (1, 2, 3, 5, 6, 7)))
+    cases.extend([
+        ((0x999 << 20) | (1 << 15) | (1 << 12) | (3 << 7) | 0x73, False),
+        (0x0000000F, True),                    # fence with rs1=rd=x0
+        (0x0000008F, False),                   # fence with rd!=x0
+        (0x0000100F, False),                   # fence.i is not implemented
+        (0xFFFFFFFF, False),
+    ])
+
+    for index, (instr, legal) in enumerate(cases):
+        await push(dut, instr, 0x90000000 + 4 * index)
+        assert int(dut.id_ex_illegal_instr_o.value) == int(not legal), (
+            f"instr=0x{instr:08x} expected legal={legal}"
+        )
+        if not legal:
+            assert int(dut.id_ex_rd_write_o.value) == 0
+            assert int(dut.id_ex_wb_sel_o.value) == WB_NONE
+        await consume(dut)
+
+
+@cocotb.test()
 async def elastic_register_backpressure_replacement_and_drain(dut):
     cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
     await reset_dut(dut)

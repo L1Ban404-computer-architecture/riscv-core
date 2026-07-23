@@ -1,4 +1,4 @@
 .PHONY: test
 
 test:
-	WAVE=$(WAVE) python run_id_stage.py
+	WAVE=$(WAVE) python ../run.py id_stage
