@@ -38,7 +38,6 @@ module ex_stage_tb (
 
   output logic redirect_valid_o,
   output logic [31:0] redirect_target_pc_o,
-  output logic [2:0] redirect_reason_o,
 
   output logic ex_mem_valid_o,
   input logic ex_mem_ready_i,
@@ -60,7 +59,6 @@ module ex_stage_tb (
 
   id_ex_bus_t id_ex_bus;
   wb_req_bus_t mem_wb_req;
-  wb_req_bus_t mem_pending_wb_req;
   csr_read_rsp_bus_t csr_read_rsp;
   redirect_bus_t redirect;
   ex_mem_bus_t ex_mem_bus;
@@ -93,17 +91,10 @@ module ex_stage_tb (
                         data_valid: mem_wb_data_valid_i,
                         rd_addr: mem_wb_rd_addr_i,
                         wdata: mem_wb_wdata_i};
-  assign mem_pending_wb_req = '{
-    valid: pending_0_valid_i,
-    data_valid: 1'b0,
-    rd_addr: pending_0_rd_addr_i,
-    wdata: '0
-  };
   assign csr_read_rsp = '{valid: 1'b1, data: '0};
 
   assign redirect_valid_o = redirect.valid;
   assign redirect_target_pc_o = redirect.target_pc;
-  assign redirect_reason_o = redirect.reason;
 
   assign ex_mem_pc_o = ex_mem_bus.retire.instruction.pc;
   assign ex_mem_instr_o = ex_mem_bus.retire.instruction.instr;
@@ -128,7 +119,8 @@ module ex_stage_tb (
     .id_ex_valid_i,
     .id_ex_ready_o,
     .id_ex_bus_i(id_ex_bus),
-    .mem_pending_wb_req_i(mem_pending_wb_req),
+    .mem_pending_valid_i(pending_0_valid_i),
+    .mem_pending_rd_addr_i(pending_0_rd_addr_i),
     .mem_wb_req_i(mem_wb_req),
     .csr_read_addr_o(),
     .csr_read_rsp_i(csr_read_rsp),

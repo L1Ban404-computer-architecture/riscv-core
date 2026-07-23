@@ -7,7 +7,7 @@ module decoder (
   input instr_t instr_i,
   output reg_addr_bus_t reg_addr_o,
   output imm_type_e imm_type_o,
-  output decode_ctrl_bus_t ctrl_o,
+  output execute_ctrl_bus_t ctrl_o,
   output logic illegal_o
 );
 
@@ -35,7 +35,7 @@ module decoder (
     ctrl_o.wb_sel = WB_NONE;
     ctrl_o.csr_cmd = CSR_NONE;
     ctrl_o.system_op = SYS_NONE;
-    ctrl_o.illegal_instr = 1'b1;
+    illegal_o = 1'b1;
 
     case (opcode)
       OPC_LUI: begin
@@ -44,7 +44,7 @@ module decoder (
         ctrl_o.op_b_sel = OP_B_IMM;
         ctrl_o.wb_sel = WB_ALU;
         ctrl_o.rd_write = 1'b1;
-        ctrl_o.illegal_instr = 1'b0;
+        illegal_o = 1'b0;
       end
 
       OPC_AUIPC: begin
@@ -53,7 +53,7 @@ module decoder (
         ctrl_o.op_b_sel = OP_B_IMM;
         ctrl_o.wb_sel = WB_ALU;
         ctrl_o.rd_write = 1'b1;
-        ctrl_o.illegal_instr = 1'b0;
+        illegal_o = 1'b0;
       end
 
       OPC_JAL: begin
@@ -63,7 +63,7 @@ module decoder (
         ctrl_o.branch_op = BR_JAL;
         ctrl_o.wb_sel = WB_PC4;
         ctrl_o.rd_write = 1'b1;
-        ctrl_o.illegal_instr = 1'b0;
+        illegal_o = 1'b0;
       end
 
       OPC_JALR: begin
@@ -73,7 +73,7 @@ module decoder (
           ctrl_o.branch_op = BR_JALR;
           ctrl_o.wb_sel = WB_PC4;
           ctrl_o.rd_write = 1'b1;
-          ctrl_o.illegal_instr = 1'b0;
+          illegal_o = 1'b0;
         end
       end
 
@@ -90,7 +90,7 @@ module decoder (
           3'b111: ctrl_o.branch_op = BR_BGEU;
           default: ctrl_o.branch_op = BR_NONE;
         endcase
-        ctrl_o.illegal_instr = (ctrl_o.branch_op == BR_NONE);
+        illegal_o = (ctrl_o.branch_op == BR_NONE);
       end
 
       OPC_LOAD: begin
@@ -126,7 +126,7 @@ module decoder (
             ctrl_o.rd_write = 1'b0;
           end
         endcase
-        ctrl_o.illegal_instr = (ctrl_o.mem_cmd == MEM_NONE);
+        illegal_o = (ctrl_o.mem_cmd == MEM_NONE);
       end
 
       OPC_STORE: begin
@@ -139,7 +139,7 @@ module decoder (
           3'b010: ctrl_o.mem_size = MEM_SIZE_WORD;
           default: ctrl_o.mem_cmd = MEM_NONE;
         endcase
-        ctrl_o.illegal_instr = (ctrl_o.mem_cmd == MEM_NONE);
+        illegal_o = (ctrl_o.mem_cmd == MEM_NONE);
       end
 
       OPC_OP_IMM: begin
@@ -150,44 +150,44 @@ module decoder (
         case (funct3)
           3'b000: begin
             ctrl_o.alu_op = ALU_ADD;
-            ctrl_o.illegal_instr = 1'b0;
+            illegal_o = 1'b0;
           end
           3'b010: begin
             ctrl_o.alu_op = ALU_SLT;
-            ctrl_o.illegal_instr = 1'b0;
+            illegal_o = 1'b0;
           end
           3'b011: begin
             ctrl_o.alu_op = ALU_SLTU;
-            ctrl_o.illegal_instr = 1'b0;
+            illegal_o = 1'b0;
           end
           3'b100: begin
             ctrl_o.alu_op = ALU_XOR;
-            ctrl_o.illegal_instr = 1'b0;
+            illegal_o = 1'b0;
           end
           3'b110: begin
             ctrl_o.alu_op = ALU_OR;
-            ctrl_o.illegal_instr = 1'b0;
+            illegal_o = 1'b0;
           end
           3'b111: begin
             ctrl_o.alu_op = ALU_AND;
-            ctrl_o.illegal_instr = 1'b0;
+            illegal_o = 1'b0;
           end
           3'b001: begin
             ctrl_o.alu_op = ALU_SLL;
-            ctrl_o.illegal_instr = (funct7 != 7'b0000000);
+            illegal_o = (funct7 != 7'b0000000);
           end
           3'b101: begin
             if (funct7 == 7'b0000000) begin
               ctrl_o.alu_op = ALU_SRL;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end else if (funct7 == 7'b0100000) begin
               ctrl_o.alu_op = ALU_SRA;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
           end
           default: ;
         endcase
-        if (ctrl_o.illegal_instr) begin
+        if (illegal_o) begin
           ctrl_o.wb_sel = WB_NONE;
           ctrl_o.rd_write = 1'b0;
         end
@@ -200,35 +200,35 @@ module decoder (
           case (funct3)
             3'b000: begin
               ctrl_o.alu_op = ALU_ADD;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b001: begin
               ctrl_o.alu_op = ALU_SLL;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b010: begin
               ctrl_o.alu_op = ALU_SLT;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b011: begin
               ctrl_o.alu_op = ALU_SLTU;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b100: begin
               ctrl_o.alu_op = ALU_XOR;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b101: begin
               ctrl_o.alu_op = ALU_SRL;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b110: begin
               ctrl_o.alu_op = ALU_OR;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b111: begin
               ctrl_o.alu_op = ALU_AND;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             default: ;
           endcase
@@ -236,27 +236,26 @@ module decoder (
           case (funct3)
             3'b000: begin
               ctrl_o.alu_op = ALU_SUB;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             3'b101: begin
               ctrl_o.alu_op = ALU_SRA;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             default: ;
           endcase
         end
-        if (ctrl_o.illegal_instr) begin
+        if (illegal_o) begin
           ctrl_o.wb_sel = WB_NONE;
           ctrl_o.rd_write = 1'b0;
         end
       end
 
-      // FENCE 在本核的顺序存储接口上不需要额外硬件动作，可作为合法空操作
-      // 退休。保留字段必须为零；FENCE.I 属于单独的 Zifencei 扩展。
+      // FENCE 在本核的严格顺序数据通路上按保守全栅栏实现，不需要额外动作。
+      // RV32I 要求忽略 rs1/rd 及保留的 fm/pred/succ 配置；FENCE.I 属于
+      // 单独的 Zifencei 扩展，仍作为非法指令处理。
       OPC_MISC_MEM: begin
-        if ((funct3 == 3'b000) && (instr_i[19:15] == ZeroReg) && (instr_i[11:7] == ZeroReg)) begin
-          ctrl_o.illegal_instr = 1'b0;
-        end
+        if (funct3 == 3'b000) illegal_o = 1'b0;
       end
 
       OPC_SYSTEM: begin
@@ -266,15 +265,15 @@ module decoder (
           unique case (instr_i)
             32'h0000_0073: begin
               ctrl_o.system_op = SYS_ECALL;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             32'h0010_0073: begin
               ctrl_o.system_op = SYS_EBREAK;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             32'h3020_0073: begin
               ctrl_o.system_op = SYS_MRET;
-              ctrl_o.illegal_instr = 1'b0;
+              illegal_o = 1'b0;
             end
             default: ;
           endcase
@@ -292,13 +291,11 @@ module decoder (
             default: ctrl_o.csr_cmd = CSR_NONE;
           endcase
 
-          unique case (instr_i[31:20])
-            CsrMstatus, CsrMtvec, CsrMepc, CsrMcause, CsrMtval:
-            ctrl_o.illegal_instr = (ctrl_o.csr_cmd == CSR_NONE);
-            default: ctrl_o.illegal_instr = 1'b1;
-          endcase
+          // 地址实现性由 CSR 单元的组合读端口统一判断；decoder 只负责
+          // Zicsr 的 funct3 语法。
+          illegal_o = (ctrl_o.csr_cmd == CSR_NONE);
 
-          if (ctrl_o.illegal_instr) begin
+          if (illegal_o) begin
             ctrl_o.csr_cmd = CSR_NONE;
             ctrl_o.wb_sel = WB_NONE;
             ctrl_o.rd_write = 1'b0;
@@ -310,7 +307,5 @@ module decoder (
       default: ;
     endcase
   end
-
-  assign illegal_o = ctrl_o.illegal_instr;
 
 endmodule

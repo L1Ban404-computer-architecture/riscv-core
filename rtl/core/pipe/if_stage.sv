@@ -268,7 +268,7 @@ module if_stage #(
     "CoreBus request valid must remain asserted until ready."
   )
 
-  `ASSERT(BootPcAligned, !boot_pending_q |-> (boot_pc_i[1:0] == 2'b00), clk_i, !rst_ni,
+  `ASSERT(BootPcAligned, boot_pending_q |-> (boot_pc_i[1:0] == 2'b00), clk_i, !rst_ni,
           "boot_pc_i must satisfy RV32I IALIGN=32.")
   // verilog_format: on
 

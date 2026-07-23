@@ -1,24 +1,25 @@
 # Copyright (c) 2026
 # SPDX-License-Identifier: Apache-2.0
 
-ALL ?= $(sort $(patsubst tests/%/,%,$(wildcard tests/*/)))
-TEST_DIRS := $(foreach test,$(ALL),$(if $(filter tests/%,$(test)),$(test),tests/$(test)))
+ALL ?= $(sort $(notdir $(patsubst %/,%,$(dir $(wildcard tests/*/test_*.py)))))
+TEST_SUITES := $(foreach test,$(ALL),$(patsubst tests/%,%,$(patsubst %/,%,$(test))))
+PYTHON ?= python
 VERILATOR ?= verilator
 VERILATOR_BUILD_DIR ?= build/verilator
 VERILATOR_PREFIX ?= core
 VERILATOR_WARNINGS := -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR \
-	-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET -Wno-UNOPTFLAT
+	-Wno-SYNCASYNCNET -Wno-UNOPTFLAT
 
 .PHONY: test lint verilator check
 
 test:
-	@for dir in $(TEST_DIRS); do \
-		echo "==> $$dir"; \
-		$(MAKE) -C $$dir test WAVE=$(WAVE) || exit $$?; \
+	@for suite in $(TEST_SUITES); do \
+		echo "==> tests/$$suite"; \
+		WAVE=$(WAVE) $(PYTHON) tests/run.py $$suite || exit $$?; \
 	done
 
 lint:
-	$(VERILATOR) --lint-only --sv --Wall -Wno-fatal $(VERILATOR_WARNINGS) \
+	$(VERILATOR) --lint-only --sv --Wall $(VERILATOR_WARNINGS) \
 		-f .slang/riscv_core.f
 
 verilator:

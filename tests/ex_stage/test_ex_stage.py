@@ -14,7 +14,6 @@ OP_A_RS1, OP_A_PC = 0, 1
 OP_B_RS2, OP_B_IMM = 0, 1
 BR_NONE, BR_JAL, BR_JALR, BR_BEQ, BR_BNE = 0, 1, 2, 3, 4
 BR_BLT, BR_BGE, BR_BLTU, BR_BGEU = 5, 6, 7, 8
-REDIR_NONE, REDIR_BRANCH, REDIR_JAL, REDIR_JALR = 0, 1, 2, 3
 MEM_NONE, MEM_LOAD, MEM_STORE = 0, 1, 2
 MEM_BYTE, MEM_HALF, MEM_WORD = 0, 1, 2
 WB_NONE, WB_ALU, WB_MEM, WB_PC4 = 0, 1, 2, 3
@@ -95,7 +94,6 @@ async def accept_current(dut):
     redirect = (
         int(dut.redirect_valid_o.value),
         int(dut.redirect_target_pc_o.value),
-        int(dut.redirect_reason_o.value),
     )
     await RisingEdge(dut.clk_i)
     dut.id_ex_valid_i.value = 0
@@ -213,7 +211,7 @@ async def branch_redirect_targets_and_debug(dut):
             branch=branch,
         )
         redirect = await accept_current(dut)
-        assert redirect == (int(taken), pc + 0x20, REDIR_BRANCH)
+        assert redirect == (int(taken), pc + 0x20)
         assert int(dut.ex_mem_debug_redirect_valid_o.value) == int(taken)
         assert int(dut.ex_mem_debug_redirect_target_o.value) == pc + 0x20
         await drain_output(dut)
@@ -230,7 +228,7 @@ async def branch_redirect_targets_and_debug(dut):
         wb=WB_PC4,
         rd_write=1,
     )
-    assert await accept_current(dut) == (1, 0x8100, REDIR_JAL)
+    assert await accept_current(dut) == (1, 0x8100)
     assert int(dut.ex_mem_wb_wdata_o.value) == 0x8004
     await drain_output(dut)
 
@@ -242,7 +240,7 @@ async def branch_redirect_targets_and_debug(dut):
         op_b=OP_B_IMM,
         branch=BR_JALR,
     )
-    assert await accept_current(dut) == (1, 0x9004, REDIR_JALR)
+    assert await accept_current(dut) == (1, 0x9004)
     await drain_output(dut)
 
     # A taken control-flow instruction targeting its sequential successor must

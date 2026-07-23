@@ -19,7 +19,8 @@ module ex_stage (
 
   // MEM outstanding load 以及 MEM/WB 写回候选。另一路年龄最近的 EX/MEM
   // 候选由本 stage 内部保存。
-  input wb_req_bus_t mem_pending_wb_req_i,
+  input logic mem_pending_valid_i,
+  input reg_addr_t mem_pending_rd_addr_i,
   input wb_req_bus_t mem_wb_req_i,
 
   output csr_addr_t csr_read_addr_o,
@@ -57,6 +58,9 @@ module ex_stage (
   word_t csr_source;
   word_t csr_new_value;
   logic data_misaligned;
+  logic conditional_branch;
+  logic rs1_used;
+  logic rs2_used;
 
   always_comb begin
     ex_mem_wb_req = ex_mem_bus_o.wb_req;
@@ -68,17 +72,37 @@ module ex_stage (
     .rst_ni,
     .transaction_valid_i(id_ex_valid_i),
     .execute_fire_i(ex_execute_fire),
-    .reg_addr_i(id_ex_bus_i.reg_addr),
+    .rs1_addr_i(id_ex_bus_i.reg_addr.rs1_addr),
+    .rs2_addr_i(id_ex_bus_i.reg_addr.rs2_addr),
+    .rs1_used_i(rs1_used),
+    .rs2_used_i(rs2_used),
     .rs1_value_i(id_ex_bus_i.exec_data.rs1_value),
     .rs2_value_i(id_ex_bus_i.exec_data.rs2_value),
-    .ctrl_i(id_ex_bus_i.ctrl),
     .ex_wb_req_i(ex_mem_wb_req),
-    .mem_pending_wb_req_i,
+    .mem_pending_valid_i,
+    .mem_pending_rd_addr_i,
     .mem_wb_req_i,
     .rs1_value_o(rs1_value),
     .rs2_value_o(rs2_value),
     .stall_o(forward_stall)
   );
+
+  always_comb begin
+    conditional_branch = 1'b0;
+    case (id_ex_bus_i.ctrl.branch_op)
+      BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU: conditional_branch = 1'b1;
+      default: ;
+    endcase
+    // 只检查指令真正读取的源寄存器，编码中无语义的 rs 字段不会产生
+    // LUI、JAL、FENCE 等指令的伪相关。
+    rs1_used = conditional_branch || (id_ex_bus_i.ctrl.branch_op == BR_JALR) ||
+        (id_ex_bus_i.ctrl.mem_cmd != MEM_NONE) ||
+        ((id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) && !id_ex_bus_i.ctrl.csr_use_imm) ||
+        ((id_ex_bus_i.ctrl.wb_sel == WB_ALU) && (id_ex_bus_i.ctrl.op_a_sel == OP_A_RS1) &&
+         (id_ex_bus_i.ctrl.alu_op != ALU_PASS_B));
+    rs2_used = conditional_branch || (id_ex_bus_i.ctrl.mem_cmd == MEM_STORE) ||
+        ((id_ex_bus_i.ctrl.wb_sel == WB_ALU) && (id_ex_bus_i.ctrl.op_b_sel == OP_B_RS2));
+  end
 
   assign operand_a = (id_ex_bus_i.ctrl.op_a_sel == OP_A_PC) ?
       id_ex_bus_i.instruction.pc : rs1_value;

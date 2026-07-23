@@ -36,13 +36,6 @@ module branch_unit (
     // ALU 计算得到的 PC-relative 地址。
     redirect_o.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) : alu_target_i;
 
-    case (branch_op_i)
-      BR_NONE: redirect_o.reason = REDIR_NONE;
-      BR_JAL: redirect_o.reason = REDIR_JAL;
-      BR_JALR: redirect_o.reason = REDIR_JALR;
-      BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU: redirect_o.reason = REDIR_BRANCH;
-      default: redirect_o.reason = REDIR_NONE;
-    endcase
   end
 
 endmodule

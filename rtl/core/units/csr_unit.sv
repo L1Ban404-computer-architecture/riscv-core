@@ -13,15 +13,18 @@ module csr_unit (
   input csr_write_bus_t write_i,
   input logic trap_i,
   input pc_t trap_epc_i,
-  input exception_bus_t trap_exception_i,
+  input logic trap_is_interrupt_i,
+  input exception_cause_e trap_cause_i,
+  input word_t trap_tval_i,
   input logic mret_i,
 
   output csr_state_bus_t state_o,
-  output csr_state_bus_t current_state_o
+  output word_t current_mtvec_o,
+  output word_t current_mepc_o
 );
 
   // 当前核心只运行于 M-mode。mstatus 仅实现异常进入/返回所需的
-  // MIE、MPIE 和 MPP 字段；其余位暂按普通可读写状态保存。
+  // MIE、MPIE 和 MPP 字段；MPP 固定为唯一支持的 M-mode，其他位读零。
   localparam word_t MstatusMie  = word_t'(1 << 3);
   localparam word_t MstatusMpie = word_t'(1 << 7);
   localparam word_t MstatusMpp  = word_t'(3 << 11);
@@ -51,9 +54,8 @@ module csr_unit (
     if (trap_i) begin
       // IALIGN=32：无论来源是软件写入还是 trap entry，mepc[1:0] 恒为零。
       state_d.mepc = trap_epc_i & word_t'(~3);
-      state_d.mcause =
-          {trap_exception_i.is_interrupt, {(XLen-5) {1'b0}}, trap_exception_i.cause};
-      state_d.mtval = trap_exception_i.tval;
+      state_d.mcause = {trap_is_interrupt_i, {(XLen-5) {1'b0}}, trap_cause_i};
+      state_d.mtval = trap_tval_i;
       if ((state_q.mstatus & MstatusMie) != '0)
         state_d.mstatus = state_q.mstatus | MstatusMpie;
       else state_d.mstatus = state_q.mstatus & ~MstatusMpie;
@@ -65,7 +67,9 @@ module csr_unit (
       state_d.mstatus = state_d.mstatus | MstatusMpie | MstatusMpp;
     end else if (write_i.valid) begin
       unique case (write_i.addr)
-        CsrMstatus: state_d.mstatus = (write_i.wdata & ~MstatusMpp) | MstatusMpp;
+        CsrMstatus: begin
+          state_d.mstatus = (write_i.wdata & (MstatusMie | MstatusMpie)) | MstatusMpp;
+        end
         CsrMtvec:   state_d.mtvec = write_i.wdata & word_t'(~3);
         // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
         CsrMepc:    state_d.mepc = write_i.wdata & word_t'(~3);
@@ -77,9 +81,10 @@ module csr_unit (
   end
 
   // 退休快照输出下一状态，使仿真环境在 WB fire 当周期观察到本条指令提交后的
-  // CSR 值；控制通路另用 current_state_o 读取寄存器当前值。
+  // CSR 值；控制通路另用窄化的 current_mtvec/current_mepc 读取提交前目标。
   assign state_o = state_d;
-  assign current_state_o = state_q;
+  assign current_mtvec_o = state_q.mtvec;
+  assign current_mepc_o = state_q.mepc;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

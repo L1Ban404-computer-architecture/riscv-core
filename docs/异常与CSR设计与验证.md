@@ -52,15 +52,16 @@ payload 尚无异常时补充本级检测结果。
 
 | CSR | 地址 | 实现约束 |
 | --- | ---: | --- |
-| `mstatus` | `0x300` | `MPP` 固定为 M；实现 MIE/MPIE 的 trap 转换。 |
+| `mstatus` | `0x300` | 实现 MIE/MPIE；`MPP` 固定为 M；其余位读零。 |
 | `mtvec` | `0x305` | 仅 direct mode，写入时低两位清零。 |
 | `mepc` | `0x341` | 普通读写；IALIGN=32，因此写入和 trap entry 均清零低两位。 |
 | `mcause` | `0x342` | trap entry 写入 interrupt 位与 cause。 |
 | `mtval` | `0x343` | trap entry 写入异常附加值。 |
 
-decoder 支持 `CSRRW/CSRRS/CSRRC` 及三个立即数形式。CSR 指令写入 `rd` 的值始终是
-修改前旧值；`CSRRS/CSRRC` 的 `rs1=x0` 和立即数为 0 时只读、不产生 CSR 写请求。
-访问白名单以外的 CSR 产生非法指令异常。
+decoder 只检查 `CSRRW/CSRRS/CSRRC` 及三个立即数形式的编码语法。CSR 指令写入
+`rd` 的值始终是修改前旧值；`CSRRS/CSRRC` 的 `rs1=x0` 和立即数为 0 时只读、
+不产生 CSR 写请求。地址实现性由 `csr_unit` 的组合读端口统一判断，白名单以外
+的 CSR 在 EX 产生非法指令异常。
 
 ECALL 和 EBREAK 在 ID 转换为异常。MRET 不在前级直接修改状态，而是携带
 `SYS_MRET` 到 WB 原子提交。

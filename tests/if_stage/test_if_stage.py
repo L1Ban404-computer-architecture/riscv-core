@@ -247,6 +247,20 @@ async def reset_boot_and_basic_fetch(dut):
 
 
 @cocotb.test()
+async def boot_pc_is_sampled_once(dut):
+    await start_clock(dut)
+    await reset_dut(dut, 0x8000_0000)
+
+    # boot_pc_i is sampled only while boot_pending is set. Later values neither
+    # redirect fetch nor participate in the alignment contract.
+    dut.boot_pc_i.value = 0xDEAD_BEEF
+    first_pc = (await accept_requests(dut, 1))[0]
+    await send_responses_for_pcs(dut, [first_pc])
+    second_pc = (await accept_requests(dut, 1))[0]
+    assert [first_pc, second_pc] == [0x8000_0000, 0x8000_0004]
+
+
+@cocotb.test()
 async def request_valid_and_payload_hold_under_backpressure(dut):
     await start_clock(dut)
     boot_pc = 0x8000_1000

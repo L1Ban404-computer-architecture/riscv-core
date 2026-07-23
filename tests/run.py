@@ -40,8 +40,6 @@ PIPE_RTL = [
 COMMON_BUILD_ARGS = [
     "-Wno-PINCONNECTEMPTY",
     "-Wno-IMPORTSTAR",
-    "-Wno-UNUSEDSIGNAL",
-    "-Wno-UNUSEDPARAM",
     "-Wno-SYNCASYNCNET",
     # CoreBus permits zero-latency request/response, which creates intentional
     # combinational ready paths through fall-through buffers.

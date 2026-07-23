@@ -22,9 +22,10 @@ module mem_stage (
   output core_bus_req_t dmem_req_o,
   input core_bus_resp_t dmem_resp_i,
 
-  // 已经发出、尚未收到响应的 load 写回候选。data_valid 恒为 0，
-  // EX 用它检测未解决的 RAW 相关。
-  output wb_req_bus_t mem_pending_wb_req_o,
+  // 已经发出、尚未收到响应的 load 目标。EX 只需要 valid/rd 检测
+  // 未解决的 RAW 相关，不传递尚不存在的写回数据。
+  output logic mem_pending_valid_o,
+  output reg_addr_t mem_pending_rd_addr_o,
 
   // MEM/WB 输出寄存器中的写回候选，用于已完成数据的前递。
   output wb_req_bus_t mem_wb_req_o,
@@ -59,12 +60,17 @@ module mem_stage (
 
   // EX/MEM 与 MEM/WB 的公共 payload 只差 mem_req；两个 debug struct
   // 位宽和字段顺序一致，显式类型转换集中表达 stage 边界。
-  function automatic mem_wb_bus_t toMemWbBus(ex_mem_bus_t source);
+  function automatic mem_wb_bus_t toMemWbBus(
+    wb_req_bus_t wb_req,
+    exception_bus_t exception,
+    commit_ctrl_bus_t commit,
+    retire_meta_bus_t retire
+  );
     toMemWbBus = '{
-      wb_req: source.wb_req,
-      exception: source.exception,
-      commit: source.commit,
-      retire: source.retire
+      wb_req: wb_req,
+      exception: exception,
+      commit: commit,
+      retire: retire
     };
   endfunction
 
@@ -127,14 +133,8 @@ module mem_stage (
     .ready_i(dmem_rsp_fire)
   );
 
-  // 单槽输出只表达尚未解决的 load 目标寄存器。
-  always_comb begin
-    mem_pending_wb_req_o = outstanding_head.wb_req;
-    mem_pending_wb_req_o.valid =
-        outstanding_head_valid && outstanding_head.wb_req.valid;
-    mem_pending_wb_req_o.data_valid = 1'b0;
-    mem_pending_wb_req_o.wdata = '0;
-  end
+  assign mem_pending_valid_o = outstanding_head_valid && outstanding_head.wb_req.valid;
+  assign mem_pending_rd_addr_o = outstanding_head.wb_req.rd_addr;
 
   load_data_unit u_load_data_unit (
     .size_i(outstanding_head.mem_req.size),
@@ -145,7 +145,12 @@ module mem_stage (
   );
 
   always_comb begin
-    completed_mem_bus = toMemWbBus(outstanding_head);
+    completed_mem_bus = toMemWbBus(
+      outstanding_head.wb_req,
+      outstanding_head.exception,
+      outstanding_head.commit,
+      outstanding_head.retire
+    );
     if (!completed_mem_bus.exception.valid && dmem_resp_i.rsp.error) begin
       completed_mem_bus.exception.valid = 1'b1;
       completed_mem_bus.exception.cause = outstanding_head.mem_req.write ?
@@ -163,7 +168,12 @@ module mem_stage (
     if (completed_mem_bus.exception.valid)
       completed_mem_bus.retire.mem_op = RETIRE_MEM_NONE;
 
-    bypass_mem_bus = toMemWbBus(ex_mem_bus_i);
+    bypass_mem_bus = toMemWbBus(
+      ex_mem_bus_i.wb_req,
+      ex_mem_bus_i.exception,
+      ex_mem_bus_i.commit,
+      ex_mem_bus_i.retire
+    );
 
     // outstanding 响应优先；事务槽非空时 ex_mem_ready_o 会阻止非访存输入。
     if (outstanding_head_valid) begin

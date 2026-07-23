@@ -80,7 +80,8 @@ module riscv_core_impl #(
   // 写回请求同时承担寄存器堆写回和 MEM/WB 数据前递角色。EX/MEM 候选
   // 由 EX stage 内部保存，不再经过顶层绕回。
   wb_req_bus_t mem_wb_req;
-  wb_req_bus_t mem_pending_wb_req;
+  logic mem_pending_valid;
+  reg_addr_t mem_pending_rd_addr;
   wb_req_bus_t wb_wb_req;
 
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
@@ -138,7 +139,8 @@ module riscv_core_impl #(
     .id_ex_valid_i(id_ex_valid),
     .id_ex_ready_o(id_ex_ready),
     .id_ex_bus_i(id_ex_bus),
-    .mem_pending_wb_req_i(mem_pending_wb_req),
+    .mem_pending_valid_i(mem_pending_valid),
+    .mem_pending_rd_addr_i(mem_pending_rd_addr),
     .mem_wb_req_i(mem_wb_req),
     .csr_read_addr_o(csr_read_addr),
     .csr_read_rsp_i(csr_read_rsp),
@@ -158,7 +160,8 @@ module riscv_core_impl #(
     .ex_mem_bus_i(ex_mem_bus),
     .dmem_req_o(dmem_req_o),
     .dmem_resp_i(dmem_resp_i),
-    .mem_pending_wb_req_o(mem_pending_wb_req),
+    .mem_pending_valid_o(mem_pending_valid),
+    .mem_pending_rd_addr_o(mem_pending_rd_addr),
     .mem_wb_req_o(mem_wb_req),
     .mem_wb_valid_o(mem_wb_valid),
     .mem_wb_ready_i(mem_wb_ready),

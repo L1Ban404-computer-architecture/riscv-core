@@ -29,7 +29,8 @@ module wb_stage (
   exception_bus_t effective_exception;
   csr_write_bus_t csr_write;
   csr_state_bus_t csr_state;
-  csr_state_bus_t csr_current_state;
+  word_t current_mtvec;
+  word_t current_mepc;
   logic [63:0] debug_cycle_count_q;
 
   // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
@@ -55,12 +56,10 @@ module wb_stage (
     control_o = '0;
     if (trap_commit) begin
       control_o.redirect.valid = 1'b1;
-      control_o.redirect.target_pc = csr_current_state.mtvec;
-      control_o.redirect.reason = REDIR_TRAP;
+      control_o.redirect.target_pc = current_mtvec;
     end else if (mret_commit) begin
       control_o.redirect.valid = 1'b1;
-      control_o.redirect.target_pc = csr_current_state.mepc;
-      control_o.redirect.reason = REDIR_MRET;
+      control_o.redirect.target_pc = current_mepc;
     end
     control_o.flush_backend = control_o.redirect.valid;
 
@@ -123,10 +122,13 @@ module wb_stage (
     .write_i(csr_write),
     .trap_i(trap_commit),
     .trap_epc_i(mem_wb_bus_i.retire.instruction.pc),
-    .trap_exception_i(effective_exception),
+    .trap_is_interrupt_i(effective_exception.is_interrupt),
+    .trap_cause_i(effective_exception.cause),
+    .trap_tval_i(effective_exception.tval),
     .mret_i(mret_commit),
     .state_o(csr_state),
-    .current_state_o(csr_current_state)
+    .current_mtvec_o(current_mtvec),
+    .current_mepc_o(current_mepc)
   );
 
 endmodule

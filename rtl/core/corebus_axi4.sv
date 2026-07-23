@@ -13,10 +13,6 @@ module corebus_axi4 (
   input  logic        imem_req_valid_i,
   output logic        imem_req_ready_o,
   input  logic [31:0] imem_req_addr_i,
-  input  logic        imem_req_write_i,
-  input  logic [1:0]  imem_req_size_i,
-  input  logic [31:0] imem_req_wdata_i,
-  input  logic [3:0]  imem_req_wstrb_i,
   output logic        imem_rsp_valid_o,
   input  logic        imem_rsp_ready_i,
   output logic [31:0] imem_rsp_rdata_o,
@@ -86,13 +82,13 @@ module corebus_axi4 (
   logic write_error;
 
   function automatic logic naturally_aligned(
-    input logic [31:0] addr,
+    input logic [1:0] addr_offset,
     input logic [1:0] size
   );
     unique case (size)
       2'd0: naturally_aligned = 1'b1;
-      2'd1: naturally_aligned = !addr[0];
-      2'd2: naturally_aligned = (addr[1:0] == 2'b00);
+      2'd1: naturally_aligned = !addr_offset[0];
+      2'd2: naturally_aligned = (addr_offset == 2'b00);
       default: naturally_aligned = 1'b0;
     endcase
   endfunction
@@ -141,9 +137,6 @@ module corebus_axi4 (
                             (((state_q == StateReadResponse) && m_rvalid_i && read_error) ||
                              ((state_q == StateWriteResponse) && m_bvalid_i && write_error));
 
-  logic unused_imem_payload;
-  assign unused_imem_payload = ^{imem_req_wdata_i, imem_req_wstrb_i};
-
   always_ff @(posedge clock or posedge reset) begin
     if (reset) begin
       state_q <= StateIdle;
@@ -169,10 +162,10 @@ module corebus_axi4 (
           end else if (imem_req_valid_i) begin
             owner_dmem_q <= 1'b0;
             addr_q <= imem_req_addr_i;
-            size_q <= imem_req_size_i;
-            wdata_q <= imem_req_wdata_i;
-            wstrb_q <= imem_req_wstrb_i;
-            state_q <= imem_req_write_i ? StateWriteData : StateReadAddress;
+            size_q <= 2'd2;
+            wdata_q <= '0;
+            wstrb_q <= '0;
+            state_q <= StateReadAddress;
           end
         end
         StateReadAddress: begin
@@ -197,13 +190,9 @@ module corebus_axi4 (
   end
 
   // verilog_format: off
-  `ASSERT(CoreBusImemReadOnly,
-          imem_req_valid_i && imem_req_ready_o |->
-              !imem_req_write_i && (imem_req_size_i == 2'd2),
-          clock, reset, "Instruction CoreBus requests must be word reads.")
   `ASSERT(CoreBusDmemAligned,
           dmem_req_valid_i && dmem_req_ready_o |->
-              naturally_aligned(dmem_req_addr_i, dmem_req_size_i),
+              naturally_aligned(dmem_req_addr_i[1:0], dmem_req_size_i),
           clock, reset, "Data CoreBus requests must be naturally aligned.")
   `ASSERT_STABLE(AxiAwStable, m_awvalid_o, m_awready_i,
                  {m_awaddr_o, m_awid_o, m_awlen_o, m_awsize_o, m_awburst_o},

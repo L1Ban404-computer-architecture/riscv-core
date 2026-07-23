@@ -12,12 +12,15 @@ module forwarding_unit (
   input logic transaction_valid_i,
   input logic execute_fire_i,
 
-  input reg_addr_bus_t reg_addr_i,
+  input reg_addr_t rs1_addr_i,
+  input reg_addr_t rs2_addr_i,
+  input logic rs1_used_i,
+  input logic rs2_used_i,
   input word_t rs1_value_i,
   input word_t rs2_value_i,
-  input execute_ctrl_bus_t ctrl_i,
   input wb_req_bus_t ex_wb_req_i,
-  input wb_req_bus_t mem_pending_wb_req_i,
+  input logic mem_pending_valid_i,
+  input reg_addr_t mem_pending_rd_addr_i,
   input wb_req_bus_t mem_wb_req_i,
   output word_t rs1_value_o,
   output word_t rs2_value_o,
@@ -29,9 +32,6 @@ module forwarding_unit (
   word_t held_rs1_value_q;
   word_t held_rs2_value_q;
 
-  logic conditional_branch;
-  logic rs1_used;
-  logic rs2_used;
   logic rs1_pending;
   logic rs2_pending;
   logic mem_wb_rs1_forwarded;
@@ -48,29 +48,13 @@ module forwarding_unit (
     rs1_pending = 1'b0;
     rs2_pending = 1'b0;
 
-    rs1_pending = mem_pending_wb_req_i.valid &&
-        (mem_pending_wb_req_i.rd_addr == reg_addr_i.rs1_addr);
-    rs2_pending = mem_pending_wb_req_i.valid &&
-        (mem_pending_wb_req_i.rd_addr == reg_addr_i.rs2_addr);
+    rs1_pending = mem_pending_valid_i &&
+        (mem_pending_rd_addr_i == rs1_addr_i);
+    rs2_pending = mem_pending_valid_i &&
+        (mem_pending_rd_addr_i == rs2_addr_i);
   end
 
   always_comb begin
-    conditional_branch = 1'b0;
-    case (ctrl_i.branch_op)
-      BR_NONE, BR_JAL, BR_JALR: conditional_branch = 1'b0;
-      BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU: conditional_branch = 1'b1;
-      default: ;
-    endcase
-
-    // 只检查指令真正读取的源寄存器，编码中无语义的 rs 字段不会产生
-    // LUI、JAL、FENCE 等指令的伪相关。
-    rs1_used = conditional_branch || (ctrl_i.branch_op == BR_JALR) || (ctrl_i.mem_cmd != MEM_NONE)
-        || ((ctrl_i.csr_cmd != CSR_NONE) && !ctrl_i.csr_use_imm)
-        || ((ctrl_i.wb_sel == WB_ALU) && (ctrl_i.op_a_sel == OP_A_RS1) &&
-            (ctrl_i.alu_op != ALU_PASS_B));
-    rs2_used = conditional_branch || (ctrl_i.mem_cmd == MEM_STORE) ||
-        ((ctrl_i.wb_sel == WB_ALU) && (ctrl_i.op_b_sel == OP_B_RS2));
-
     rs1_value_o = rs1_base_value;
     rs2_value_o = rs2_base_value;
     mem_wb_rs1_forwarded = 1'b0;
@@ -79,13 +63,13 @@ module forwarding_unit (
 
     // 年龄最近的 EX/MEM 写回候选优先于 MEM/WB。匹配但 data_valid
     // 尚未成立时阻塞当前 EX 事务，不能绕过它使用更老的写回值。
-    if (rs1_used && (reg_addr_i.rs1_addr != ZeroReg)) begin
-      if (ex_wb_req_i.valid && (ex_wb_req_i.rd_addr == reg_addr_i.rs1_addr)) begin
+    if (rs1_used_i && (rs1_addr_i != ZeroReg)) begin
+      if (ex_wb_req_i.valid && (ex_wb_req_i.rd_addr == rs1_addr_i)) begin
         if (ex_wb_req_i.data_valid) rs1_value_o = ex_wb_req_i.wdata;
         else stall_o = 1'b1;
       end else if (rs1_pending) begin
         stall_o = 1'b1;
-      end else if (mem_wb_req_i.valid && (mem_wb_req_i.rd_addr == reg_addr_i.rs1_addr)) begin
+      end else if (mem_wb_req_i.valid && (mem_wb_req_i.rd_addr == rs1_addr_i)) begin
         if (mem_wb_req_i.data_valid) begin
           rs1_value_o = mem_wb_req_i.wdata;
           mem_wb_rs1_forwarded = 1'b1;
@@ -95,13 +79,13 @@ module forwarding_unit (
       end
     end
 
-    if (rs2_used && (reg_addr_i.rs2_addr != ZeroReg)) begin
-      if (ex_wb_req_i.valid && (ex_wb_req_i.rd_addr == reg_addr_i.rs2_addr)) begin
+    if (rs2_used_i && (rs2_addr_i != ZeroReg)) begin
+      if (ex_wb_req_i.valid && (ex_wb_req_i.rd_addr == rs2_addr_i)) begin
         if (ex_wb_req_i.data_valid) rs2_value_o = ex_wb_req_i.wdata;
         else stall_o = 1'b1;
       end else if (rs2_pending) begin
         stall_o = 1'b1;
-      end else if (mem_wb_req_i.valid && (mem_wb_req_i.rd_addr == reg_addr_i.rs2_addr)) begin
+      end else if (mem_wb_req_i.valid && (mem_wb_req_i.rd_addr == rs2_addr_i)) begin
         if (mem_wb_req_i.data_valid) begin
           rs2_value_o = mem_wb_req_i.wdata;
           mem_wb_rs2_forwarded = 1'b1;

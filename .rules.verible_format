@@ -1,8 +1,8 @@
 # Verible formatter flags for project-owned SystemVerilog RTL.
 #
-# Keep these choices aligned with docs/rtl-style.md. Run from the repository
+# Keep these choices aligned with docs/寄存器传输级编码风格.md. Run from the repository
 # root, for example:
-#   verible-verilog-format --flagfile=.rules.verible_format --inplace rtl/core/riscv_core.sv
+#   verible-verilog-format --flagfile=.rules.verible_format --inplace rtl/core/riscv_core_impl.sv
 #
 # Do not reformat third-party IP under third_party/ip/.
 

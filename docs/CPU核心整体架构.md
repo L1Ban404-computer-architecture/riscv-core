@@ -49,7 +49,7 @@ EX 构造一次 `retire_meta_bus_t`，MEM 和 WB 继续使用同一类型。
 EX 的前递优先级固定为：
 
 ```text
-EX/MEM > MEM pending load > MEM/WB > ID 锁存的寄存器值
+EX/MEM > MEM pending `{valid, rd}` > MEM/WB > ID 锁存的寄存器值
 ```
 
 匹配但数据尚未有效时，EX 保持当前 ID/EX 事务。若 MEM/WB 的值在停顿期间短暂

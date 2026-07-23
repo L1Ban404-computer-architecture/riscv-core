@@ -26,25 +26,8 @@ typedef struct packed {
   word_t imm;
 } exec_data_bus_t;
 
-typedef struct packed {
-  alu_op_e alu_op;
-  op_a_sel_e op_a_sel;
-  op_b_sel_e op_b_sel;
-  branch_op_e branch_op;
-  mem_cmd_e mem_cmd;
-  mem_size_e mem_size;
-  logic mem_sign_ext;
-  wb_sel_e wb_sel;
-  logic rd_write;
-  logic illegal_instr;
-  csr_cmd_e csr_cmd;
-  logic csr_use_imm;
-  csr_addr_t csr_addr;
-  system_op_e system_op;
-  logic serialize;
-} decode_ctrl_bus_t;
-
-// ID 已经把译码非法状态转换为 exception；后续流水不再重复携带 legality。
+// Decoder 单独输出非法状态；合法指令的执行控制直接进入 ID/EX，避免维护一份
+// 仅相差 illegal 字段的重复控制结构。
 typedef struct packed {
   alu_op_e alu_op;
   op_a_sel_e op_a_sel;
@@ -79,12 +62,6 @@ typedef struct packed {
   // 对齐后的 wdata/wstrb，避免把移位逻辑放在 EX 关键路径上。
   word_t wdata;
 } mem_req_bus_t;
-
-typedef struct packed {
-  logic valid;
-  logic error;
-  word_t rdata;
-} mem_rsp_bus_t;
 
 typedef struct packed {
   // valid 表示该事务会写 rd；data_valid 表示本周期 wdata 已可用于前递。
@@ -125,21 +102,9 @@ typedef struct packed {
   csr_write_bus_t csr_write;
 } commit_ctrl_bus_t;
 
-// 分支 redirect 只冲刷前端；trap/MRET redirect 由 WB 同时产生后端 flush，
-// 清除全部年轻后端事务。顶层集中仲裁时始终令 WB 来源优先。
-typedef enum logic [2:0] {
-  REDIR_NONE,
-  REDIR_BRANCH,
-  REDIR_JAL,
-  REDIR_JALR,
-  REDIR_TRAP,
-  REDIR_MRET
-} redirect_reason_e;
-
 typedef struct packed {
   logic valid;
   pc_t target_pc;
-  redirect_reason_e reason;
 } redirect_bus_t;
 
 // 顶层统一分发的流水控制。任何 redirect 都由 IF 内部派生前端 flush；

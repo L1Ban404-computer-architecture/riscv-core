@@ -1,7 +1,8 @@
 # riscv-core：RV32I 五级流水线 RTL
 
-本项目实现可综合、单发射、顺序执行/退休的 RV32I 核心，并包含最小 M-mode
-精确同步异常与 Zicsr 支持。
+本项目以可综合 RTL 子集实现单发射、顺序执行/退休的 RV32I 核心，并包含最小
+M-mode 精确同步异常与 Zicsr 支持。当前验证闭环覆盖 Verilator lint、仿真回归
+和模型构建；尚未建立面向具体工艺的综合、STA、CDC/RDC 与门级签核流程。
 
 ```text
 CoreBus imem → IF → ID → EX → MEM → WB → retire/debug

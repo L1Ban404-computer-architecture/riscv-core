@@ -241,7 +241,17 @@ class Response:
 
 
 class CoreBusSlave:
-    def __init__(self, dut, prefix, memory, seed, ready_probability, immediate_probability, max_latency):
+    def __init__(
+        self,
+        dut,
+        prefix,
+        memory,
+        seed,
+        ready_probability,
+        immediate_probability,
+        max_latency,
+        faults=None,
+    ):
         self.dut = dut
         self.prefix = prefix
         self.memory = memory
@@ -249,6 +259,7 @@ class CoreBusSlave:
         self.ready_probability = ready_probability
         self.immediate_probability = immediate_probability
         self.max_latency = max_latency
+        self.faults = set() if faults is None else set(faults)
         self.pending = deque()
         self.cycle = 0
         self.request_count = 0
@@ -277,8 +288,9 @@ class CoreBusSlave:
         self.rsp_rdata.value = 0
         self.rsp_error.value = 0
 
-    def make_response(self, addr):
-        return Response(self.cycle, addr, self.memory.read_word(addr), 0)
+    def make_response(self, addr, write):
+        error = int((addr, bool(write)) in self.faults)
+        return Response(self.cycle, addr, self.memory.read_word(addr), error)
 
     async def run(self):
         self.clear_inputs()
@@ -325,7 +337,7 @@ class CoreBusSlave:
             request_fire = bool(valid and ready)
             if response is None and not self.pending and request_fire:
                 if self.random.random() < self.immediate_probability:
-                    response = self.make_response(payload[0])
+                    response = self.make_response(payload[0], payload[1])
                     immediate = True
                     self.rsp_valid.value = 1
                     self.rsp_rdata.value = response.rdata
@@ -379,7 +391,8 @@ class CoreBusSlave:
                 addr, write, size, wdata, wstrb = payload
                 self.request_count += 1
                 self.request_log.append(payload)
-                if write:
+                request_response = response if immediate else self.make_response(addr, write)
+                if write and not request_response.error:
                     self.memory.write_word(addr, wdata, wstrb)
                     self.write_log.append(payload)
                 if immediate:
@@ -390,7 +403,7 @@ class CoreBusSlave:
                         self.pending.appendleft(response)
                 else:
                     latency = self.random.randint(0, self.max_latency)
-                    queued = self.make_response(addr)
+                    queued = request_response
                     queued.due = self.cycle + latency
                     self.pending.append(queued)
 
@@ -914,3 +927,148 @@ async def synchronous_exceptions_report_precise_cause_and_tval(dut):
 
     assert observed == expected
     assert all(addr != 0 for addr, _, _, _, _ in dmem.request_log)
+
+
+@cocotb.test()
+async def csr_warl_mask_and_unknown_address_trap(dut):
+    """Check minimal mstatus WARL behavior and centralized CSR address legality."""
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    memory = ByteMemory()
+    unknown_csr_instr = csr_type(0x999, 2, 0b001, 5)
+    program = [
+        i_type(0x100, 0, 0, 1),                # mtvec = 0x100
+        csr_type(0x305, 1, 0b001, 0),
+        i_type(-1, 0, 0, 2),                   # write every mstatus bit
+        csr_type(0x300, 2, 0b001, 3),
+        csr_type(0x300, 0, 0b010, 4),           # read legalized mstatus
+        unknown_csr_instr,                      # implemented-address check in EX
+        i_type(7, 0, 0, 6),
+        j_type(0, 0),
+    ]
+    handler = [
+        csr_type(0x341, 0, 0b010, 7),
+        i_type(4, 7, 0, 7),
+        csr_type(0x341, 7, 0b001, 0),
+        0x3020_0073,
+    ]
+    memory.load_program(0, program)
+    memory.load_program(0x100, handler)
+
+    imem = CoreBusSlave(dut, "imem", memory, 0xC51, 0.75, 0.25, 5)
+    dmem = CoreBusSlave(dut, "dmem", memory, 0xD51, 0.75, 0.25, 5)
+    cocotb.start_soon(imem.run())
+    cocotb.start_soon(dmem.run())
+    await reset_dut(dut)
+
+    writes = {}
+    trap_seen = False
+    for _ in range(800):
+        await RisingEdge(dut.clk_i)
+        await ReadOnly()
+        if not int(dut.debug_retire_valid_o.value):
+            continue
+        pc = int(dut.debug_retire_pc_o.value)
+        if int(dut.debug_retire_gpr_we_o.value):
+            writes[int(dut.debug_retire_gpr_waddr_o.value)] = int(
+                dut.debug_retire_gpr_wdata_o.value
+            )
+        if pc == 20:
+            trap_seen = True
+            assert int(dut.debug_state_trap_o.value) == 1
+            assert int(dut.debug_state_cause_o.value) == 2
+            assert int(dut.debug_state_tval_o.value) == unknown_csr_instr
+            assert int(dut.debug_retire_gpr_we_o.value) == 0
+        if pc == 24:
+            break
+    else:
+        raise AssertionError("CSR WARL program did not complete")
+
+    assert trap_seen
+    assert writes[3] == 0x1800                 # reset value returned by CSRRW
+    assert writes[4] == 0x1888                 # MIE/MPIE plus fixed MPP only
+    assert 5 not in writes
+    assert writes[6] == 7
+
+
+@cocotb.test()
+async def core_bus_access_faults_are_precise(dut):
+    """Inject instruction/load/store faults and check precise younger-side-effect kill."""
+    cocotb.start_soon(Clock(dut.clk_i, 10, unit="ns").start())
+    memory = ByteMemory()
+    program = [
+        i_type(0x100, 0, 0, 1),                # 0: mtvec = 0x100
+        csr_type(0x305, 1, 0b001, 0),           # 4
+        i_type(0x5A, 0, 0, 4),                 # 8: store payload
+        i_type(0x200, 0, 0b010, 3, 0x03),       # 12: faulting load
+        s_type(0x210, 4, 0, 0b010),             # 16: younger wrong-path store
+        i_type(1, 0, 0, 8),                    # 20
+        s_type(0x204, 4, 0, 0b010),             # 24: faulting store
+        s_type(0x214, 4, 0, 0b010),             # 28: younger wrong-path store
+        i_type(2, 0, 0, 9),                    # 32
+        0x0000_0013,                            # 36: faulting instruction fetch
+        s_type(0x218, 4, 0, 0b010),             # 40: younger wrong-path store
+        i_type(9, 0, 0, 10),                   # 44: final visible instruction
+        j_type(0, 0),
+    ]
+    handler = [
+        csr_type(0x341, 0, 0b010, 6),
+        i_type(8, 6, 0, 6),                    # skip fault and one younger instruction
+        csr_type(0x341, 6, 0b001, 0),
+        0x3020_0073,
+    ]
+    memory.load_program(0, program)
+    memory.load_program(0x100, handler)
+
+    imem = CoreBusSlave(
+        dut, "imem", memory, 0xE31, 0.70, 0.20, 6, faults={(36, False)}
+    )
+    dmem = CoreBusSlave(
+        dut,
+        "dmem",
+        memory,
+        0xE32,
+        0.70,
+        0.20,
+        6,
+        faults={(0x200, False), (0x204, True)},
+    )
+    cocotb.start_soon(imem.run())
+    cocotb.start_soon(dmem.run())
+    await reset_dut(dut)
+
+    expected = {
+        12: (5, 0x200),
+        24: (7, 0x204),
+        36: (1, 36),
+    }
+    observed = {}
+    for _ in range(1400):
+        await RisingEdge(dut.clk_i)
+        await ReadOnly()
+        if not int(dut.debug_retire_valid_o.value):
+            continue
+        pc = int(dut.debug_retire_pc_o.value)
+        if pc in expected:
+            observed[pc] = (
+                int(dut.debug_state_cause_o.value),
+                int(dut.debug_state_tval_o.value),
+            )
+            assert int(dut.debug_state_trap_o.value) == 1
+            assert int(dut.debug_retire_gpr_we_o.value) == 0
+            assert int(dut.debug_retire_mem_op_o.value) == 0
+        if pc == 44:
+            assert int(dut.debug_retire_gpr_we_o.value) == 1
+            assert int(dut.debug_retire_gpr_waddr_o.value) == 10
+            assert int(dut.debug_retire_gpr_wdata_o.value) == 9
+            break
+    else:
+        raise AssertionError("access-fault program did not complete")
+
+    assert observed == expected
+    assert any(addr == 0x204 and write for addr, write, _, _, _ in dmem.request_log)
+    assert memory.read_word(0x204) == 0         # error store has no visible effect
+    assert all(
+        addr not in (0x210, 0x214, 0x218)
+        for addr, write, _, _, _ in dmem.request_log
+        if write
+    )

@@ -46,7 +46,6 @@ module if_stage_tb #(
 
   assign redirect_bus.valid = redirect_valid_i;
   assign redirect_bus.target_pc = redirect_target_pc_i;
-  assign redirect_bus.reason = REDIR_BRANCH;
 
   assign imem_resp.req_ready = imem_req_ready_i;
   assign imem_resp.rsp.rdata = imem_rsp_rdata_i;

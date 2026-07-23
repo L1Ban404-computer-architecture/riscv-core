@@ -205,14 +205,14 @@ async def decoder_legality_matrix(dut):
         cases.append((encode_s(0, 2, 1, funct3), funct3 in (0, 1, 2)))
         cases.append((encode_i(0, 1, funct3, 3, 0x67), funct3 == 0))
 
-    supported_csr = 0x300
     for funct3 in range(8):
-        instr = (supported_csr << 20) | (1 << 15) | (funct3 << 12) | (3 << 7) | 0x73
+        instr = (0x300 << 20) | (1 << 15) | (funct3 << 12) | (3 << 7) | 0x73
         cases.append((instr, funct3 in (1, 2, 3, 5, 6, 7)))
     cases.extend([
-        ((0x999 << 20) | (1 << 15) | (1 << 12) | (3 << 7) | 0x73, False),
-        (0x0000000F, True),                    # fence with rs1=rd=x0
-        (0x0000008F, False),                   # fence with rd!=x0
+        # Decoder validates Zicsr syntax; CSR implementation checks the address in EX.
+        ((0x999 << 20) | (1 << 15) | (1 << 12) | (3 << 7) | 0x73, True),
+        (0x0000000F, True),                    # canonical fence
+        (0xFFF1808F, True),                    # reserved fields and nonzero rs1/rd
         (0x0000100F, False),                   # fence.i is not implemented
         (0xFFFFFFFF, False),
     ])

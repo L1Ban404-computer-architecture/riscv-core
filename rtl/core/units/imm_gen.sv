@@ -4,7 +4,7 @@
 import riscv_core_pkg::*;
 
 module imm_gen (
-  input instr_t instr_i,
+  input logic [31:7] instr_i,
   input imm_type_e imm_type_i,
   output word_t imm_o
 );

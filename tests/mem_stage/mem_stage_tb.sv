@@ -59,7 +59,8 @@ module mem_stage_tb (
   ex_mem_bus_t ex_mem_bus;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
-  wb_req_bus_t pending_wb_req;
+  logic pending_valid;
+  reg_addr_t pending_rd_addr;
   wb_req_bus_t mem_wb_req;
   mem_wb_bus_t mem_wb_bus;
 
@@ -97,8 +98,8 @@ module mem_stage_tb (
   assign dmem_req_valid_o = dmem_req.req_valid;
   assign dmem_rsp_ready_o = dmem_req.rsp_ready;
 
-  assign pending_0_valid_o = pending_wb_req.valid;
-  assign pending_0_rd_addr_o = pending_wb_req.rd_addr;
+  assign pending_0_valid_o = pending_valid;
+  assign pending_0_rd_addr_o = pending_rd_addr;
   assign pending_1_valid_o = 1'b0;
   assign pending_1_rd_addr_o = '0;
 
@@ -126,7 +127,8 @@ module mem_stage_tb (
     .ex_mem_bus_i(ex_mem_bus),
     .dmem_req_o(dmem_req),
     .dmem_resp_i(dmem_resp),
-    .mem_pending_wb_req_o(pending_wb_req),
+    .mem_pending_valid_o(pending_valid),
+    .mem_pending_rd_addr_o(pending_rd_addr),
     .mem_wb_req_o(mem_wb_req),
     .mem_wb_valid_o,
     .mem_wb_ready_i,

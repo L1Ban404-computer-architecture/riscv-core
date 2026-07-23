@@ -11,10 +11,6 @@ async def initialize(dut):
     dut.reset.value = 1
     dut.imem_req_valid_i.value = 0
     dut.imem_req_addr_i.value = 0
-    dut.imem_req_write_i.value = 0
-    dut.imem_req_size_i.value = 2
-    dut.imem_req_wdata_i.value = 0
-    dut.imem_req_wstrb_i.value = 0
     dut.imem_rsp_ready_i.value = 0
     dut.dmem_req_valid_i.value = 0
     dut.dmem_req_addr_i.value = 0
