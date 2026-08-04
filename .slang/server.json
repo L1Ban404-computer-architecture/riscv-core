@@ -14,7 +14,12 @@
         "rtl/include",
         "rtl/common",
         "rtl/core",
-        "tests"
+        "rtl/core/pipeline",
+        "rtl/core/units",
+        "rtl/cache",
+        "rtl/interconnect",
+        "rtl/peripheral",
+        "rtl/top"
       ],
       "excludeDirs": []
     }

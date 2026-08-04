@@ -73,6 +73,17 @@ module ysyx_25080230 (
   core_bus_resp_t imem_resp;
   core_bus_req_t dmem_req;
   core_bus_resp_t dmem_resp;
+  core_bus_req_t clint_req;
+  core_bus_resp_t clint_resp;
+  core_bus_req_t axi_dmem_req;
+  core_bus_resp_t axi_dmem_resp;
+  axi4_req_t icache_axi_req;
+  axi4_resp_t icache_axi_resp;
+  axi4_req_t dcache_axi_req;
+  axi4_resp_t dcache_axi_resp;
+  axi4_req_t master_axi_req;
+  axi4_resp_t master_axi_resp;
+  logic rst_ni;
   logic core_retire_valid /* verilator public_flat_rd */;
   core_retire_debug_bus_t core_retire_debug;
   core_state_debug_bus_t core_state_debug;
@@ -123,6 +134,41 @@ module ysyx_25080230 (
   assign debug_state_cycle_count = core_state_debug.cycle_count;
   assign debug_state_instret_count = core_state_debug.instret_count;
 
+  assign rst_ni = ~reset;
+
+  // Keep packed AXI signals inside the design and expand them only at the
+  // fixed public ysyx interface.
+  assign io_master_awvalid = master_axi_req.awvalid;
+  assign io_master_awaddr = master_axi_req.awaddr;
+  assign io_master_awid = master_axi_req.awid;
+  assign io_master_awlen = master_axi_req.awlen;
+  assign io_master_awsize = master_axi_req.awsize;
+  assign io_master_awburst = master_axi_req.awburst;
+  assign io_master_wvalid = master_axi_req.wvalid;
+  assign io_master_wdata = master_axi_req.wdata;
+  assign io_master_wstrb = master_axi_req.wstrb;
+  assign io_master_wlast = master_axi_req.wlast;
+  assign io_master_bready = master_axi_req.bready;
+  assign io_master_arvalid = master_axi_req.arvalid;
+  assign io_master_araddr = master_axi_req.araddr;
+  assign io_master_arid = master_axi_req.arid;
+  assign io_master_arlen = master_axi_req.arlen;
+  assign io_master_arsize = master_axi_req.arsize;
+  assign io_master_arburst = master_axi_req.arburst;
+  assign io_master_rready = master_axi_req.rready;
+
+  assign master_axi_resp.awready = io_master_awready;
+  assign master_axi_resp.wready = io_master_wready;
+  assign master_axi_resp.bvalid = io_master_bvalid;
+  assign master_axi_resp.bresp = io_master_bresp;
+  assign master_axi_resp.bid = io_master_bid;
+  assign master_axi_resp.arready = io_master_arready;
+  assign master_axi_resp.rvalid = io_master_rvalid;
+  assign master_axi_resp.rresp = io_master_rresp;
+  assign master_axi_resp.rdata = io_master_rdata;
+  assign master_axi_resp.rlast = io_master_rlast;
+  assign master_axi_resp.rid = io_master_rid;
+
   assign io_slave_awready = 1'b0;
   assign io_slave_wready = 1'b0;
   assign io_slave_bvalid = 1'b0;
@@ -146,7 +192,7 @@ module ysyx_25080230 (
 
   riscv_core_impl u_core (
     .clk_i(clock),
-    .rst_ni(~reset),
+    .rst_ni,
     .boot_pc_i(32'h3000_0000),
     .imem_req_o(imem_req),
     .imem_resp_i(imem_resp),
@@ -157,42 +203,59 @@ module ysyx_25080230 (
     .core_state_debug_o(core_state_debug)
   );
 
-  corebus_axi4 u_axi4 (
-    .clock,
-    .reset,
-    .imem_req_i(imem_req),
-    .imem_resp_o(imem_resp),
-    .dmem_req_i(dmem_req),
-    .dmem_resp_o(dmem_resp),
-    .m_awready_i(io_master_awready),
-    .m_awvalid_o(io_master_awvalid),
-    .m_awaddr_o(io_master_awaddr),
-    .m_awid_o(io_master_awid),
-    .m_awlen_o(io_master_awlen),
-    .m_awsize_o(io_master_awsize),
-    .m_awburst_o(io_master_awburst),
-    .m_wready_i(io_master_wready),
-    .m_wvalid_o(io_master_wvalid),
-    .m_wdata_o(io_master_wdata),
-    .m_wstrb_o(io_master_wstrb),
-    .m_wlast_o(io_master_wlast),
-    .m_bready_o(io_master_bready),
-    .m_bvalid_i(io_master_bvalid),
-    .m_bresp_i(io_master_bresp),
-    .m_bid_i(io_master_bid),
-    .m_arready_i(io_master_arready),
-    .m_arvalid_o(io_master_arvalid),
-    .m_araddr_o(io_master_araddr),
-    .m_arid_o(io_master_arid),
-    .m_arlen_o(io_master_arlen),
-    .m_arsize_o(io_master_arsize),
-    .m_arburst_o(io_master_arburst),
-    .m_rready_o(io_master_rready),
-    .m_rvalid_i(io_master_rvalid),
-    .m_rresp_i(io_master_rresp),
-    .m_rdata_i(io_master_rdata),
-    .m_rlast_i(io_master_rlast),
-    .m_rid_i(io_master_rid)
+  // CLINT is local to the processor and occupies the SoC-reserved
+  // 0x0200_0000--0x0200_ffff region.  All other data traffic continues to the
+  // external AXI master unchanged.
+  corebus_addr_router #(
+    .DeviceBase(32'h0200_0000),
+    .DeviceMask(32'hffff_0000)
+  ) u_dmem_router (
+    .clk_i(clock),
+    .rst_ni,
+    .master_req_i(dmem_req),
+    .master_resp_o(dmem_resp),
+    .device_req_o(clint_req),
+    .device_resp_i(clint_resp),
+    .fallback_req_o(axi_dmem_req),
+    .fallback_resp_i(axi_dmem_resp)
+  );
+
+  corebus_clint #(
+    .MtimeAddr(32'h0200_bff8)
+  ) u_clint (
+    .clk_i(clock),
+    .rst_ni,
+    .req_i(clint_req),
+    .resp_o(clint_resp)
+  );
+
+  icache u_icache (
+    .clk_i(clock),
+    .rst_ni,
+    .core_req_i(imem_req),
+    .core_resp_o(imem_resp),
+    .axi_req_o(icache_axi_req),
+    .axi_resp_i(icache_axi_resp)
+  );
+
+  dcache u_dcache (
+    .clk_i(clock),
+    .rst_ni,
+    .core_req_i(axi_dmem_req),
+    .core_resp_o(axi_dmem_resp),
+    .axi_req_o(dcache_axi_req),
+    .axi_resp_i(dcache_axi_resp)
+  );
+
+  cache_axi4_mux u_cache_axi4_mux (
+    .clk_i(clock),
+    .rst_ni,
+    .icache_req_i(icache_axi_req),
+    .icache_resp_o(icache_axi_resp),
+    .dcache_req_i(dcache_axi_req),
+    .dcache_resp_o(dcache_axi_resp),
+    .master_req_o(master_axi_req),
+    .master_resp_i(master_axi_resp)
   );
 
 endmodule

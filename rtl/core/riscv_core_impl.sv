@@ -10,7 +10,7 @@ module riscv_core_impl #(
   input logic clk_i,
   input logic rst_ni,
 
-  // 启动 PC 由上层 SoC 或测试平台提供。当前顶层只把它交给 IF stage，
+  // 启动 PC 由上层集成逻辑提供。当前顶层只把它交给 IF stage，
   // 后续 IF stage 内部会维护真实 PC 寄存器、取指请求队列和 redirect 处理。
   input pc_t boot_pc_i,
 

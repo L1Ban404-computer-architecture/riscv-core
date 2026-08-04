@@ -1,6 +1,0 @@
-{
-  "include": [
-    "tests"
-  ],
-  "pythonVersion": "3.10"
-}

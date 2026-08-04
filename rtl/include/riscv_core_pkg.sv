@@ -8,6 +8,7 @@ package riscv_core_pkg;
   `include "riscv_core_config.svh"
   `include "riscv_isa_config.svh"
   `include "core_bus_types.svh"
+  `include "axi4_bus_types.svh"
   `include "transaction_bus_types.svh"
   `include "debug_bus_types.svh"
   `include "pipeline_bus_types.svh"
