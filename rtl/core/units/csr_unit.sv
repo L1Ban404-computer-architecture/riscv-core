@@ -34,6 +34,9 @@ module csr_unit (
   always_comb begin
     read_rsp_o.valid = 1'b1;
     unique case (read_addr_i)
+      // ysyx 厂商标识和本核学号标识由硬件常量提供，不占用可写状态。
+      CsrMvendorid: read_rsp_o.data = 32'h7973_7978;
+      CsrMarchid:   read_rsp_o.data = 32'd25080230;
       CsrMstatus: read_rsp_o.data = state_q.mstatus;
       CsrMtvec:   read_rsp_o.data = state_q.mtvec;
       CsrMepc:    read_rsp_o.data = state_q.mepc;

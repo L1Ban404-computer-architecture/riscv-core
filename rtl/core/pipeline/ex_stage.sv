@@ -57,6 +57,7 @@ module ex_stage (
   commit_ctrl_bus_t commit_ctrl;
   word_t csr_source;
   word_t csr_new_value;
+  logic csr_write_attempt;
   logic data_misaligned;
   logic conditional_branch;
   logic rs1_used;
@@ -128,6 +129,9 @@ module ex_stage (
 
   assign csr_read_addr_o = id_ex_bus_i.ctrl.csr_addr;
   assign csr_source = id_ex_bus_i.ctrl.csr_use_imm ? id_ex_bus_i.exec_data.imm : rs1_value;
+  assign csr_write_attempt = (id_ex_bus_i.ctrl.csr_cmd == CSR_RW) ||
+      (((id_ex_bus_i.ctrl.csr_cmd == CSR_RS) ||
+        (id_ex_bus_i.ctrl.csr_cmd == CSR_RC)) && (csr_source != '0));
 
   always_comb begin
     unique case (id_ex_bus_i.ctrl.mem_size)
@@ -150,8 +154,10 @@ module ex_stage (
       executed_exception.cause = (id_ex_bus_i.ctrl.mem_cmd == MEM_STORE) ?
           EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
       executed_exception.tval = alu_result;
-    end else if (!executed_exception.valid && (id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) &&
-                 !csr_read_rsp_i.valid) begin
+    end else if (!executed_exception.valid &&
+                 (id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) &&
+                 (!csr_read_rsp_i.valid ||
+                  (csr_write_attempt && (id_ex_bus_i.ctrl.csr_addr[11:10] == 2'b11)))) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_ILLEGAL_INSTR;
       executed_exception.tval = id_ex_bus_i.instr;
@@ -222,7 +228,7 @@ module ex_stage (
     commit_ctrl.serialize = id_ex_bus_i.ctrl.serialize || executed_exception.valid;
     commit_ctrl.system_op = id_ex_bus_i.ctrl.system_op;
     commit_ctrl.csr_write.valid = (id_ex_bus_i.ctrl.csr_cmd != CSR_NONE) &&
-        ((id_ex_bus_i.ctrl.csr_cmd == CSR_RW) || (csr_source != '0)) && !executed_exception.valid;
+        csr_write_attempt && !executed_exception.valid;
     commit_ctrl.csr_write.addr = id_ex_bus_i.ctrl.csr_addr;
     commit_ctrl.csr_write.wdata = csr_new_value;
   end

@@ -124,5 +124,7 @@ localparam csr_addr_t CsrMtvec   = 12'h305;
 localparam csr_addr_t CsrMepc    = 12'h341;
 localparam csr_addr_t CsrMcause  = 12'h342;
 localparam csr_addr_t CsrMtval   = 12'h343;
+localparam csr_addr_t CsrMvendorid = 12'hf11;
+localparam csr_addr_t CsrMarchid   = 12'hf12;
 
 `endif
