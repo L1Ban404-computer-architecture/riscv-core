@@ -20,7 +20,7 @@ module wb_stage (
   output wb_req_bus_t wb_req_o,
   output logic core_retire_valid_o,
   output core_retire_debug_bus_t core_retire_debug_o,
-  output core_state_debug_bus_t core_state_debug_o
+  output core_performance_debug_bus_t core_performance_debug_o
 );
 
   logic wb_fire;
@@ -32,6 +32,7 @@ module wb_stage (
   word_t current_mtvec;
   word_t current_mepc;
   logic [63:0] debug_cycle_count_q;
+  logic [63:0] debug_instret_count_q;
   core_retire_debug_bus_t committed_debug;
 
   // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
@@ -70,6 +71,8 @@ module wb_stage (
     // 最终退休快照以随流水前进的 debug payload 为基础，只在提交点覆盖
     // 会受 trap/MRET 或最终写回资格影响的字段，并加入提交后的 CSR 状态。
     committed_debug = mem_wb_bus_i.debug;
+    // instid 是当前退休事务的稳定编号，与写回/访存快照在同一提交沿发布。
+    committed_debug.instid = debug_instret_count_q + 64'd1;
     committed_debug.gpr_we = wb_req_o.valid && wb_req_o.data_valid;
     committed_debug.gpr_waddr = wb_req_o.rd_addr;
     committed_debug.gpr_wdata = wb_req_o.wdata;
@@ -81,30 +84,26 @@ module wb_stage (
     committed_debug.csr = csr_state;
   end
 
-  // valid 每周期指示是否发生退休；两个结构体只在退休沿更新并保持最后一次
-  // 退休快照。周期计数器独立运行，退休时采样包含当前提交沿的周期号。
+  // 性能计数器始终输出当前值，即使后续没有指令退休，超时诊断也能
+  // 看到真实消耗的周期。退休快照则仅在 wb_fire 时更新。
+  assign core_performance_debug_o = '{
+    cycle_count: debug_cycle_count_q,
+    instret_count: debug_instret_count_q
+  };
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       debug_cycle_count_q <= '0;
+      debug_instret_count_q <= '0;
       core_retire_valid_o <= 1'b0;
       core_retire_debug_o <= '0;
-      core_state_debug_o <= '0;
     end else begin
       debug_cycle_count_q <= debug_cycle_count_q + 64'd1;
       core_retire_valid_o <= wb_fire;
 
       if (wb_fire) begin
+        debug_instret_count_q <= debug_instret_count_q + 64'd1;
         core_retire_debug_o <= committed_debug;
-
-        core_state_debug_o <= '{
-          cycle_count: debug_cycle_count_q + 64'd1,
-          instret_count: core_state_debug_o.instret_count + 64'd1,
-          trap: trap_commit,
-          intr: trap_commit && effective_exception.is_interrupt,
-          cause: trap_commit ?
-              {{(XLen-4) {1'b0}}, effective_exception.cause} : '0,
-          tval: trap_commit ? effective_exception.tval : '0
-        };
       end
     end
   end

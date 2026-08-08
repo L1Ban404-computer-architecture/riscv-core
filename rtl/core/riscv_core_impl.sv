@@ -31,11 +31,11 @@ module riscv_core_impl #(
   output core_bus_req_t dmem_req_o,
   input core_bus_resp_t dmem_resp_i,
 
-  // valid 表示本周期是否退休；两个结构体保持最后一次退休的指令与状态。
+  // valid 表示本周期是否退休；退休数据保持最后一次事件，性能计数器为实时值。
   // 这些信号均只供仿真观察，不参与功能控制。
   output logic core_retire_valid_o,
   output core_retire_debug_bus_t core_retire_debug_o,
-  output core_state_debug_bus_t core_state_debug_o
+  output core_performance_debug_bus_t core_performance_debug_o
 );
 
   // ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ module riscv_core_impl #(
     .wb_req_o(wb_wb_req),
     .core_retire_valid_o(core_retire_valid_o),
     .core_retire_debug_o(core_retire_debug_o),
-    .core_state_debug_o(core_state_debug_o)
+    .core_performance_debug_o(core_performance_debug_o)
   );
 
 endmodule

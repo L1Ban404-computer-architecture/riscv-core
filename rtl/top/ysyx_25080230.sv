@@ -86,10 +86,11 @@ module ysyx_25080230 (
   logic rst_ni;
   logic core_retire_valid /* verilator public_flat_rd */;
   core_retire_debug_bus_t core_retire_debug;
-  core_state_debug_bus_t core_state_debug;
+  core_performance_debug_bus_t core_performance_debug;
 
   logic [31:0] debug_retire_pc              /* verilator public_flat_rd */;
   logic [31:0] debug_retire_instr           /* verilator public_flat_rd */;
+  logic [63:0] debug_retire_instid          /* verilator public_flat_rd */;
   logic        debug_retire_redirect_valid  /* verilator public_flat_rd */;
   logic [31:0] debug_retire_redirect_target /* verilator public_flat_rd */;
   logic [1:0]  debug_retire_mem_op          /* verilator public_flat_rd */;
@@ -104,15 +105,12 @@ module ysyx_25080230 (
   logic [31:0] debug_retire_mepc            /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mcause          /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mtval           /* verilator public_flat_rd */;
-  logic        debug_state_trap             /* verilator public_flat_rd */;
-  logic        debug_state_intr             /* verilator public_flat_rd */;
-  logic [31:0] debug_state_cause            /* verilator public_flat_rd */;
-  logic [31:0] debug_state_tval             /* verilator public_flat_rd */;
-  logic [63:0] debug_state_cycle_count      /* verilator public_flat_rd */;
-  logic [63:0] debug_state_instret_count    /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_cycle_count       /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_instret_count     /* verilator public_flat_rd */;
 
   assign debug_retire_pc = core_retire_debug.pc;
   assign debug_retire_instr = core_retire_debug.instr;
+  assign debug_retire_instid = core_retire_debug.instid;
   assign debug_retire_redirect_valid = core_retire_debug.redirect_valid;
   assign debug_retire_redirect_target = core_retire_debug.redirect_target_pc;
   assign debug_retire_mem_op = core_retire_debug.mem_op;
@@ -127,12 +125,8 @@ module ysyx_25080230 (
   assign debug_retire_mepc = core_retire_debug.csr.mepc;
   assign debug_retire_mcause = core_retire_debug.csr.mcause;
   assign debug_retire_mtval = core_retire_debug.csr.mtval;
-  assign debug_state_trap = core_state_debug.trap;
-  assign debug_state_intr = core_state_debug.intr;
-  assign debug_state_cause = core_state_debug.cause;
-  assign debug_state_tval = core_state_debug.tval;
-  assign debug_state_cycle_count = core_state_debug.cycle_count;
-  assign debug_state_instret_count = core_state_debug.instret_count;
+  assign debug_perf_cycle_count = core_performance_debug.cycle_count;
+  assign debug_perf_instret_count = core_performance_debug.instret_count;
 
   assign rst_ni = ~reset;
 
@@ -200,7 +194,7 @@ module ysyx_25080230 (
     .dmem_resp_i(dmem_resp),
     .core_retire_valid_o(core_retire_valid),
     .core_retire_debug_o(core_retire_debug),
-    .core_state_debug_o(core_state_debug)
+    .core_performance_debug_o(core_performance_debug)
   );
 
   // CLINT is local to the processor and occupies the SoC-reserved

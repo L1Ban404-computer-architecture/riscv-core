@@ -18,6 +18,7 @@ typedef struct packed {
   // 面向上层仿真环境的最后一次退休指令快照；有效脉冲由独立信号提供。
   pc_t pc;
   instr_t instr;
+  logic [63:0] instid;
   logic gpr_we;
   reg_addr_t gpr_waddr;
   word_t gpr_wdata;
@@ -30,14 +31,11 @@ typedef struct packed {
   csr_state_bus_t csr;
 } core_retire_debug_bus_t;
 
-// 面向仿真环境的最后一次退休状态快照，与退休有效脉冲分离。
+// 实时性能计数器不属于 runner ABI。上层 RTL model 可在注销前
+// 采样并自行打印；后续新增计数器只需扩展这条私有通路。
 typedef struct packed {
   logic [63:0] cycle_count;
   logic [63:0] instret_count;
-  logic trap;
-  logic intr;
-  word_t cause;
-  word_t tval;
-} core_state_debug_bus_t;
+} core_performance_debug_bus_t;
 
 `endif
