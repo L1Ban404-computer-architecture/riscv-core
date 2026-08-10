@@ -18,6 +18,7 @@ typedef struct packed {
   // 面向上层仿真环境的最后一次退休指令快照；有效脉冲由独立信号提供。
   pc_t pc;
   instr_t instr;
+  // 由 IF 在取指请求握手时分配，并随指令事务贯穿流水线。
   logic [63:0] instid;
   logic gpr_we;
   reg_addr_t gpr_waddr;

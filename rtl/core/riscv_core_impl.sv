@@ -83,6 +83,11 @@ module riscv_core_impl #(
   logic mem_pending_valid;
   reg_addr_t mem_pending_rd_addr;
   wb_req_bus_t wb_wb_req;
+  logic wb_retire_valid;
+
+  // WB is the sole architectural commit point.  Feed the performance block
+  // with the actual commit handshake instead of the registered debug pulse.
+  assign wb_retire_valid = mem_wb_valid && mem_wb_ready;
 
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
   // 必须采用 WB 目标，年轻分支随后由后端 flush 清除。
@@ -180,8 +185,14 @@ module riscv_core_impl #(
     .control_o(wb_control),
     .wb_req_o(wb_wb_req),
     .core_retire_valid_o(core_retire_valid_o),
-    .core_retire_debug_o(core_retire_debug_o),
-    .core_performance_debug_o(core_performance_debug_o)
+    .core_retire_debug_o(core_retire_debug_o)
+  );
+
+  performance_stats u_performance_stats (
+    .clk_i,
+    .rst_ni,
+    .retire_valid_i(wb_retire_valid),
+    .performance_debug_o(core_performance_debug_o)
   );
 
 endmodule

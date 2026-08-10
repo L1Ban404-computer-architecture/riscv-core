@@ -39,6 +39,11 @@ module if_stage #(
     pc_t pc;
   } fetch_req_t;
 
+  typedef struct packed {
+    pc_t pc;
+    logic [63:0] instid;
+  } fetch_req_meta_t;
+
   localparam int unsigned FetchCountW =
       (FetchOutstandingDepth > 1) ? $clog2(FetchOutstandingDepth + 1) : 1;
   typedef logic [FetchCountW-1:0] fetch_count_t;
@@ -67,7 +72,9 @@ module if_stage #(
 
   // PC FIFO 记录已经完成请求握手、但尚未收到响应的请求 PC。CoreBus 响应
   // 严格有序，因此 redirect 只需记录队首有多少响应应被丢弃，无需有限宽度 epoch。
-  fetch_req_t pc_fifo_data;
+  // instid 在请求握手时一并写入，保证响应最终生成的 debug payload 与请求对应。
+  fetch_req_meta_t pc_fifo_data;
+  fetch_req_meta_t pc_fifo_input_data;
   logic pc_fifo_ready;
   logic pc_fifo_valid;
   logic pc_fifo_input_valid;
@@ -79,7 +86,7 @@ module if_stage #(
   logic pc_fifo_pop_stored;
   logic returned_fetch_stale;
 
-  // fetch FIFO 同样使用 stream_fifo，保存已经配对完成的 {pc, instr}。
+  // fetch FIFO 同样使用 stream_fifo，保存已经配对完成的 {pc, instr, instid}。
   // 它直接驱动 IF -> ID valid/ready 通道，ID stage 只消费完整 fetch 事务。
   // 这里关闭满队列同周期 pop/push，切断 ID ready 到 CoreBus 响应 ready 的
   // 组合路径；队列满载交接时允许产生一个周期的响应背压。
@@ -91,6 +98,7 @@ module if_stage #(
   logic imem_rsp_fire;
   logic fetch_fifo_push;
   logic returned_fetch_kept;
+  logic [63:0] instid_q;
 
   // 请求生成端只决定是否把一个新 PC 分配给 holding register。
   // redirect 不能直接拉低已经锁存的 req_valid，否则会破坏 CoreBus 保持规则。
@@ -111,6 +119,10 @@ module if_stage #(
   // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
   assign pc_fifo_input_valid = req_hold_valid && imem_resp_i.req_ready;
   assign imem_req_fire = imem_req_o.req_valid && imem_resp_i.req_ready;
+  assign pc_fifo_input_data = '{
+    pc: req_hold_data.pc,
+    instid: instid_q
+  };
 
   // redirect 可以丢弃尚未向 CoreBus 暴露的预存请求；已经拉高 req_valid 的
   // 请求必须继续保持，直到从设备接受。
@@ -159,6 +171,7 @@ module if_stage #(
     fetch_fifo_data.exception.tval = imem_resp_i.error ? pc_fifo_data.pc : '0;
     fetch_fifo_data.debug.pc = pc_fifo_data.pc;
     fetch_fifo_data.debug.instr = instr_t'(imem_resp_i.rdata);
+    fetch_fifo_data.debug.instid = pc_fifo_data.instid;
   end
 
   // fetch FIFO 在 frontend flush 周期同步清空；组合输出同时屏蔽，
@@ -184,13 +197,13 @@ module if_stage #(
     .Depth(FetchOutstandingDepth),
     .FallThrough(1'b1),
     .SameCycleRW(1'b1),
-    .T(fetch_req_t)
+    .T(fetch_req_meta_t)
   ) u_pc_fifo (
     .clk_i,
     .rst_ni,
     .flush_i(1'b0),
     .usage_o(pc_fifo_usage),
-    .data_i(req_hold_data),
+    .data_i(pc_fifo_input_data),
     .valid_i(pc_fifo_input_valid),
     .ready_o(pc_fifo_ready),
     .data_o(pc_fifo_data),
@@ -239,10 +252,12 @@ module if_stage #(
       boot_pending_q <= 1'b1;
       discard_count_q <= '0;
       held_request_stale_q <= 1'b0;
+      instid_q <= 64'd1;
     end else begin
       pc_q <= pc_d;
       boot_pending_q <= boot_pending_d;
       discard_count_q <= discard_count_d;
+      if (imem_req_fire) instid_q <= instid_q + 64'd1;
       if (imem_req_fire)
         held_request_stale_q <= 1'b0;
       else if (frontend_flush && imem_req_o.req_valid)
