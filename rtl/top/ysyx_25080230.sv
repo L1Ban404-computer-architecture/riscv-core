@@ -107,6 +107,28 @@ module ysyx_25080230 (
   logic [31:0] debug_retire_mtval           /* verilator public_flat_rd */;
   logic [63:0] debug_perf_cycle_count       /* verilator public_flat_rd */;
   logic [63:0] debug_perf_instret_count     /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_if_id_fire_count  /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_id_ex_fire_count  /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_ex_mem_fire_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_mem_wb_fire_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_if_id_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_id_ex_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_ex_mem_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_mem_wb_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_if_starve_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_id_local_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_ex_local_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_mem_local_stall_cycle_count
+      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_wb_local_stall_cycle_count
+      /* verilator public_flat_rd */;
 
   assign debug_retire_pc = core_retire_debug.pc;
   assign debug_retire_instr = core_retire_debug.instr;
@@ -127,6 +149,27 @@ module ysyx_25080230 (
   assign debug_retire_mtval = core_retire_debug.csr.mtval;
   assign debug_perf_cycle_count = core_performance_debug.cycle_count;
   assign debug_perf_instret_count = core_performance_debug.instret_count;
+  assign debug_perf_if_id_fire_count = core_performance_debug.if_id_fire_count;
+  assign debug_perf_id_ex_fire_count = core_performance_debug.id_ex_fire_count;
+  assign debug_perf_ex_mem_fire_count = core_performance_debug.ex_mem_fire_count;
+  assign debug_perf_mem_wb_fire_count = core_performance_debug.mem_wb_fire_count;
+  assign debug_perf_if_id_stall_cycle_count =
+      core_performance_debug.if_id_stall_cycle_count;
+  assign debug_perf_id_ex_stall_cycle_count =
+      core_performance_debug.id_ex_stall_cycle_count;
+  assign debug_perf_ex_mem_stall_cycle_count =
+      core_performance_debug.ex_mem_stall_cycle_count;
+  assign debug_perf_mem_wb_stall_cycle_count =
+      core_performance_debug.mem_wb_stall_cycle_count;
+  assign debug_perf_if_starve_cycle_count = core_performance_debug.if_starve_cycle_count;
+  assign debug_perf_id_local_stall_cycle_count =
+      core_performance_debug.id_local_stall_cycle_count;
+  assign debug_perf_ex_local_stall_cycle_count =
+      core_performance_debug.ex_local_stall_cycle_count;
+  assign debug_perf_mem_local_stall_cycle_count =
+      core_performance_debug.mem_local_stall_cycle_count;
+  assign debug_perf_wb_local_stall_cycle_count =
+      core_performance_debug.wb_local_stall_cycle_count;
 
   assign rst_ni = ~reset;
 

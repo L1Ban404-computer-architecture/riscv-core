@@ -192,6 +192,16 @@ module riscv_core_impl #(
     .clk_i,
     .rst_ni,
     .retire_valid_i(wb_retire_valid),
+    .if_id_valid_i(if_id_valid),
+    .if_id_ready_i(if_id_ready),
+    .id_ex_valid_i(id_ex_valid),
+    .id_ex_ready_i(id_ex_ready),
+    .ex_mem_valid_i(ex_mem_valid),
+    .ex_mem_ready_i(ex_mem_ready),
+    .mem_wb_valid_i(mem_wb_valid),
+    .mem_wb_ready_i(mem_wb_ready),
+    .frontend_flush_i(pipeline_control.redirect.valid),
+    .backend_flush_i(pipeline_control.flush_backend),
     .performance_debug_o(core_performance_debug_o)
   );
 

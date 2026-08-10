@@ -37,6 +37,19 @@ typedef struct packed {
 typedef struct packed {
   logic [63:0] cycle_count;
   logic [63:0] instret_count;
+  logic [63:0] if_id_fire_count;
+  logic [63:0] id_ex_fire_count;
+  logic [63:0] ex_mem_fire_count;
+  logic [63:0] mem_wb_fire_count;
+  logic [63:0] if_id_stall_cycle_count;
+  logic [63:0] id_ex_stall_cycle_count;
+  logic [63:0] ex_mem_stall_cycle_count;
+  logic [63:0] mem_wb_stall_cycle_count;
+  logic [63:0] if_starve_cycle_count;
+  logic [63:0] id_local_stall_cycle_count;
+  logic [63:0] ex_local_stall_cycle_count;
+  logic [63:0] mem_local_stall_cycle_count;
+  logic [63:0] wb_local_stall_cycle_count;
 } core_performance_debug_bus_t;
 
 `endif
