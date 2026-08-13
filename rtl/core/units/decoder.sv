@@ -1,9 +1,9 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module decoder (
+module decoder
+  import riscv_core_pkg::*;
+(
   input instr_t instr_i,
   output reg_addr_bus_t reg_addr_o,
   output imm_type_e imm_type_o,

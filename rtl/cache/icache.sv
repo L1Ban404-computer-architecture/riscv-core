@@ -5,9 +5,9 @@
 // CoreBus reads pass directly to single-beat AXI4 reads.
 `include "common/assertions.svh"
 
-import riscv_core_pkg::*;
-
-module icache (
+module icache
+  import riscv_bus_pkg::*;
+(
   input logic clk_i,
   input logic rst_ni,
 
@@ -44,7 +44,7 @@ module icache (
 
   `ASSERT(ICacheCoreBusReadOnly,
           core_req_i.req_valid |->
-              !core_req_i.write && (core_req_i.size == MEM_SIZE_WORD) &&
+              !core_req_i.write && (core_req_i.size == CORE_BUS_SIZE_WORD) &&
               (core_req_i.addr[1:0] == 2'b00) &&
               (core_req_i.wdata == '0) && (core_req_i.wstrb == '0),
           clk_i, !rst_ni, "ICache only accepts aligned word reads.")

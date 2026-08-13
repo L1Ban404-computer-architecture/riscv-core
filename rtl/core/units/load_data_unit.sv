@@ -1,10 +1,11 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 // 从 CoreBus 返回的完整字中选择目标 lane，并完成符号或零扩展。
-module load_data_unit (
+module load_data_unit
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input mem_size_e size_i,
   input logic sign_ext_i,
   input logic [1:0] addr_offset_i,

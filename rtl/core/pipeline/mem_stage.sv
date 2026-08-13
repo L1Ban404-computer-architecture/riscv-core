@@ -1,11 +1,13 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 `include "common/assertions.svh"
 
-module mem_stage (
+module mem_stage
+  import riscv_common_pkg::*;
+  import riscv_bus_pkg::*;
+  import riscv_core_pkg::*;
+(
   input logic clk_i,
   input logic rst_ni,
   input logic flush_i,
@@ -76,6 +78,17 @@ module mem_stage (
     };
   endfunction
 
+  // 这里是核心访存语义与 CoreBus ABI 的唯一宽度转换边界。两侧枚举目前编码一致，
+  // 仍逐项映射以避免未来任一侧扩展时形成未经审查的隐式协议变化。
+  function automatic core_bus_size_e toCoreBusSize(input mem_size_e size);
+    unique case (size)
+      MEM_SIZE_BYTE: return CORE_BUS_SIZE_BYTE;
+      MEM_SIZE_HALF: return CORE_BUS_SIZE_HALF;
+      MEM_SIZE_WORD: return CORE_BUS_SIZE_WORD;
+      default: return CORE_BUS_SIZE_WORD;
+    endcase
+  endfunction
+
   // Store lane 对齐和 load lane 提取是独立的组合数据单元。请求端可能处理
   // 年轻 store，同时响应端处理另一条更老 load，因此两套元数据不能共用。
   store_data_unit u_store_data_unit (
@@ -92,7 +105,7 @@ module mem_stage (
   // 直接由它驱动。请求握手和 outstanding 槽写入是同一个原子事件。
   assign dmem_req_o.addr = ex_mem_bus_i.mem_req.addr;
   assign dmem_req_o.write = ex_mem_bus_i.mem_req.write;
-  assign dmem_req_o.size = ex_mem_bus_i.mem_req.size;
+  assign dmem_req_o.size = toCoreBusSize(ex_mem_bus_i.mem_req.size);
   assign dmem_req_o.wdata = ex_mem_bus_i.mem_req.write ? aligned_store_data : '0;
   assign dmem_req_o.wstrb = ex_mem_bus_i.mem_req.write ? store_byte_en : '0;
   // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助单槽

@@ -7,9 +7,10 @@
 // without blocking responses for the other AXI ID.
 `include "common/assertions.svh"
 
-import riscv_core_pkg::*;
-
-module cache_axi4_mux #(
+module cache_axi4_mux
+  import riscv_common_pkg::*;
+  import riscv_bus_pkg::*;
+#(
   // The counters below limit end-to-end outstanding reads as well as sizing
   // the response FIFOs.  Two ICache entries preserve same-cycle response/next
   // request throughput for the default one-outstanding fetch frontend.

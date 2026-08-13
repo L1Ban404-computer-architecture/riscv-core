@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module imm_gen (
+module imm_gen
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input logic [31:7] instr_i,
   input imm_type_e imm_type_i,
   output word_t imm_o

@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module ysyx_25080230 (
+module ysyx_25080230
+  import riscv_bus_pkg::*;
+  import riscv_core_pkg::*;
+(
   input         clock,
   input         reset,
   input         io_interrupt,

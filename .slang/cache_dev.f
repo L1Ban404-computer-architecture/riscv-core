@@ -1,5 +1,4 @@
 -Irtl
--Wno-UNUSEDPARAM
 --top cache
 rtl/common/riscv_common_pkg.sv
 rtl/bus/riscv_bus_pkg.sv

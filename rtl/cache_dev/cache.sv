@@ -1,22 +1,34 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// Shared cache development top.  The same RTL is intended to become the
-// instruction cache when ReadOnly is set and the data cache otherwise.
+// Shared cache development top.  This module connects the control, array, and
+// AXI transport planes.  Its public CoreBus and AXI4 interfaces are
+// intentionally stable.
 `include "common/assertions.svh"
 
-import riscv_core_pkg::*;
-
-module cache #(
-  parameter bit ReadOnly = 1'b0,
-  parameter int unsigned BlockBytes = 16,
-  parameter int unsigned SetCount = 64,
-  parameter int unsigned WayCount = 2,
-  parameter int unsigned LookupLatency = 1,
-  parameter int unsigned MaxOutstanding = 2,
+module cache
+  import riscv_common_pkg::*;
+  import riscv_bus_pkg::*;
+  import cache_pkg::*;
+#(
+  parameter bit ReadOnly = CacheDefaultReadOnly,
+  parameter int unsigned BlockBytes = CacheDefaultBlockBytes,
+  parameter int unsigned SetCount = CacheDefaultSetCount,
+  parameter int unsigned WayCount = CacheDefaultWayCount,
+  parameter int unsigned LookupLatency = CacheDefaultLookupLatency,
+  parameter int unsigned MaxOutstanding = CacheDefaultMaxOutstanding,
   parameter axi4_id_t AxiId = DCACHE_AXI_ID,
   localparam int unsigned BlockOffsetW = $clog2(BlockBytes),
   localparam int unsigned BlockAddrW = XLen - BlockOffsetW,
+  localparam int unsigned SetIndexBits = $clog2(SetCount),
+  localparam int unsigned SetIndexW = (SetCount > 1) ? SetIndexBits : 1,
+  localparam int unsigned TagW = BlockAddrW - SetIndexBits,
+  localparam int unsigned WordCount = BlockBytes / StrbW,
+  localparam int unsigned WordIndexBits = $clog2(WordCount),
+  localparam int unsigned WordIndexW = (WordCount > 1) ? WordIndexBits : 1,
+  localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2   (WayCount) : 1,
+  localparam int unsigned TxnIdW =
+      (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1,
   localparam int unsigned LineBits = BlockBytes * ByteW,
   localparam int unsigned LineBeats = BlockBytes / StrbW
 ) (
@@ -30,129 +42,215 @@ module cache #(
   input  axi4_resp_t axi_resp_i
 );
 
-  logic line_req_valid;
-  logic line_req_ready;
-  logic [BlockAddrW-1:0] line_req_block_addr;
-  logic line_req_write;
-  logic [LineBits-1:0] line_req_wdata;
-  logic [BlockBytes-1:0] line_req_wstrb;
+  logic lookup_req_valid;
+  logic lookup_req_ready;
+  logic [TxnIdW-1:0] lookup_req_txn_id;
+  logic lookup_req_epoch;
+  logic [SetIndexW-1:0] lookup_req_set;
+  logic [TagW-1:0] lookup_req_tag;
+  logic [WordIndexW-1:0] lookup_req_word;
 
-  logic line_rsp_valid;
-  logic line_rsp_ready;
-  logic [LineBits-1:0] line_rsp_rdata;
-  logic line_rsp_error;
+  logic lookup_rsp_valid;
+  logic [TxnIdW-1:0] lookup_rsp_txn_id;
+  logic lookup_rsp_epoch;
+  logic lookup_rsp_hit;
+  logic [WayIndexW-1:0] lookup_rsp_hit_way;
+  word_t lookup_rsp_rdata;
+  logic [WayIndexW-1:0] lookup_rsp_victim_way;
+  logic [TagW-1:0] lookup_rsp_victim_tag;
+  logic lookup_rsp_victim_valid;
+  logic lookup_rsp_victim_dirty;
 
-  logic miss_req_valid;
-  logic miss_req_ready;
-  logic [BlockAddrW-1:0] miss_req_refill_block_addr;
-  logic miss_req_writeback_valid;
-  logic [BlockAddrW-1:0] miss_req_writeback_block_addr;
-  logic [LineBits-1:0] miss_req_writeback_data;
+  logic victim_req_valid;
+  logic victim_req_ready;
+  logic [SetIndexW-1:0] victim_req_set;
+  logic [WayIndexW-1:0] victim_req_way;
 
-  logic miss_rsp_valid;
-  logic miss_rsp_ready;
-  logic [LineBits-1:0] miss_rsp_refill_data;
-  logic miss_rsp_error;
+  logic victim_rsp_valid;
+  logic victim_rsp_ready;
+  logic [LineBits-1:0] victim_rsp_line;
 
-  cache_corebus_frontend #(
+  logic array_write_valid;
+  logic array_write_ready;
+  cache_array_write_kind_e array_write_kind;
+  logic [SetIndexW-1:0] array_write_set;
+  logic [WayIndexW-1:0] array_write_way;
+  logic [WordIndexW-1:0] array_write_word;
+  word_t array_write_word_data;
+  logic [LineBits-1:0] array_write_line_data;
+  logic [TagW-1:0] array_write_tag;
+  logic array_write_dirty;
+
+  logic replacement_update_valid;
+  logic [SetIndexW-1:0] replacement_update_set;
+  logic [WayIndexW-1:0] replacement_update_way;
+
+  logic refill_req_valid;
+  logic refill_req_ready;
+  logic [BlockAddrW-1:0] refill_req_block_addr;
+  logic refill_req_writeback_valid;
+  logic [BlockAddrW-1:0] refill_req_writeback_block_addr;
+  logic [LineBits-1:0] refill_req_writeback_data;
+
+  logic refill_rsp_valid;
+  logic refill_rsp_ready;
+  logic [LineBits-1:0] refill_rsp_data;
+  logic refill_rsp_error;
+
+  cache_control #(
     .ReadOnly(ReadOnly),
     .BlockBytes(BlockBytes),
-    .BlockAddrW(BlockAddrW),
-    .LineBits(LineBits),
+    .SetCount(SetCount),
+    .WayCount(WayCount),
     .MaxOutstanding(MaxOutstanding)
-  ) u_cache_corebus_frontend (
+  ) u_cache_control (
     .clk_i,
     .rst_ni,
     .core_req_i,
     .core_resp_o,
-    .line_req_valid_o(line_req_valid),
-    .line_req_ready_i(line_req_ready),
-    .line_req_block_addr_o(line_req_block_addr),
-    .line_req_write_o(line_req_write),
-    .line_req_wdata_o(line_req_wdata),
-    .line_req_wstrb_o(line_req_wstrb),
-    .line_rsp_valid_i(line_rsp_valid),
-    .line_rsp_ready_o(line_rsp_ready),
-    .line_rsp_rdata_i(line_rsp_rdata),
-    .line_rsp_error_i(line_rsp_error)
+    .lookup_req_valid_o(lookup_req_valid),
+    .lookup_req_ready_i(lookup_req_ready),
+    .lookup_req_txn_id_o(lookup_req_txn_id),
+    .lookup_req_epoch_o(lookup_req_epoch),
+    .lookup_req_set_o(lookup_req_set),
+    .lookup_req_tag_o(lookup_req_tag),
+    .lookup_req_word_o(lookup_req_word),
+    .lookup_rsp_valid_i(lookup_rsp_valid),
+    .lookup_rsp_txn_id_i(lookup_rsp_txn_id),
+    .lookup_rsp_epoch_i(lookup_rsp_epoch),
+    .lookup_rsp_hit_i(lookup_rsp_hit),
+    .lookup_rsp_hit_way_i(lookup_rsp_hit_way),
+    .lookup_rsp_rdata_i(lookup_rsp_rdata),
+    .lookup_rsp_victim_way_i(lookup_rsp_victim_way),
+    .lookup_rsp_victim_tag_i(lookup_rsp_victim_tag),
+    .lookup_rsp_victim_valid_i(lookup_rsp_victim_valid),
+    .lookup_rsp_victim_dirty_i(lookup_rsp_victim_dirty),
+    .victim_req_valid_o(victim_req_valid),
+    .victim_req_ready_i(victim_req_ready),
+    .victim_req_set_o(victim_req_set),
+    .victim_req_way_o(victim_req_way),
+    .victim_rsp_valid_i(victim_rsp_valid),
+    .victim_rsp_ready_o(victim_rsp_ready),
+    .victim_rsp_line_i(victim_rsp_line),
+    .array_write_valid_o(array_write_valid),
+    .array_write_ready_i(array_write_ready),
+    .array_write_kind_o(array_write_kind),
+    .array_write_set_o(array_write_set),
+    .array_write_way_o(array_write_way),
+    .array_write_word_o(array_write_word),
+    .array_write_word_data_o(array_write_word_data),
+    .array_write_line_data_o(array_write_line_data),
+    .array_write_tag_o(array_write_tag),
+    .array_write_dirty_o(array_write_dirty),
+    .replacement_update_valid_o(replacement_update_valid),
+    .replacement_update_set_o(replacement_update_set),
+    .replacement_update_way_o(replacement_update_way),
+    .refill_req_valid_o(refill_req_valid),
+    .refill_req_ready_i(refill_req_ready),
+    .refill_req_block_addr_o(refill_req_block_addr),
+    .refill_req_writeback_valid_o(refill_req_writeback_valid),
+    .refill_req_writeback_block_addr_o(refill_req_writeback_block_addr),
+    .refill_req_writeback_data_o(refill_req_writeback_data),
+    .refill_rsp_valid_i(refill_rsp_valid),
+    .refill_rsp_ready_o(refill_rsp_ready),
+    .refill_rsp_data_i(refill_rsp_data),
+    .refill_rsp_error_i(refill_rsp_error)
   );
 
-  cache_array_system #(
+  cache_array #(
     .ReadOnly(ReadOnly),
     .BlockBytes(BlockBytes),
     .SetCount(SetCount),
     .WayCount(WayCount),
     .LookupLatency(LookupLatency),
-    .MaxOutstanding(MaxOutstanding),
-    .BlockAddrW(BlockAddrW),
-    .LineBits(LineBits)
-  ) u_cache_array_system (
+    .MaxOutstanding(MaxOutstanding)
+  ) u_cache_array (
     .clk_i,
     .rst_ni,
-    .line_req_valid_i(line_req_valid),
-    .line_req_ready_o(line_req_ready),
-    .line_req_block_addr_i(line_req_block_addr),
-    .line_req_write_i(line_req_write),
-    .line_req_wdata_i(line_req_wdata),
-    .line_req_wstrb_i(line_req_wstrb),
-    .line_rsp_valid_o(line_rsp_valid),
-    .line_rsp_ready_i(line_rsp_ready),
-    .line_rsp_rdata_o(line_rsp_rdata),
-    .line_rsp_error_o(line_rsp_error),
-    .miss_req_valid_o(miss_req_valid),
-    .miss_req_ready_i(miss_req_ready),
-    .miss_req_refill_block_addr_o(miss_req_refill_block_addr),
-    .miss_req_writeback_valid_o(miss_req_writeback_valid),
-    .miss_req_writeback_block_addr_o(miss_req_writeback_block_addr),
-    .miss_req_writeback_data_o(miss_req_writeback_data),
-    .miss_rsp_valid_i(miss_rsp_valid),
-    .miss_rsp_ready_o(miss_rsp_ready),
-    .miss_rsp_refill_data_i(miss_rsp_refill_data),
-    .miss_rsp_error_i(miss_rsp_error)
+    .lookup_req_valid_i(lookup_req_valid),
+    .lookup_req_ready_o(lookup_req_ready),
+    .lookup_req_txn_id_i(lookup_req_txn_id),
+    .lookup_req_epoch_i(lookup_req_epoch),
+    .lookup_req_set_i(lookup_req_set),
+    .lookup_req_tag_i(lookup_req_tag),
+    .lookup_req_word_i(lookup_req_word),
+    .lookup_rsp_valid_o(lookup_rsp_valid),
+    .lookup_rsp_txn_id_o(lookup_rsp_txn_id),
+    .lookup_rsp_epoch_o(lookup_rsp_epoch),
+    .lookup_rsp_hit_o(lookup_rsp_hit),
+    .lookup_rsp_hit_way_o(lookup_rsp_hit_way),
+    .lookup_rsp_rdata_o(lookup_rsp_rdata),
+    .lookup_rsp_victim_way_o(lookup_rsp_victim_way),
+    .lookup_rsp_victim_tag_o(lookup_rsp_victim_tag),
+    .lookup_rsp_victim_valid_o(lookup_rsp_victim_valid),
+    .lookup_rsp_victim_dirty_o(lookup_rsp_victim_dirty),
+    .victim_req_valid_i(victim_req_valid),
+    .victim_req_ready_o(victim_req_ready),
+    .victim_req_set_i(victim_req_set),
+    .victim_req_way_i(victim_req_way),
+    .victim_rsp_valid_o(victim_rsp_valid),
+    .victim_rsp_ready_i(victim_rsp_ready),
+    .victim_rsp_line_o(victim_rsp_line),
+    .write_valid_i(array_write_valid),
+    .write_ready_o(array_write_ready),
+    .write_kind_i(array_write_kind),
+    .write_set_i(array_write_set),
+    .write_way_i(array_write_way),
+    .write_word_i(array_write_word),
+    .write_word_data_i(array_write_word_data),
+    .write_line_data_i(array_write_line_data),
+    .write_tag_i(array_write_tag),
+    .write_dirty_i(array_write_dirty),
+    .replacement_update_valid_i(replacement_update_valid),
+    .replacement_update_set_i(replacement_update_set),
+    .replacement_update_way_i(replacement_update_way)
   );
 
-  cache_miss_handler #(
+  cache_refill_engine #(
+    .ReadOnly(ReadOnly),
     .BlockBytes(BlockBytes),
-    .BlockAddrW(BlockAddrW),
-    .LineBits(LineBits),
-    .LineBeats(LineBeats),
     .AxiId(AxiId)
-  ) u_cache_miss_handler (
+  ) u_cache_refill_engine (
     .clk_i,
     .rst_ni,
-    .miss_req_valid_i(miss_req_valid),
-    .miss_req_ready_o(miss_req_ready),
-    .miss_req_refill_block_addr_i(miss_req_refill_block_addr),
-    .miss_req_writeback_valid_i(miss_req_writeback_valid),
-    .miss_req_writeback_block_addr_i(miss_req_writeback_block_addr),
-    .miss_req_writeback_data_i(miss_req_writeback_data),
-    .miss_rsp_valid_o(miss_rsp_valid),
-    .miss_rsp_ready_i(miss_rsp_ready),
-    .miss_rsp_refill_data_o(miss_rsp_refill_data),
-    .miss_rsp_error_o(miss_rsp_error),
+    .refill_req_valid_i(refill_req_valid),
+    .refill_req_ready_o(refill_req_ready),
+    .refill_req_block_addr_i(refill_req_block_addr),
+    .refill_req_writeback_valid_i(refill_req_writeback_valid),
+    .refill_req_writeback_block_addr_i(refill_req_writeback_block_addr),
+    .refill_req_writeback_data_i(refill_req_writeback_data),
+    .refill_rsp_valid_o(refill_rsp_valid),
+    .refill_rsp_ready_i(refill_rsp_ready),
+    .refill_rsp_data_o(refill_rsp_data),
+    .refill_rsp_error_o(refill_rsp_error),
     .axi_req_o,
     .axi_resp_i
   );
 
   `ASSERT_INIT(CacheBlockBytesValid,
-               (BlockBytes >= StrbW) && ((BlockBytes & (BlockBytes - 1)) == 0),
+               (BlockBytes >= StrbW) && cache_is_power_of_two(BlockBytes),
                "Cache line size must be a power of two and at least one AXI beat.")
   `ASSERT_INIT(CacheBlockBeatAligned, (BlockBytes % StrbW) == 0,
                "Cache line size must contain an integer number of AXI beats.")
   `ASSERT_INIT(CacheLineBeatCountValid, (LineBeats > 0) && (LineBeats <= 256),
                "An AXI4 burst may contain between one and 256 beats.")
   `ASSERT_INIT(CacheSetCountValid,
-               (SetCount > 0) && ((SetCount & (SetCount - 1)) == 0),
+               cache_is_power_of_two(SetCount),
                "Cache set count must be a power of two.")
   `ASSERT_INIT(CacheWayCountValid,
-               (WayCount > 0) && ((WayCount & (WayCount - 1)) == 0),
+               cache_is_power_of_two(WayCount),
                "Cache way count must be a power of two.")
   `ASSERT_INIT(CacheLookupLatencyValid, LookupLatency > 0,
                "Cache lookup latency must be greater than zero.")
-  `ASSERT_INIT(CacheOutstandingDepthValid, MaxOutstanding >= LookupLatency,
+  `ASSERT_INIT(CacheOutstandingDepthValid,
+               (MaxOutstanding > 0) && (MaxOutstanding >= LookupLatency),
                "Outstanding capacity must cover the complete lookup pipeline.")
   `ASSERT_INIT(CacheBlockAddressWidthValid, BlockOffsetW < XLen,
                "Cache line size must be smaller than the CPU address space.")
+  `ASSERT_INIT(CacheTagWidthValid, (SetIndexBits < BlockAddrW) && (TagW > 0),
+               "Cache address decomposition must leave at least one tag bit.")
+  `ASSERT_INIT(CacheWordIndexWidthValid, WordIndexBits <= BlockOffsetW,
+               "The word index must fit inside the cache-line offset.")
 
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheReadOnlyRequest,

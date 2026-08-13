@@ -1,134 +1,251 @@
 # Cache 架构
 
-## 状态与目标
+## 状态与边界
 
-`rtl/cache_dev/` 是真实 cache 的独立开发区，不参与当前 SoC 构建，也不替换
-`rtl/cache/` 中的占位 I/D cache。当前目录只固定模块层次、参数和内部接口；所有
-占位子模块永久反压 CoreBus 请求且不产生 AXI 请求，不能用于运行程序。
-
-v1 使用同一个 `cache` RTL 分别构造 I-cache 和 D-cache：
+`rtl/cache_dev/` 包含一套可运行的参数化组相连 cache，使用同一个 `cache` 模块
+构造只读 I-cache 和可写 D-cache：
 
 ```systemverilog
 cache #(.ReadOnly(1'b1), .AxiId(ICACHE_AXI_ID)) u_icache (...);
 cache #(.ReadOnly(1'b0), .AxiId(DCACHE_AXI_ID)) u_dcache (...);
 ```
 
-设计目标如下：
+cache 实现 write-back、write-allocate、严格有序 CoreBus 响应和单个阻塞 miss。
+当前 SoC 仍使用 `rtl/cache/` 中的占位模块；cache_dev 尚未接入不支持多拍 burst 的
+`cache_axi4_mux`，也不改变公开 SoC 接口。
 
-- write-back、write-allocate 的组相连 cache；
-- hit 路径可流水化，并严格按照 CoreBus 请求顺序返回响应；
-- 每个 cache 实例最多处理一个 miss，miss 期间不接受新请求；
-- 所有 cache 内部接口以完整 cache line 为数据单位；
-- 已经被 CoreBus 接受的请求不可因 redirect 或 miss 被丢弃。
+v1 不实现 hit-under-miss、多 MSHR、cache maintenance、I/D 一致性和 `FENCE.I`。
+所有输入地址均视为可缓存，MMIO 必须在 cache 外部完成地址旁路。
 
-v1 不实现 hit-under-miss、non-blocking cache、多 MSHR、I/D 一致性和 cache
-maintenance 指令。
-
-## 顶层与参数
-
-`cache` 顶层只暴露一组 CoreBus slave 和一组 AXI4 master。它假定所有输入地址均可
-缓存；CLINT、UART 等 MMIO 必须在 cache 外部按地址绕行。
+## 顶层参数和地址
 
 | 参数 | 默认值 | 含义 |
 | --- | ---: | --- |
-| `ReadOnly` | `0` | 为 `1` 时生成只读 I-cache |
-| `BlockBytes` | 16 | 每个 cache line 的字节数 |
+| `ReadOnly` | 0 | 生成只读实例 |
+| `BlockBytes` | 16 | cache line 字节数 |
 | `SetCount` | 64 | 组数 |
 | `WayCount` | 2 | 每组路数 |
-| `LookupLatency` | 1 | RAM lookup 流水线延迟 |
-| `MaxOutstanding` | 2 | 已接受但尚未交付响应的最大事务数 |
-| `AxiId` | `DCACHE_AXI_ID` | 此实例使用的固定 AXI ID |
+| `LookupLatency` | 1 | array lookup 固定延迟 |
+| `MaxOutstanding` | 2 | CoreBus 在途事务上限 |
+| `AxiId` | `DCACHE_AXI_ID` | 固定 AXI ID |
 
-默认每实例容量为 `16 B * 64 * 2 = 2 KiB`，一次 refill/writeback 包含四个
-32 位 AXI beat。`BlockBytes`、`SetCount` 和 `WayCount` 必须为二次幂；line 必须
-包含整数个 AXI beat且不超过 AXI4 的 256 beat 上限；`MaxOutstanding` 不得小于
-`LookupLatency`。
+默认容量为 `16 B * 64 * 2 = 2 KiB`。`BlockBytes`、`SetCount` 和
+`WayCount` 必须为二次幂，line 包含 1 到 256 个 32 位 AXI beat。
 
-CPU 字节地址按以下方式分解：
+地址分解为：
 
 ```text
 byte address = {block address, block offset}
 block address = {tag, set index}
+block offset = {word index, byte lane}
 ```
 
-cache 内部总线只传递 `block address`。需要访问 AXI 时，miss handler 通过在低位补
-`log2(BlockBytes)` 个零恢复 line 对齐的字节地址。
+CoreBus store data 和 strobe 已经按 byte lane 对齐。cache 始终返回包含目标地址的
+完整 32 位 word，byte/halfword 选择和符号扩展由核心完成。
+
+## Package 与类型边界
+
+内存接口类型按三层组织：
+
+```text
+riscv_common_pkg            字宽和标量数据；所在文件统一包含 assertion 宏
+  ├── riscv_bus_pkg         增加 CoreBus/AXI 协议结构和常量
+  ├── riscv_core_pkg        增加 ISA、流水线和 debug 类型
+  └── cache_pkg             增加 cache 默认值、语义类型和函数
+```
+
+`riscv_bus_pkg`、`riscv_core_pkg` 和 `cache_pkg` 可以在自身声明中导入
+`riscv_common_pkg` 并将 common 符号重导出；core 与 cache package 仍不依赖 bus。
+每个 RTL 和 testbench 导入本域 package，跨领域边界再显式导入其他领域 package，
+且 cache 不依赖 core 专属 package。CoreBus 和 AXI 类型没有重复定义，因此未来接入
+SoC 时两侧端口使用同一个规范类型，而不是仅具有相同位宽的两套 struct。
+
+核心内部的 `mem_size_e` 表示 RISC-V load/store 执行宽度，CoreBus 的
+`core_bus_size_e` 表示协议传输宽度。两者虽然都采用 `log2(字节数)` 编码，但不共享
+类型所有权；仅在 MEM stage 的总线边界显式转换。cache 只使用 CoreBus 类型。
+
+`cache_pkg` 中的 `automatic function` 只处理与实例几何无关的逻辑，例如参数合法性、
+32 位 store byte merge 和合法 strobe 计算。依赖 `BlockBytes`、`SetCount`、
+`WayCount` 或 `MaxOutstanding` 的类型和函数仍在对应参数作用域中定义。
 
 ## 模块分工
 
 ```text
-CoreBus
-   |
-   v
-cache_corebus_frontend
-   |  line request / line response
-   v
-cache_array_system
-   |  compound miss request / miss response
-   v
-cache_miss_handler
-   |
-   v
-AXI4
+cache
+  ├── cache_control
+  ├── cache_array
+  │     ├── cache_replacement_policy
+  │     └── cache_data_bank × way × word bank
+  └── cache_refill_engine
 ```
 
-### CoreBus frontend
+- `cache` 是稳定的集成边界，负责参数推导、内部协议连线和静态约束。
+- `cache_control` 是控制面，拥有 CoreBus 协议、事务表、有序响应、store context、
+  epoch、miss 上下文和 replay 调度。
+- `cache_array` 是阵列面，拥有 tag、valid、dirty、data、tag compare、hit data mux、
+  victim 选择、Tree-PLRU 和固定延迟 lookup 流水。
+- `cache_data_bank` 是深度为 `SetCount` 的 32 位同步 1R1W 存储体。
+- `cache_replacement_policy` 位于阵列边界内，保存每组 Tree-PLRU 状态。
+- `cache_refill_engine` 是 AXI 搬运面，只执行可选 writeback 和 refill，不理解 CPU
+  store、txn 或替换策略。
 
-`cache_corebus_frontend` 负责协议和数据宽度转换，不负责 tag lookup：
+transaction table 没有继续拆分。它需要随机完成回写、epoch replay、同周期 pop/push
+以及有序 head/tail 更新，与调度状态机高度耦合；留在 control 中可以避免再引入一层
+端口、仲裁和状态所有权。
 
-- 请求握手时把字节地址转换为块地址；
-- 将 CoreBus 的 32 位 `wdata` 和 4 位 `wstrb` 移到 line 内对应位置；
-- 在深度为 `MaxOutstanding` 的 FIFO 中保存 word offset 和读写类型；
-- 从 line response 中选择对应的 32 位 word，保持 CoreBus byte lane 布局；
-- 写响应的 `rdata` 固定为零，错误位来自对应的 line response。
+## 内部协议
 
-CoreBus 请求、line request 和元数据 FIFO push 必须在同一次时钟沿原子发生。只有
-line request 和元数据 FIFO 都能接收时，`core_resp_o.req_ready` 才能拉高。line
-response 也必须与 FIFO 队首原子 pop，因而无需事务 ID。
+内部协议直接以具名字段端口连接 `cache_control`、`cache_array` 和
+`cache_refill_engine`。协议的字段集合固定，字段位宽由两端相同的 `BlockBytes`、
+`SetCount`、`WayCount` 和 `MaxOutstanding` 等基础配置推导；派生宽度均为不可覆盖的
+`localparam`。模块参数中不注入 payload 类型，package 也不固定实例几何或使用最大预留
+位宽。array 内部的 lookup 流水仍可使用私有 packed struct 保存状态，但该类型不属于模块
+接口。内部没有使用 SystemVerilog `interface`，避免工具兼容性和层次可见性问题。
 
-line request 在首次握手时携带：
+| 通道 | payload | 流控 |
+| --- | --- | --- |
+| lookup request | `txn_id, epoch, set, tag, word` | ready/valid |
+| lookup response | `txn_id, epoch, hit, hit_way, rdata, victim snapshot` | 固定延迟，无 ready |
+| victim request | `set, way` | ready/valid |
+| victim response | 完整 line | ready/valid |
+| array write | `kind`、word commit 或 line install 的地址、数据和属性 | ready/valid |
+| replacement update | `set, way` | 无背压提交事件 |
+| refill request | refill 地址、可选 writeback 描述和完整 line | ready/valid |
+| refill response | 完整 refill line 和 error | ready/valid |
+
+`valid` 和 `ready` 不属于 payload。producer 不以 consumer 的 `ready` 组合生成
+`valid`，发生背压时保持 payload 稳定。CoreBus `req_ready` 也不依赖 `req_valid`；
+它只反映事务 credit、store barrier、控制状态和 array 接收能力。
+
+`kind` 使用 `CacheWriteWord/CacheWriteLine` 枚举明确区分 store commit 和 refill
+install，编码宽度与原布尔选择信号相同。array 对新操作采用固定优先级
+`write > victim read > lookup`。三类访问在握手沿互斥；
+等待中的 victim response 会保留 bank 所有权，直到其与 control 完成握手。array write
+在请求握手沿即完成提交，不设置多余的确认响应。
+
+### Data array
+
+数据阵列按 word bank 组织：
+
+```text
+data[way][word_bank][set] : logic [31:0]
+```
+
+每个 bank 都是独立的同步 1R1W 存储体：
+
+- lookup 只激活每个 way 中的目标 word bank；
+- victim read 并行激活目标 way 的所有 banks；
+- refill install 并行写目标 way 的所有 banks；
+- store hit 只写一个 way 中的一个 bank。
+
+store 与 refill 共享统一写命令。store 使用 lookup 返回的旧 word 进行 byte merge，
+然后整 32 位写回，因此 RAM 不需要 byte-enable 端口：
+
+```text
+byte_mask   = expand(wstrb)
+merged_word = (old_word & ~byte_mask) | (wdata & byte_mask)
+```
+
+lookup、victim read 和写命令全局互斥，不依赖 RAM 的 read-first/write-first 行为。
+data 和 tag payload 不复位，复位只清除 valid、dirty 和控制状态。
+
+### Lookup pipeline
+
+CoreBus 请求握手、事务槽分配和首次 lookup 发射是同一个原子事件。lookup 请求携带
+`txn_id、epoch、set、tag、word`，每个 lookup 在发射前已经拥有事务槽。
+
+array 在请求握手沿读取所有 way 的 tag/valid/dirty 和目标 word bank，在边界内部完成
+tag compare、唯一命中检查、hit way/data 选择和 invalid-first/PLRU victim 选择。
+`LookupLatency` 周期后只返回语义结果，不把 all-way 原始阵列数据跨模块传输。响应没有
+ready，control 必须每周期消费到达的完成事件；这省去了宽响应总线和弹性 FIFO。
+
+默认 `LookupLatency=1、MaxOutstanding=2` 时，流水充满后可以每周期接受并完成一个
+load hit。CoreBus 背压只占用事务 credit，不反压 array lookup 结果。
+
+## 事务队列和有序响应
+
+transaction queue 使用深度为 `MaxOutstanding` 的寄存器数组及 head/tail/usage
+指针，而不是普通流 FIFO。每个队列项只保存：
 
 ```text
 block_addr
-write
-line_wdata[BlockBytes*8-1:0]
-line_wstrb[BlockBytes-1:0]
+word_index
+state
+rdata
+error
 ```
 
-store 不采用“先读响应、下一周期补发写”的二阶段协议。缓存系统在收到首次请求时
-就知道写意图，只有 store 数据和 dirty 位已经在顺序提交点更新后，才能产生写响应。
+lookup 结果通过 `txn_id` 随机更新对应槽；CoreBus 只能观察队首 done 事务。响应被
+反压时，队首内容保持不变并继续占用 credit。满队列支持同周期 response pop 和新
+request push。
 
-### Cache array system
+store barrier 保证同一时间最多只有一个活动 store，因此
+`wdata/wstrb/store txn_id` 只保存一份，不随 `MaxOutstanding` 复制。只读实例通过
+generate 完全移除这些寄存器。
 
-`cache_array_system` 包含：
+## 请求生命周期
 
-- 每路 tag RAM 和 data RAM；
-- valid、dirty 元数据；
-- 请求保留队列、lookup 流水线及顺序响应控制；
-- victim 选择和可综合伪随机替换状态；
-- 单 miss 的阻塞和年轻请求重放控制。
+### Load hit
 
-每个被接受的 line request 都必须保留到对应 line response 完成握手。任意周期都维持：
+1. CoreBus 握手时分配事务槽并发射 lookup。
+2. 当前 epoch 的 lookup 结果完成 tag 比较和 way 选择。
+3. array 返回命中结果，control 将 word 写入事务槽并发送 replacement commit。
+4. 事务到达队首后完成 CoreBus 响应。
+
+PLRU 在事务内部确认命中时更新一次，不等待 CoreBus 响应握手。array 虽然拥有 PLRU，
+但只接受 control 发出的无背压 replacement commit；stale epoch 响应、失败 miss 和仅被
+选择而未安装的 victim 都不会更新替换状态。
+
+### Store hit
+
+store 只有在全部更老 lookup 返回后才允许握手。store 发射后禁止年轻 lookup：
+
+1. lookup 返回命中 way 和旧 word；
+2. control 锁存命中 way 及 merged word；
+3. 下一独占周期通过统一写端口写入 32 位 word 并设置 dirty；
+4. 提交沿将 store 事务标记为 done 并解除 barrier。
+
+store 响应不可能早于 data 和 dirty 提交，也不会重复执行写入。
+
+### Miss 和 replay
+
+全局 miss 状态为：
 
 ```text
-accepted requests - delivered responses <= MaxOutstanding
+RUN
+  -> MISS_DRAIN
+  -> optional VICTIM_READ
+  -> MISS_REQUEST
+  -> MISS_WAIT
+  -> INSTALL or ERROR
+  -> optional REPLAY
+  -> RUN
 ```
 
-`line_req_ready` 必须同时受事务队列 credit、lookup 流水容量和 miss 状态约束。
-响应端背压时，已完成事务继续占用 credit，响应 valid 和 payload 保持稳定。
+发现 miss 时一次性锁存 owner、set、victim way/tag/dirty 并翻转 epoch。新请求立即
+停止，已经进入 lookup 流水的年轻响应因 epoch 不匹配而只用于排空，并把原事务恢复
+为 replay。它们不修改结果、data、dirty 或 PLRU。
 
-tag lookup 同时读取一组内的所有 way。load hit 返回命中 line；store hit 按
-`line_wstrb` 更新命中 line 并设置 dirty。D-cache 的 store 提交周期暂停新的 RAM
-lookup，以兼容单写端口 RAM；I-cache 没有 store，因此流水线充满后可每周期完成一条
-load hit。后续若采用独立读写端口 RAM，可以在保持同地址 byte forwarding 的前提下
-解除这个暂停。
+替换优先选择最低编号 invalid way；所有 way 有效时使用 Tree-PLRU。`WayCount=1`
+不生成 PLRU 状态，其他二次幂路数每组保存 `WayCount-1` 位。PLRU 只在有效 load
+hit、已提交 store hit 和成功 install 时更新。
 
-替换时优先选择 invalid way。所有 way 都有效时使用全局 LFSR 的低位选择 victim；
-LFSR 只在一次 refill 成功安装时推进，miss 生命周期内 victim 选择必须保持不变。
+dirty victim 通过 array 的整 line 响应直接进入 refill engine 请求；若 refill engine
+反压，array 保持该响应，不在 control 中复制另一份 line buffer。clean 或 invalid
+victim 跳过此读取。
 
-### Miss handler
+refill 成功时：
 
-array system 与 miss handler 之间只允许一个复合 miss 事务在途。请求携带：
+- load miss 直接安装 clean line，并从 refill line 选择目标 word 完成 owner；
+- store miss 先进行 byte merge，再安装 dirty line 并完成 owner；
+- tag、data、valid、dirty 在同一个 install 提交沿更新；
+- 年轻事务从保存的队列项按原顺序重新发射。
+
+refill 和 lookup 从不并发，因此不存在部分安装、同地址旁路或不确定 RAM 冲突。
+
+## AXI writeback/refill
+
+control 与 refill engine 之间一次只允许一个复合请求：
 
 ```text
 refill_block_addr
@@ -137,105 +254,60 @@ writeback_block_addr
 writeback_line_data
 ```
 
-`writeback_valid` 表示 victim 同时 valid 且 dirty。array system 在请求握手前锁存
-victim tag 和完整 line，等待 miss response 期间不得覆盖该 way。
-
-miss handler 使用多周期 FSM：
+refill engine 锁存请求并复用一个 line buffer 和 beat counter：
 
 ```text
-Idle
-  -> optional WritebackAddress
-  -> optional WritebackData
-  -> optional WritebackResponse
-  -> RefillAddress
-  -> RefillData
-  -> Response
+optional AW -> W beats -> B -> AR -> R beats -> response
 ```
 
-v1 先完成 AW 握手，再顺序发送所有 W beat并等待 B，随后才发送 AR。AXI 地址按 line
-对齐，`AxLEN=LineBeats-1`、`AxSIZE=2`、`AxBURST=INCR`，所有通道使用参数 `AxiId`。
-refill 逐 beat 写入内部 line buffer，并检查 RID、RRESP、beat 数量和 RLAST；只有
-最后一个合法 beat 接收后才产生完整 line response。
+- 地址按 line 对齐；
+- `AxLEN=LineBeats-1`、`AxSIZE=2`、`AxBURST=INCR`；
+- dirty miss 在 writeback 成功后才发出 refill AR；
+- refill 逐 beat 覆盖原 writeback buffer；
+- 最终响应包含完整 refill line 和 error。
 
-## 请求生命周期与顺序
+BID/BRESP 错误会终止 miss 并跳过 refill。RID/RRESP、beat 数或 RLAST 错误会完成
+错误响应，但不会安装部分 line。任何失败都保留原 victim；即使 writeback 已经成功
+而 refill 失败，原 dirty line 仍可安全重试。
 
-### Load hit
+`ReadOnly=1` 通过 generate 移除 dirty array、store context 和 writeback 请求来源，
+AXI AW/W/B 输出保持为零并由 assertion 保护。
 
-1. frontend 原子接受 CoreBus 请求、发送 line request 并保存 offset。
-2. array system 按顺序完成 tag/data lookup。
-3. 命中 line 进入有序 response 队列。
-4. frontend 选择 32 位 word并完成 CoreBus 响应。
+## 验证
 
-### Store hit
-
-1. frontend 在首次 line request 中发送写意图、扩展后的 line data 和 byte strobe。
-2. array system lookup 命中 way。
-3. store 在队首提交点更新 data 和 dirty，且只执行一次。
-4. 更新不可撤销后产生写完成响应；CoreBus `rdata` 为零。
-
-### Load/store miss
-
-1. 最老的未解决请求发现 miss，立即停止接受新请求并锁定 victim。
-2. 所有更年轻的 lookup 结果作废，但原始 line request 仍保留在事务队列中。
-3. dirty victim 先由 miss handler 完整写回；随后读取 refill line。
-4. refill 成功时，load 以 clean line 安装；store 先合并 byte strobe，再以 dirty line
-   安装。当前 miss 请求由 refill 数据完成。
-5. 解除 miss 阻塞，并按照原顺序重新 lookup 队列中的年轻请求。
-
-年轻请求不能直接复用 miss 发生前的 lookup 结果，因为 refill 可能淘汰其命中行，
-也可能使同一块地址从 miss 变成 hit。内部 replay 只取消推测性 lookup，不取消已经
-接受的 CoreBus 事务。
-
-另一个 miss 只能在当前 miss response 被 array system 接受后开始。miss 结束后不需要
-额外降低在途数：所有事务始终占用同一个 `MaxOutstanding` credit，队列容量约束在
-miss 前后都成立。
-
-## 错误、复位与只读实例
-
-- writeback 的 BID/BRESP 错误会终止本次 miss，victim 的 valid、dirty 和 data 保持
-  不变，当前 CoreBus 请求返回错误；
-- refill 的 RID/RRESP/RLAST 或 beat 数错误会使 refill 失败，不安装部分 line，victim
-  仍保持原状态，当前请求返回错误；
-- 成功安装新 line 的时钟沿才允许覆盖 victim tag/data/valid/dirty；
-- reset 清除 valid、dirty、事务队列和 miss 状态，data/tag RAM 内容无需复位；
-- redirect 不进入 cache，也不刷新已接受请求；IF stage 继续负责接收并丢弃旧路径的
-  顺序响应。
-
-`ReadOnly=1` 使用 generate 从结构上移除 store merge、dirty RAM、victim writeback 和
-AXI 写状态，并通过 assertion 禁止 CoreBus 写请求。不能只依赖上层把 `write` 接成零后
-由综合器跨层次猜测优化。
-
-## SoC 集成约束
-
-开发完成并替换现有占位 cache 时，还需要同步处理以下边界：
-
-1. 当前 IF 默认只有一个 outstanding 请求。要利用流水化 I-cache，需要把
-   `FetchOutstandingDepth` 提高到不小于所选 cache 在途深度。
-2. 当前 MEM stage 固定单 outstanding，因此 D-cache 的多在途能力暂时不会被核心使用。
-3. 当前 `cache_axi4_mux` 按单拍响应管理 credit。支持 burst 后必须按完整 AR 事务分配
-   credit，并只在匹配 RID 的 `RLAST` beat 被接收时释放。
-4. D-cache 之前必须覆盖完整的 MMIO/不可缓存地址图，不能只绕过当前 CLINT 区域。
-5. 独立 I/D 实例不保持一致。当前核心不支持 `FENCE.I`，因此 v1 明确不支持自修改
-   代码；后续应在实现 I-cache invalidate 与请求排空后再启用 Zifencei。
-
-## 开发与验证顺序
-
-建议按 frontend、只读 hit array、miss refill、D-cache store、dirty writeback 的顺序
-替换占位子模块。每个阶段都保留 ready/valid 稳定性、事务计数、响应顺序、单 miss、
-refill 原子安装和只读实例不写 AXI 的 assertion。
-
-当前接口骨架可独立 lint：
+独立 lint 覆盖普通、只读、最小参数、4-way 和两周期 lookup 配置：
 
 ```bash
-verilator --lint-only --sv --Wall \
-  -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR -Wno-SYNCASYNCNET -Wno-UNOPTFLAT \
-  -f rtl/cache_dev/cache_dev.f
-
-verilator --lint-only --sv --Wall \
-  -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR -Wno-SYNCASYNCNET -Wno-UNOPTFLAT \
-  -GReadOnly=1 -GAxiId=0 -f rtl/cache_dev/cache_dev.f
+make cache-dev-lint
 ```
 
-`cache_dev.f` 屏蔽独立顶层无法使用完整 `riscv_core_pkg` 时产生的 package
-`UNUSEDPARAM` 告警；其他告警仍保持开启。主工程继续通过 `make lint` 验证，且不包含
-`rtl/cache_dev/`。
+独立 cache 文件列表按顺序编译 `riscv_common_pkg`、`riscv_bus_pkg` 和
+`cache_pkg`，不包含 `riscv_core_pkg`；这同时构成 package 解耦的静态检查。
+
+自检环境按职责拆为：
+
+- `cache_axi_memory_model.sv`：后端内存、AXI 五通道独立随机等待、错误注入和计数；
+- `cache_corebus_scoreboard.sv`：在请求握手沿入队，并严格按序检查响应和 error；
+- `cache_tb.sv`：driver、参考内存、定向场景和可复现随机序列。
+
+测试入口不变：
+
+```bash
+make cache-dev-test
+```
+
+测试覆盖 cold miss、hit、连续 load、CoreBus 背压、byte/half/word store、store
+miss、dirty writeback、invalid 优先、Tree-PLRU、年轻 lookup replay、AXI 通道背压、
+writeback/refill 错误、只读实例、direct-mapped 和 4-way 配置。随机序列可通过
+`+seed=<value>` 复现。`cache-dev-test` 还运行 `BlockBytes=4`、`SetCount=1`、
+`WayCount=1`、`MaxOutstanding=1` 的最小边界自检，以及 `LookupLatency=2` 配置。
+
+主工程仍使用：
+
+```bash
+make lint
+make verilator
+```
+
+开发完成后若要接入 SoC，必须先扩展 `cache_axi4_mux` 的 burst credit 和每 ID 响应
+缓冲，并确认 D-cache 前的完整 MMIO 地址旁路。

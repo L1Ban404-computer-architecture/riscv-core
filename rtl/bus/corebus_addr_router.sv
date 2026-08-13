@@ -4,9 +4,9 @@
 // Route one blocking CoreBus master to an address-selected device or to a
 // fallback slave.  The selected target is remembered until its response is
 // accepted, so response routing does not depend on a later request address.
-import riscv_core_pkg::*;
-
-module corebus_addr_router #(
+module corebus_addr_router
+  import riscv_bus_pkg::*;
+#(
   parameter logic [31:0] DeviceBase = 32'h0200_0000,
   parameter logic [31:0] DeviceMask = 32'hffff_0000
 ) (

@@ -1,11 +1,12 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 `include "common/assertions.svh"
 
-module id_stage (
+module id_stage
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input logic clk_i,
   input logic rst_ni,
   // flush 清除所有年轻 ID/EX 事务；serialize_block 阻止年轻指令越过正在执行的

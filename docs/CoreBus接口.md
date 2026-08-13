@@ -1,7 +1,8 @@
 # CoreBus 接口
 
-CoreBus 是核心内部连接取指、访存和总线适配器的轻量级顺序事务接口。类型定义以
-`rtl/include/core_bus_types.svh` 为准。
+CoreBus 是核心内部连接取指、访存和总线适配器的轻量级顺序事务接口。协议结构定义以
+`rtl/bus/riscv_bus_pkg.sv` 为准；数据字和 byte enable 等共享基础类型定义在
+`rtl/common/riscv_common_pkg.sv`。
 
 ## 信号方向
 
@@ -27,8 +28,10 @@ rsp_fire = rsp_valid && rsp_ready;
 
 ## 编码
 
-`write=0` 表示读，`write=1` 表示写。`size` 分别表示 byte、halfword 和 word，编码
-与 AXI `AxSIZE` 一致。地址必须保留 byte offset，并按访问宽度自然对齐。
+`write=0` 表示读，`write=1` 表示写。`size` 使用 `core_bus_size_e`，分别表示 byte、
+halfword 和 word，编码与 AXI `AxSIZE` 一致。该类型属于 CoreBus ABI，与核心内部
+`mem_size_e` 相互独立；MEM stage 在产生数据请求时逐项完成两者转换。地址必须保留
+byte offset，并按访问宽度自然对齐。
 
 读请求的 `wdata` 和 `wstrb` 必须为零。写请求的 `wdata` 按地址低位移动到目标
 lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表示访问失败。

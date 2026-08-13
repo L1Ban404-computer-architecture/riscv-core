@@ -1,12 +1,12 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 // Core 级性能统计只观察流水边界的 ready/valid 和全局冲刷控制，不读取任何
 // stage 内部状态。这里记录的是实时累计值，不参与功能控制，也不依赖随指令
 // 流动的 debug payload。
-module performance_stats (
+module performance_stats
+  import riscv_core_pkg::*;
+(
   input logic clk_i,
   input logic rst_ni,
 

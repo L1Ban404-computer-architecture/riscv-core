@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module regfile (
+module regfile
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input logic clk_i,
 
   input reg_addr_t rs1_addr_i,

@@ -5,9 +5,9 @@
 // the read-only 64-bit mtime register is implemented; it advances once per
 // clock cycle.  On the 32-bit CoreBus, MtimeAddr and MtimeAddr + 4 expose the
 // low and high halves respectively.
-import riscv_core_pkg::*;
-
-module corebus_clint #(
+module corebus_clint
+  import riscv_bus_pkg::*;
+#(
   parameter logic [31:0] MtimeAddr = 32'h0200_bff8
 ) (
   input logic clk_i,
@@ -46,9 +46,9 @@ module corebus_clint #(
 
       if (req_i.req_valid && resp_o.req_ready) begin
         rsp_valid_q <= 1'b1;
-        rsp_error_q <= req_i.write || (req_i.size != MEM_SIZE_WORD) ||
+        rsp_error_q <= req_i.write || (req_i.size != CORE_BUS_SIZE_WORD) ||
             !mtime_addr_hit;
-        if (!req_i.write && (req_i.size == MEM_SIZE_WORD) && mtime_addr_hit)
+        if (!req_i.write && (req_i.size == CORE_BUS_SIZE_WORD) && mtime_addr_hit)
           rsp_rdata_q <= (req_i.addr == MtimeAddr) ? mtime_q[31:0] :
               mtime_q[63:32];
         else rsp_rdata_q <= 32'b0;

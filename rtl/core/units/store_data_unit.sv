@@ -1,10 +1,11 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 // 将未经 lane 对齐的 rs2 数据转换为 CoreBus 写数据和 byte strobe。
-module store_data_unit (
+module store_data_unit
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input mem_size_e size_i,
   input logic [1:0] addr_offset_i,
   input word_t wdata_i,

@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module branch_unit (
+module branch_unit
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input logic execute_fire_i,
   input logic illegal_instr_i,
   input branch_op_e branch_op_i,

@@ -6,18 +6,23 @@
     {
       "name": "riscv_core",
       "glob": ".slang/riscv_core.f"
+    },
+    {
+      "name": "cache_dev",
+      "glob": ".slang/cache_dev.f"
     }
   ],
   "index": [
     {
       "dirs": [
-        "rtl/include",
         "rtl/common",
+        "rtl/bus",
         "rtl/core",
         "rtl/core/pipeline",
         "rtl/core/units",
         "rtl/cache",
-        "rtl/interconnect",
+        "rtl/cache_dev",
+        "rtl/cache_dev/tb",
         "rtl/peripheral",
         "rtl/top"
       ],

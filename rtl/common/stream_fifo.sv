@@ -1,10 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common/assertions.svh"
-
 // 小深度顺序 FIFO。FallThrough 允许空队列组合旁路，SameCycleRW 允许满队列
 // 在 pop 的同周期接收新条目。数据阵列不复位，由 count_q 屏蔽无效内容。
+`include "common/assertions.svh"
+
 module stream_fifo #(
   parameter int unsigned Depth = 2,
   parameter bit FallThrough = 1'b0,

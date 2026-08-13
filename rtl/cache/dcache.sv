@@ -5,9 +5,9 @@
 // and converts it directly to a single-beat AXI4 read or write.
 `include "common/assertions.svh"
 
-import riscv_core_pkg::*;
-
-module dcache (
+module dcache
+  import riscv_bus_pkg::*;
+(
   input logic clk_i,
   input logic rst_ni,
 

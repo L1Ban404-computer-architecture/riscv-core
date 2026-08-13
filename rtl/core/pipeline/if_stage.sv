@@ -1,11 +1,12 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
 `include "common/assertions.svh"
 
-module if_stage #(
+module if_stage
+  import riscv_bus_pkg::*;
+  import riscv_core_pkg::*;
+#(
   // 取指前端允许同时挂起的 CoreBus 读请求数。这个深度主要吸收外部
   // 指令存储器延迟，越大越能保持请求端不断流。
   parameter int unsigned FetchOutstandingDepth = 1,
@@ -111,7 +112,7 @@ module if_stage #(
 
   assign imem_req_o.addr = req_hold_data.pc;
   assign imem_req_o.write = 1'b0;
-  assign imem_req_o.size = MEM_SIZE_WORD;
+  assign imem_req_o.size = CORE_BUS_SIZE_WORD;
   assign imem_req_o.wdata = '0;
   assign imem_req_o.wstrb = '0;
   assign imem_req_o.req_valid = req_hold_valid && pc_fifo_ready;

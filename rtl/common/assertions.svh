@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Modified for riscv-core: retain the assertion subset used by the local RTL.
+// Modified for riscv-core: retain the self-contained assertion subset used by
+// local RTL. Each source file using an assertion macro includes this header explicitly.
 
 `ifndef RISCV_CORE_ASSERTIONS_SVH
 `define RISCV_CORE_ASSERTIONS_SVH

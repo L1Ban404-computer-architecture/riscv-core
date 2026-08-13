@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module wb_stage (
+module wb_stage
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input logic clk_i,
   input logic rst_ni,
 

@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module alu (
+module alu
+  import riscv_common_pkg::*;
+  import riscv_core_pkg::*;
+(
   input alu_op_e alu_op_i,
   input word_t operand_a_i,
   input word_t operand_b_i,

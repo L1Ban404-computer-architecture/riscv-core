@@ -1,9 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-import riscv_core_pkg::*;
-
-module riscv_core_impl #(
+module riscv_core_impl
+  import riscv_bus_pkg::*;
+  import riscv_core_pkg::*;
+#(
   parameter int unsigned FetchOutstandingDepth = 1,
   parameter int unsigned IfIdQueueDepth = 2
 ) (
