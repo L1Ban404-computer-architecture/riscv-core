@@ -64,16 +64,20 @@ module cache_control
   output logic victim_rsp_ready_o,
   input logic [LineBits-1:0] victim_rsp_line_i,
 
-  output logic array_write_valid_o,
-  input logic array_write_ready_i,
-  output cache_array_write_kind_e array_write_kind_o,
-  output logic [SetIndexW-1:0] array_write_set_o,
-  output logic [WayIndexW-1:0] array_write_way_o,
-  output logic [WordIndexW-1:0] array_write_word_o,
-  output word_t array_write_word_data_o,
-  output logic [LineBits-1:0] array_write_line_data_o,
-  output logic [TagW-1:0] array_write_tag_o,
-  output logic array_write_dirty_o,
+  output logic word_write_valid_o,
+  input logic word_write_ready_i,
+  output logic [SetIndexW-1:0] word_write_set_o,
+  output logic [WayIndexW-1:0] word_write_way_o,
+  output logic [WordIndexW-1:0] word_write_word_o,
+  output word_t word_write_data_o,
+
+  output logic line_install_valid_o,
+  input logic line_install_ready_i,
+  output logic [SetIndexW-1:0] line_install_set_o,
+  output logic [WayIndexW-1:0] line_install_way_o,
+  output logic [LineBits-1:0] line_install_data_o,
+  output logic [TagW-1:0] line_install_tag_o,
+  output logic line_install_dirty_o,
 
   output logic replacement_update_valid_o,
   output logic [SetIndexW-1:0] replacement_update_set_o,
@@ -191,7 +195,8 @@ module cache_control
   logic victim_req_fire;
   logic refill_req_fire;
   logic refill_rsp_fire;
-  logic array_write_fire;
+  logic word_write_fire;
+  logic line_install_fire;
   logic store_commit_fire;
 
   logic store_capture;
@@ -415,52 +420,55 @@ module cache_control
   assign refill_req_fire = refill_req_valid_o && refill_req_ready_i;
 
   always_comb begin
-    array_write_valid_o = 1'b0;
-    array_write_kind_o = CacheWriteWord;
-    array_write_set_o = '0;
-    array_write_way_o = '0;
-    array_write_word_o = '0;
-    array_write_word_data_o = '0;
-    array_write_line_data_o = '0;
-    array_write_tag_o = '0;
-    array_write_dirty_o = 1'b0;
+    word_write_valid_o = 1'b0;
+    word_write_set_o = '0;
+    word_write_way_o = '0;
+    word_write_word_o = '0;
+    word_write_data_o = '0;
+
+    line_install_valid_o = 1'b0;
+    line_install_set_o = '0;
+    line_install_way_o = '0;
+    line_install_data_o = '0;
+    line_install_tag_o = '0;
+    line_install_dirty_o = 1'b0;
     refill_rsp_ready_o = 1'b0;
 
     if (state_q == StateStoreCommit) begin
-      array_write_valid_o = 1'b1;
-      array_write_set_o = store_context.commit_set;
-      array_write_way_o = store_context.commit_way;
-      array_write_word_o = store_context.commit_word;
-      array_write_word_data_o = store_context.commit_data;
+      word_write_valid_o = 1'b1;
+      word_write_set_o = store_context.commit_set;
+      word_write_way_o = store_context.commit_way;
+      word_write_word_o = store_context.commit_word;
+      word_write_data_o = store_context.commit_data;
     end else if (state_q == StateRefillWait) begin
       if (refill_rsp_valid_i && refill_rsp_error_i) begin
         refill_rsp_ready_o = 1'b1;
       end else begin
-        array_write_valid_o = refill_rsp_valid_i;
-        array_write_kind_o = CacheWriteLine;
-        array_write_set_o = miss_context_q.set;
-        array_write_way_o = miss_context_q.victim_way;
-        array_write_line_data_o = miss_context_q.is_store ?
+        line_install_valid_o = refill_rsp_valid_i;
+        line_install_set_o = miss_context_q.set;
+        line_install_way_o = miss_context_q.victim_way;
+        line_install_data_o = miss_context_q.is_store ?
             merge_store_line(refill_rsp_data_i, miss_context_q.word,
                              store_context.wdata, store_context.wstrb) :
             refill_rsp_data_i;
-        array_write_tag_o = miss_context_q.tag;
-        array_write_dirty_o = miss_context_q.is_store;
-        refill_rsp_ready_o = array_write_ready_i;
+        line_install_tag_o = miss_context_q.tag;
+        line_install_dirty_o = miss_context_q.is_store;
+        refill_rsp_ready_o = line_install_ready_i;
       end
     end
   end
 
-  assign array_write_fire = array_write_valid_o && array_write_ready_i;
+  assign word_write_fire = word_write_valid_o && word_write_ready_i;
+  assign line_install_fire =
+      line_install_valid_o && line_install_ready_i;
   assign store_commit_fire =
-      (state_q == StateStoreCommit) && array_write_fire;
+      (state_q == StateStoreCommit) && word_write_fire;
   assign refill_rsp_fire = refill_rsp_valid_i && refill_rsp_ready_o;
 
   assign replacement_load_hit = lookup_response_current &&
       lookup_rsp_hit_i && !lookup_response_store;
   assign replacement_store_commit = store_commit_fire;
-  assign replacement_refill_install =
-      refill_rsp_fire && !refill_rsp_error_i;
+  assign replacement_refill_install = line_install_fire;
 
   always_comb begin
     replacement_update_valid_o = 1'b0;
@@ -672,15 +680,24 @@ module cache_control
                        victim_req_way_o}),
           clk_i, !rst_ni,
           "Victim request payload must remain stable while backpressured.")
-  `ASSERT(CacheControlArrayWriteStable,
-          array_write_valid_o && !array_write_ready_i |=>
-              $stable({array_write_valid_o, array_write_kind_o,
-                       array_write_set_o, array_write_way_o,
-                       array_write_word_o, array_write_word_data_o,
-                       array_write_line_data_o, array_write_tag_o,
-                       array_write_dirty_o}),
+  `ASSERT(CacheControlWordWriteStable,
+          word_write_valid_o && !word_write_ready_i |=>
+              $stable({word_write_valid_o, word_write_set_o,
+                       word_write_way_o, word_write_word_o,
+                       word_write_data_o}),
           clk_i, !rst_ni,
-          "Array write payload must remain stable while backpressured.")
+          "Word write payload must remain stable while backpressured.")
+  `ASSERT(CacheControlLineInstallStable,
+          line_install_valid_o && !line_install_ready_i |=>
+              $stable({line_install_valid_o, line_install_set_o,
+                       line_install_way_o, line_install_data_o,
+                       line_install_tag_o, line_install_dirty_o}),
+          clk_i, !rst_ni,
+          "Line install payload must remain stable while backpressured.")
+  `ASSERT(CacheControlArrayWritesExclusive,
+          !(word_write_valid_o && line_install_valid_o),
+          clk_i, !rst_ni,
+          "Word write and line install requests must be exclusive.")
   `ASSERT(CacheControlRefillRequestStable,
           refill_req_valid_o && !refill_req_ready_i |=>
               $stable({refill_req_valid_o, refill_req_block_addr_o,

@@ -70,16 +70,20 @@ module cache
   logic victim_rsp_ready;
   logic [LineBits-1:0] victim_rsp_line;
 
-  logic array_write_valid;
-  logic array_write_ready;
-  cache_array_write_kind_e array_write_kind;
-  logic [SetIndexW-1:0] array_write_set;
-  logic [WayIndexW-1:0] array_write_way;
-  logic [WordIndexW-1:0] array_write_word;
-  word_t array_write_word_data;
-  logic [LineBits-1:0] array_write_line_data;
-  logic [TagW-1:0] array_write_tag;
-  logic array_write_dirty;
+  logic word_write_valid;
+  logic word_write_ready;
+  logic [SetIndexW-1:0] word_write_set;
+  logic [WayIndexW-1:0] word_write_way;
+  logic [WordIndexW-1:0] word_write_word;
+  word_t word_write_data;
+
+  logic line_install_valid;
+  logic line_install_ready;
+  logic [SetIndexW-1:0] line_install_set;
+  logic [WayIndexW-1:0] line_install_way;
+  logic [LineBits-1:0] line_install_data;
+  logic [TagW-1:0] line_install_tag;
+  logic line_install_dirty;
 
   logic replacement_update_valid;
   logic [SetIndexW-1:0] replacement_update_set;
@@ -132,16 +136,19 @@ module cache
     .victim_rsp_valid_i(victim_rsp_valid),
     .victim_rsp_ready_o(victim_rsp_ready),
     .victim_rsp_line_i(victim_rsp_line),
-    .array_write_valid_o(array_write_valid),
-    .array_write_ready_i(array_write_ready),
-    .array_write_kind_o(array_write_kind),
-    .array_write_set_o(array_write_set),
-    .array_write_way_o(array_write_way),
-    .array_write_word_o(array_write_word),
-    .array_write_word_data_o(array_write_word_data),
-    .array_write_line_data_o(array_write_line_data),
-    .array_write_tag_o(array_write_tag),
-    .array_write_dirty_o(array_write_dirty),
+    .word_write_valid_o(word_write_valid),
+    .word_write_ready_i(word_write_ready),
+    .word_write_set_o(word_write_set),
+    .word_write_way_o(word_write_way),
+    .word_write_word_o(word_write_word),
+    .word_write_data_o(word_write_data),
+    .line_install_valid_o(line_install_valid),
+    .line_install_ready_i(line_install_ready),
+    .line_install_set_o(line_install_set),
+    .line_install_way_o(line_install_way),
+    .line_install_data_o(line_install_data),
+    .line_install_tag_o(line_install_tag),
+    .line_install_dirty_o(line_install_dirty),
     .replacement_update_valid_o(replacement_update_valid),
     .replacement_update_set_o(replacement_update_set),
     .replacement_update_way_o(replacement_update_way),
@@ -191,16 +198,19 @@ module cache
     .victim_rsp_valid_o(victim_rsp_valid),
     .victim_rsp_ready_i(victim_rsp_ready),
     .victim_rsp_line_o(victim_rsp_line),
-    .write_valid_i(array_write_valid),
-    .write_ready_o(array_write_ready),
-    .write_kind_i(array_write_kind),
-    .write_set_i(array_write_set),
-    .write_way_i(array_write_way),
-    .write_word_i(array_write_word),
-    .write_word_data_i(array_write_word_data),
-    .write_line_data_i(array_write_line_data),
-    .write_tag_i(array_write_tag),
-    .write_dirty_i(array_write_dirty),
+    .word_write_valid_i(word_write_valid),
+    .word_write_ready_o(word_write_ready),
+    .word_write_set_i(word_write_set),
+    .word_write_way_i(word_write_way),
+    .word_write_word_i(word_write_word),
+    .word_write_data_i(word_write_data),
+    .line_install_valid_i(line_install_valid),
+    .line_install_ready_o(line_install_ready),
+    .line_install_set_i(line_install_set),
+    .line_install_way_i(line_install_way),
+    .line_install_data_i(line_install_data),
+    .line_install_tag_i(line_install_tag),
+    .line_install_dirty_i(line_install_dirty),
     .replacement_update_valid_i(replacement_update_valid),
     .replacement_update_set_i(replacement_update_set),
     .replacement_update_way_i(replacement_update_way)

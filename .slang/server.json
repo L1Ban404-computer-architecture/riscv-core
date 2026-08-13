@@ -1,7 +1,7 @@
 {
   "build": ".slang/riscv_core.f",
   "buildRelativePaths": false,
-  "flags": "-Wno-empty-output-connection",
+  "flags": "-Wno-empty-output-connection -Wno-case-redundant-default",
   "builds": [
     {
       "name": "riscv_core",

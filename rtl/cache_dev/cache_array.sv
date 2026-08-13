@@ -61,16 +61,20 @@ module cache_array
   input logic victim_rsp_ready_i,
   output logic [LineBits-1:0] victim_rsp_line_o,
 
-  input logic write_valid_i,
-  output logic write_ready_o,
-  input cache_array_write_kind_e write_kind_i,
-  input logic [SetIndexW-1:0] write_set_i,
-  input logic [WayIndexW-1:0] write_way_i,
-  input logic [WordIndexW-1:0] write_word_i,
-  input word_t write_word_data_i,
-  input logic [LineBits-1:0] write_line_data_i,
-  input logic [TagW-1:0] write_tag_i,
-  input logic write_dirty_i,
+  input logic word_write_valid_i,
+  output logic word_write_ready_o,
+  input logic [SetIndexW-1:0] word_write_set_i,
+  input logic [WayIndexW-1:0] word_write_way_i,
+  input logic [WordIndexW-1:0] word_write_word_i,
+  input word_t word_write_data_i,
+
+  input logic line_install_valid_i,
+  output logic line_install_ready_o,
+  input logic [SetIndexW-1:0] line_install_set_i,
+  input logic [WayIndexW-1:0] line_install_way_i,
+  input logic [LineBits-1:0] line_install_data_i,
+  input logic [TagW-1:0] line_install_tag_i,
+  input logic line_install_dirty_i,
 
   input logic replacement_update_valid_i,
   input logic [SetIndexW-1:0] replacement_update_set_i,
@@ -113,7 +117,8 @@ module cache_array
 
   logic lookup_fire;
   logic victim_fire;
-  logic write_fire;
+  logic word_write_fire;
+  logic line_install_fire;
 
   logic lookup_base_valid_q;
   lookup_req_t lookup_req_q;
@@ -131,15 +136,22 @@ module cache_array
   logic [WayIndexW-1:0] victim_way_q;
 
   // A pending victim response reserves the data banks until it is consumed.
-  // Among new operations, writes have priority over victim reads and lookups.
-  assign write_ready_o = !victim_rsp_valid_q || victim_rsp_ready_i;
-  assign victim_req_ready_o = write_ready_o && !write_valid_i;
+  // Among new operations, line installs have priority over word writes,
+  // victim reads, and lookups.
+  assign line_install_ready_o =
+      !victim_rsp_valid_q || victim_rsp_ready_i;
+  assign word_write_ready_o =
+      line_install_ready_o && !line_install_valid_i;
+  assign victim_req_ready_o =
+      word_write_ready_o && !word_write_valid_i;
   assign lookup_req_ready_o =
       victim_req_ready_o && !victim_req_valid_i;
 
   assign lookup_fire = lookup_req_valid_i && lookup_req_ready_o;
   assign victim_fire = victim_req_valid_i && victim_req_ready_o;
-  assign write_fire = write_valid_i && write_ready_o;
+  assign word_write_fire = word_write_valid_i && word_write_ready_o;
+  assign line_install_fire =
+      line_install_valid_i && line_install_ready_o;
   assign bank_read_set = victim_fire ? victim_req_set_i : lookup_req_set_i;
 
   for (genvar way = 0; way < WayCount; way++) begin : gen_way
@@ -149,13 +161,14 @@ module cache_array
            (lookup_req_word_i == WordIndexW'(bank))) ||
           (victim_fire &&
            (victim_req_way_i == WayIndexW'(way)));
-      assign bank_write_valid[way][bank] = write_fire &&
-          (write_way_i == WayIndexW'(way)) &&
-          ((write_kind_i == CacheWriteLine) ||
-           (write_word_i == WordIndexW'(bank)));
-      assign bank_write_data[way][bank] =
-          (write_kind_i == CacheWriteLine) ?
-          write_line_data_i[bank * XLen +: XLen] : write_word_data_i;
+      assign bank_write_valid[way][bank] =
+          (line_install_fire &&
+           (line_install_way_i == WayIndexW'(way))) ||
+          (word_write_fire &&
+           (word_write_way_i == WayIndexW'(way)) &&
+           (word_write_word_i == WordIndexW'(bank)));
+      assign bank_write_data[way][bank] = line_install_fire ?
+          line_install_data_i[bank * XLen +: XLen] : word_write_data_i;
 
       cache_data_bank #(
         .SetCount(SetCount)
@@ -166,7 +179,8 @@ module cache_array
         .read_set_i(bank_read_set),
         .read_data_o(bank_read_data[way][bank]),
         .write_valid_i(bank_write_valid[way][bank]),
-        .write_set_i(write_set_i),
+        .write_set_i(line_install_fire ? line_install_set_i :
+                                           word_write_set_i),
         .write_data_i(bank_write_data[way][bank])
       );
     end
@@ -188,11 +202,11 @@ module cache_array
             dirty_mem[way][set] <= 1'b0;
           end
         end
-      end else if (write_fire) begin
-        if (write_kind_i == CacheWriteLine)
-          dirty_mem[write_way_i][write_set_i] <= write_dirty_i;
-        else
-          dirty_mem[write_way_i][write_set_i] <= 1'b1;
+      end else if (line_install_fire) begin
+        dirty_mem[line_install_way_i][line_install_set_i] <=
+            line_install_dirty_i;
+      end else if (word_write_fire) begin
+        dirty_mem[word_write_way_i][word_write_set_i] <= 1'b1;
       end
     end
   end
@@ -204,14 +218,14 @@ module cache_array
           valid_mem[way][set] <= 1'b0;
         end
       end
-    end else if (write_fire && (write_kind_i == CacheWriteLine)) begin
-      valid_mem[write_way_i][write_set_i] <= 1'b1;
+    end else if (line_install_fire) begin
+      valid_mem[line_install_way_i][line_install_set_i] <= 1'b1;
     end
   end
 
   always_ff @(posedge clk_i) begin
-    if (write_fire && (write_kind_i == CacheWriteLine))
-      tag_mem[write_way_i][write_set_i] <= write_tag_i;
+    if (line_install_fire)
+      tag_mem[line_install_way_i][line_install_set_i] <= line_install_tag_i;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -356,9 +370,14 @@ module cache_array
           clk_i, !rst_ni,
           "Every accepted lookup must return after exactly LookupLatency cycles.")
   `ASSERT(CacheArrayOperationsExclusive,
-          $onehot0({lookup_fire, victim_fire, write_fire}),
+          $onehot0({lookup_fire, victim_fire, word_write_fire,
+                    line_install_fire}),
           clk_i, !rst_ni,
-          "Lookup, victim read, and cache write operations must be exclusive.")
+          "Lookup, victim read, word write, and line install operations must be exclusive.")
+  `ASSERT(CacheArrayWriteRequestsExclusive,
+          !(word_write_valid_i && line_install_valid_i),
+          clk_i, !rst_ni,
+          "Word write and line install requests must be exclusive.")
   `ASSERT(CacheArrayLookupRequestStable,
           lookup_req_valid_i && !lookup_req_ready_o |=>
               $stable({lookup_req_valid_i, lookup_req_txn_id_i,
@@ -372,13 +391,20 @@ module cache_array
                        victim_req_way_i}),
           clk_i, !rst_ni,
           "Victim request payload must remain stable while backpressured.")
-  `ASSERT(CacheArrayWriteStable,
-          write_valid_i && !write_ready_o |=>
-              $stable({write_valid_i, write_kind_i, write_set_i, write_way_i,
-                       write_word_i, write_word_data_i, write_line_data_i,
-                       write_tag_i, write_dirty_i}),
+  `ASSERT(CacheArrayWordWriteStable,
+          word_write_valid_i && !word_write_ready_o |=>
+              $stable({word_write_valid_i, word_write_set_i,
+                       word_write_way_i, word_write_word_i,
+                       word_write_data_i}),
           clk_i, !rst_ni,
-          "Array write payload must remain stable while backpressured.")
+          "Word write payload must remain stable while backpressured.")
+  `ASSERT(CacheArrayLineInstallStable,
+          line_install_valid_i && !line_install_ready_o |=>
+              $stable({line_install_valid_i, line_install_set_i,
+                       line_install_way_i, line_install_data_i,
+                       line_install_tag_i, line_install_dirty_i}),
+          clk_i, !rst_ni,
+          "Line install payload must remain stable while backpressured.")
   `ASSERT(CacheArrayVictimResponseStable,
           victim_rsp_valid_o && !victim_rsp_ready_i |=>
               $stable({victim_rsp_valid_o, victim_rsp_line_o}),
@@ -397,11 +423,11 @@ module cache_array
 
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheArrayReadOnlyWordWrite,
-            write_valid_i |-> (write_kind_i == CacheWriteLine),
+            !word_write_valid_i,
             clk_i, !rst_ni,
             "A read-only cache may install refill lines but cannot commit stores.")
     `ASSERT(CacheArrayReadOnlyDirtyInstall,
-            write_valid_i |-> !write_dirty_i,
+            line_install_valid_i |-> !line_install_dirty_i,
             clk_i, !rst_ni,
             "A read-only cache must install clean lines.")
   end

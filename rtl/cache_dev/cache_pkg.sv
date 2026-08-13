@@ -16,13 +16,6 @@ package cache_pkg;
   localparam int unsigned CacheDefaultMaxOutstanding = 2;
   // verilator lint_on UNUSEDPARAM
 
-  // array 共享一个写入口：word 写用于提交 store hit，line 写用于安装 refill 结果。
-  // 使用枚举明确两类操作，避免调用方依赖布尔值的隐含编码含义。
-  typedef enum logic {
-    CacheWriteWord,
-    CacheWriteLine
-  } cache_array_write_kind_e;
-
   // cache 参数合法性检查使用的二次幂判定；零不属于二次幂。
   function automatic bit cache_is_power_of_two(input int unsigned value);
     return (value > 0) && ((value & (value - 1)) == 0);

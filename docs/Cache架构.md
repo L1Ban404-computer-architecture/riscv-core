@@ -108,7 +108,8 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 | lookup response | `txn_id, epoch, hit, hit_way, rdata, victim snapshot` | 固定延迟，无 ready |
 | victim request | `set, way` | ready/valid |
 | victim response | 完整 line | ready/valid |
-| array write | `kind`、word commit 或 line install 的地址、数据和属性 | ready/valid |
+| word write | `set, way, word, data` | ready/valid |
+| line install | `set, way, line, tag, dirty` | ready/valid |
 | replacement update | `set, way` | 无背压提交事件 |
 | refill request | refill 地址、可选 writeback 描述和完整 line | ready/valid |
 | refill response | 完整 refill line 和 error | ready/valid |
@@ -117,11 +118,13 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 `valid`，发生背压时保持 payload 稳定。CoreBus `req_ready` 也不依赖 `req_valid`；
 它只反映事务 credit、store barrier、控制状态和 array 接收能力。
 
-`kind` 使用 `CacheWriteWord/CacheWriteLine` 枚举明确区分 store commit 和 refill
-install，编码宽度与原布尔选择信号相同。array 对新操作采用固定优先级
-`write > victim read > lookup`。三类访问在握手沿互斥；
-等待中的 victim response 会保留 bank 所有权，直到其与 control 完成握手。array write
-在请求握手沿即完成提交，不设置多余的确认响应。
+word write 和 line install 是两个语义独立的请求通道。word write 只提交
+store hit 合并后的一个 word，不修改 tag/valid，并将目标 line 置为 dirty；
+line install 原子安装完整 line、tag、valid 和 dirty。array 内部仍共享同一组
+bank 写端口，并采用固定优先级
+`line install > word write > victim read > lookup`。四类访问在握手沿互斥；
+等待中的 victim response 会保留 bank 所有权，直到其与 control 完成握手。
+word write 和 line install 在请求握手沿即完成提交，不设置多余的确认响应。
 
 ### Data array
 
@@ -138,15 +141,17 @@ data[way][word_bank][set] : logic [31:0]
 - refill install 并行写目标 way 的所有 banks；
 - store hit 只写一个 way 中的一个 bank。
 
-store 与 refill 共享统一写命令。store 使用 lookup 返回的旧 word 进行 byte merge，
-然后整 32 位写回，因此 RAM 不需要 byte-enable 端口：
+store 和 refill 通过独立的 word-write 和 line-install 通道进入 array，在 array
+内部仲裁后共享同一组 bank 写端口。store 使用 lookup 返回的旧 word 进行
+byte merge，然后整 32 位写回，因此 RAM 不需要 byte-enable 端口：
 
 ```text
 byte_mask   = expand(wstrb)
 merged_word = (old_word & ~byte_mask) | (wdata & byte_mask)
 ```
 
-lookup、victim read 和写命令全局互斥，不依赖 RAM 的 read-first/write-first 行为。
+lookup、victim read、word write 和 line install 全局互斥，不依赖 RAM 的
+read-first/write-first 行为。
 data 和 tag payload 不复位，复位只清除 valid、dirty 和控制状态。
 
 ### Lookup pipeline
