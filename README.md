@@ -11,7 +11,8 @@ CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
 ```
 
 `rtl/core/riscv_core_impl.sv` 是内部结构化核心，通过独立的指令和数据 CoreBus
-端口形成 Harvard 边界。公开顶层 `rtl/top/ysyx_25080230.sv` 在数据侧内接
+interface 形成 Harvard 边界。流水、控制、CSR、调试、缓存内部协议及 AXI4 也使用
+带 modport 的参数化 interface。公开顶层 `rtl/top/ysyx_25080230.sv` 在数据侧内接
 CLINT（`mtime` 位于 `0x0200_bff8`），其余数据和取指请求分别通过占位 D-cache
 与 I-cache 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的调试 ABI。
 
@@ -35,7 +36,9 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 ```bash
 make lint       # Verilator 静态检查（包含 RTL 仿真 assertion）
 make verilator  # 构建 ysyx_25080230 C++ 模型
-make check      # lint + verilator
+make bus-width-test # 40-bit 地址 / 64-bit 数据 / 6-bit AXI ID 自检
+make yosys-slang # 默认核心、cache 和非默认总线 elaboration/synthesis
+make check      # lint + verilator + yosys-slang
 ```
 
 构建产物写入 `build/`。设计说明见 `docs/架构设计.md`，内部总线契约见

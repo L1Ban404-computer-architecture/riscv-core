@@ -1,11 +1,11 @@
 -Irtl
---top cache
+--top cache_synth_top
+-y rtl/common
+-y rtl/bus
+-y rtl/cache_dev
 rtl/common/riscv_common_pkg.sv
 rtl/bus/riscv_bus_pkg.sv
 rtl/cache_dev/cache_pkg.sv
-rtl/cache_dev/cache_data_bank.sv
-rtl/cache_dev/cache_replacement_policy.sv
-rtl/cache_dev/cache_array.sv
-rtl/cache_dev/cache_control.sv
-rtl/cache_dev/cache_refill_engine.sv
-rtl/cache_dev/cache.sv
+rtl/bus/riscv_bus_if.sv
+rtl/cache_dev/cache_if.sv
+rtl/cache_dev/tb/cache_synth_top.sv

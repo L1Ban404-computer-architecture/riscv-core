@@ -1,10 +1,14 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
+// RV32I/Zicsr 指令字段、执行操作、异常原因及核心公共类型。
+// 流水、调试和性能 payload 类型也由本 package 统一拥有。
 package riscv_core_pkg;
 
-  // 本 package 只拥有 core 内部的 ISA、事务、流水线和调试类型。声明所需的数据字
-  // 与访问宽度来自最底层 common package，不依赖任何 CoreBus 或 AXI4 协议类型。
+  ////////////////////////
+  // 基础宽度与标量类型 //
+  ////////////////////////
+
   // 当前实现面向 RV32I：指令固定为 32 位，整数寄存器地址固定为 5 位。
   parameter int unsigned ILen = 32;
   parameter int unsigned RegAddrW = 5;
@@ -14,6 +18,10 @@ package riscv_core_pkg;
   typedef logic [ILen-1:0] instr_t;
   typedef logic [riscv_common_pkg::XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
+
+  ////////////////////////
+  // 指令编码与执行操作 //
+  ////////////////////////
 
   // 核心内部的访存操作宽度。编码等于 log2(访问字节数)，但它描述的是 RISC-V
   // load/store 执行语义，不与 CoreBus size 字段共享类型所有权。
@@ -108,6 +116,10 @@ package riscv_core_pkg;
     WB_CSR
   } wb_sel_e;
 
+  ////////////////////////
+  // CSR、SYSTEM 与异常 //
+  ////////////////////////
+
   typedef logic [11:0] csr_addr_t;
 
   // Zicsr 的三种读改写语义，立即数/寄存器操作数由 csr_use_imm 单独区分。
@@ -148,22 +160,32 @@ package riscv_core_pkg;
   localparam csr_addr_t CsrMvendorid = 12'hf11;
   localparam csr_addr_t CsrMarchid = 12'hf12;
 
-  // 以下结构是可复用于流水级边界的事务子 payload。ready/valid 一般属于承载这些
-  // payload 的模块或 FIFO；只有“请求是否存在”本身具有指令语义时才把 valid 放入结构。
+  // 调试接口中的退休访存事件编码；相关调试 payload 类型同样由本 package 定义。
+  typedef enum logic [1:0] {
+    RETIRE_MEM_NONE = 2'd0,
+    RETIRE_MEM_READ = 2'd1,
+    RETIRE_MEM_WRITE = 2'd2
+  } retire_mem_op_e;
+
+  ////////////////////////////////
+  // 执行与提交子事务 payload 类型 //
+  ////////////////////////////////
+
+  // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
   typedef struct packed {
     reg_addr_t rs1_addr;
     reg_addr_t rs2_addr;
     reg_addr_t rd_addr;
-  } reg_addr_bus_t;
+  } reg_addr_payload_t;
 
+  // EX 所需的两路寄存器快照和已扩展立即数。
   typedef struct packed {
     riscv_common_pkg::word_t rs1_value;
     riscv_common_pkg::word_t rs2_value;
     riscv_common_pkg::word_t imm;
-  } exec_data_bus_t;
+  } exec_data_payload_t;
 
-  // decoder 单独报告非法指令；合法指令的全部执行控制直接进入 ID/EX，避免维护一份
-  // 仅相差 illegal 字段的重复控制结构。serialize 表示该指令必须等待更老事务排空。
+  // decoder 产生的完整执行控制，字段均描述归一化语义而非原始指令编码。
   typedef struct packed {
     alu_op_e alu_op;
     op_a_sel_e op_a_sel;
@@ -179,19 +201,26 @@ package riscv_core_pkg;
     csr_addr_t csr_addr;
     system_op_e system_op;
     logic serialize;
-  } execute_ctrl_bus_t;
+  } execute_ctrl_payload_t;
 
-  // 异常一旦有效便随所属指令流动。is_interrupt 为未来中断入口保留；tval 保存异常
-  // 相关地址或指令值，普通流水副作用必须在 valid 时受到抑制。
+  // decoder 的组合结果；字段布局直接复用 ID/EX payload 的子结构，避免在 ID
+  // 中把扁平接口字段重新拼装为 reg_addr 和 ctrl。
+  typedef struct packed {
+    reg_addr_payload_t reg_addr;
+    imm_type_e imm_type;
+    execute_ctrl_payload_t ctrl;
+    logic illegal;
+  } decode_result_t;
+
+  // 随指令传播的精确异常；一旦 valid 置位，年轻流水级只能保留而不能覆盖。
   typedef struct packed {
     logic valid;
     logic is_interrupt;
     exception_cause_e cause;
     riscv_common_pkg::word_t tval;
-  } exception_bus_t;
+  } exception_payload_t;
 
-  // EX 生成的功能访存请求。wdata 保存未经 lane 移位的原始 rs2 数据，MEM 根据
-  // addr[1:0] 和 size 形成 CoreBus 对齐后的 wdata/wstrb，避免加长 EX 关键路径。
+  // EX 生成、MEM 消费的架构访存请求。wdata 在此仍未按总线 lane 对齐。
   typedef struct packed {
     logic valid;
     logic write;
@@ -199,68 +228,44 @@ package riscv_core_pkg;
     logic sign_ext;
     riscv_common_pkg::word_t addr;
     riscv_common_pkg::word_t wdata;
-  } mem_req_bus_t;
+  } mem_req_payload_t;
 
-  // valid 表示该事务会写 rd；data_valid 表示 wdata 已在本周期可用于前递。
-  // load 等延迟结果可以先声明写回目的寄存器，再在数据返回后置位 data_valid。
+  // 通用 GPR 写回候选；data_valid 将“存在生产者”和“结果已就绪”明确分开。
   typedef struct packed {
     logic valid;
     logic data_valid;
     reg_addr_t rd_addr;
     riscv_common_pkg::word_t wdata;
-  } wb_req_bus_t;
+  } writeback_payload_t;
 
-  // CSR 写事务只允许在 WB fire 且未被 trap/MRET 覆盖时提交。
+  // 在 WB 提交的 CSR 写请求，不允许在更年轻流水级提前修改架构状态。
   typedef struct packed {
     logic valid;
     csr_addr_t addr;
     riscv_common_pkg::word_t wdata;
-  } csr_write_bus_t;
+  } csr_write_payload_t;
 
-  // CSR 组合读端口的返回值；合法性与数据必须在同一周期一起使用。
-  typedef struct packed {
-    logic valid;
-    riscv_common_pkg::word_t data;
-  } csr_read_rsp_bus_t;
-
-  // 当前实现的全部可变 M-mode CSR 状态，同时用于 csr_unit 输出与退休调试快照。
+  // 已实现 M-mode CSR 的架构快照，供退休调试记录本条指令提交后的状态。
   typedef struct packed {
     riscv_common_pkg::word_t mstatus;
     riscv_common_pkg::word_t mtvec;
     riscv_common_pkg::word_t mepc;
     riscv_common_pkg::word_t mcause;
     riscv_common_pkg::word_t mtval;
-  } csr_state_bus_t;
+  } csr_state_payload_t;
 
-  // 从 EX 携带到 WB 的提交控制。CSR 旧值已独立进入 wb_req，提交端无需重新计算。
+  // 随指令送往 WB 的串行化和 SYSTEM/CSR 提交控制。
   typedef struct packed {
     logic serialize;
     system_op_e system_op;
-    csr_write_bus_t csr_write;
-  } commit_ctrl_bus_t;
+    csr_write_payload_t csr_write;
+  } commit_ctrl_payload_t;
 
-  // redirect.valid 为单周期控制事件，target_pc 是下一条应取指的功能地址。
-  typedef struct packed {
-    logic valid;
-    pc_t target_pc;
-  } redirect_bus_t;
+  //////////////////////////////////
+  // 调试与性能观测事务 payload 类型 //
+  //////////////////////////////////
 
-  // 顶层统一分发的流水控制：任何 redirect 都刷新前端；只有 WB 的 trap/MRET
-  // 额外置位 flush_backend，清除所有更年轻的后端事务。
-  typedef struct packed {
-    redirect_bus_t redirect;
-    logic flush_backend;
-  } pipeline_control_bus_t;
-
-  // 调试 payload 只描述对外可观察事件，不得被功能控制、异常提交或存储事务反向读取。
-  typedef enum logic [1:0] {
-    RETIRE_MEM_NONE = 2'd0,
-    RETIRE_MEM_READ = 2'd1,
-    RETIRE_MEM_WRITE = 2'd2
-  } retire_mem_op_e;
-
-  // 随指令贯穿流水线的退休记录。instid 在取指请求握手时分配；真正对外有效的时刻
-  // 由独立退休脉冲给出。异常指令仍可退休，但普通 GPR/访存副作用必须被清零。
+  // 退休调试 payload。功能流水级逐步补充字段，WB 在唯一提交点完成最终快照。
   typedef struct packed {
     pc_t pc;
     instr_t instr;
@@ -274,11 +279,10 @@ package riscv_core_pkg;
     riscv_common_pkg::word_t mem_data;
     logic redirect_valid;
     pc_t redirect_target_pc;
-    csr_state_bus_t csr;
-  } core_retire_debug_bus_t;
+    csr_state_payload_t csr;
+  } retire_debug_payload_t;
 
-  // 实时性能计数器不属于公开 runner ABI。上层 RTL model 可在退出前采样；后续扩展
-  // 计数项只影响这条私有调试通路，不应进入功能流水控制。
+  // 性能统计快照；边界传输、边界阻塞和局部阻塞计数具有互不相同的解释口径。
   typedef struct packed {
     logic [63:0] cycle_count;
     logic [63:0] instret_count;
@@ -295,45 +299,45 @@ package riscv_core_pkg;
     logic [63:0] ex_local_stall_cycle_count;
     logic [63:0] mem_local_stall_cycle_count;
     logic [63:0] wb_local_stall_cycle_count;
-  } core_performance_debug_bus_t;
+  } performance_debug_payload_t;
 
-  // 以下结构是弹性流水级之间随指令移动的完整 payload。exception 保持上游优先，
-  // 后级只能补充尚未出现的异常；级间寄存器/FIFO 和 ready/valid 不包含在结构内。
+  ////////////////////
+  // 流水级边界事务 //
+  ////////////////////
+
+  // 四个流水级边界的公共事务类型；越靠后只保留仍可能影响提交的功能字段。
   typedef struct packed {
     pc_t pc;
     instr_t instr;
-    exception_bus_t exception;
-    core_retire_debug_bus_t debug;
-  } if_id_bus_t;
+    exception_payload_t exception;
+    retire_debug_payload_t debug;
+  } if_id_payload_t;
 
   typedef struct packed {
     pc_t pc;
     instr_t instr;
-    reg_addr_bus_t reg_addr;
-    exec_data_bus_t exec_data;
-    execute_ctrl_bus_t ctrl;
-    exception_bus_t exception;
-    core_retire_debug_bus_t debug;
-  } id_ex_bus_t;
+    reg_addr_payload_t reg_addr;
+    exec_data_payload_t exec_data;
+    execute_ctrl_payload_t ctrl;
+    exception_payload_t exception;
+    retire_debug_payload_t debug;
+  } id_ex_payload_t;
 
-  // 精确异常提交需要功能 PC，因此 EX/MEM 独立携带 pc，不从 debug payload 反向获取。
   typedef struct packed {
     pc_t pc;
-    mem_req_bus_t mem_req;
-    wb_req_bus_t wb_req;
-    exception_bus_t exception;
-    commit_ctrl_bus_t commit;
-    core_retire_debug_bus_t debug;
-  } ex_mem_bus_t;
+    mem_req_payload_t mem_req;
+    writeback_payload_t wb_req;
+    exception_payload_t exception;
+    commit_ctrl_payload_t commit;
+    retire_debug_payload_t debug;
+  } ex_mem_payload_t;
 
-  // MEM/WB 已完成访存，故不再携带 mem_req；剩余字段足以完成 GPR/CSR、trap/MRET
-  // 的唯一架构提交，并生成最终退休记录。
   typedef struct packed {
     pc_t pc;
-    wb_req_bus_t wb_req;
-    exception_bus_t exception;
-    commit_ctrl_bus_t commit;
-    core_retire_debug_bus_t debug;
-  } mem_wb_bus_t;
+    writeback_payload_t wb_req;
+    exception_payload_t exception;
+    commit_ctrl_payload_t commit;
+    retire_debug_payload_t debug;
+  } mem_wb_payload_t;
 
 endpackage

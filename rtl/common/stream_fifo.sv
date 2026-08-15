@@ -1,8 +1,11 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 小深度顺序 FIFO。FallThrough 允许空队列组合旁路，SameCycleRW 允许满队列
-// 在 pop 的同周期接收新条目。数据阵列不复位，由 count_q 屏蔽无效内容。
+// 参数化 ready/valid FIFO。
+//
+// 提供有序事务缓冲，可选空队列组合旁路和满队列同拍读写。
+// 深度必须大于零；输出在反压期间保持稳定；数据阵列不复位，其无效内容始终
+// 由占用计数屏蔽；flush 只清空指针和计数。
 `include "common/assertions.svh"
 
 module stream_fifo #(
@@ -13,19 +16,26 @@ module stream_fifo #(
   parameter int unsigned PtrW = (Depth > 1) ? $clog2(Depth) : 1,
   parameter int unsigned CountW = (Depth > 1) ? $clog2(Depth + 1) : 1
 ) (
+  // 全局控制与占用量
   input logic clk_i,
   input logic rst_ni,
   input logic flush_i,
   output logic [CountW-1:0] usage_o,
 
+  // 输入事务
   input T data_i,
   input logic valid_i,
   output logic ready_o,
 
+  // 输出事务
   output T data_o,
   output logic valid_o,
   input logic ready_i
 );
+
+  //////////////////////////
+  // 存储、指针与握手事件 //
+  //////////////////////////
 
   typedef logic [PtrW-1:0] ptr_t;
   typedef logic [CountW-1:0] count_t;
@@ -54,6 +64,10 @@ module stream_fifo #(
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
   assign usage_o = count_q;
 
+  ////////////////////////////
+  // 数据写入与队列状态更新 //
+  ////////////////////////////
+
   always_ff @(posedge clk_i) begin
     if (rst_ni && !flush_i && push && !bypass_pop)
       mem_q[write_ptr_q] <= data_i;
@@ -78,6 +92,10 @@ module stream_fifo #(
       endcase
     end
   end
+
+  ////////////////////
+  // 协议与参数断言 //
+  ////////////////////
 
   // verilog_format: off
   `ASSERT_INIT(StreamFifoDepthValid, Depth > 0, "Depth must be greater than zero.")

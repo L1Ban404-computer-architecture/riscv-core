@@ -12,4 +12,7 @@ rtl/common/riscv_common_pkg.sv
 rtl/bus/riscv_bus_pkg.sv
 rtl/core/riscv_core_pkg.sv
 rtl/cache_dev/cache_pkg.sv
+rtl/bus/riscv_bus_if.sv
+rtl/core/riscv_core_if.sv
+rtl/cache_dev/cache_if.sv
 rtl/top/ysyx_25080230.sv

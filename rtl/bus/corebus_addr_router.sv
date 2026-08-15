@@ -1,27 +1,34 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// Route one blocking CoreBus master to an address-selected device or to a
-// fallback slave.  The selected target is remembered until its response is
-// accepted, so response routing does not depend on a later request address.
+// CoreBus 地址路由器。
+//
+// 按掩码匹配地址，将单个 CoreBus 主设备路由到目标设备或默认从设备。
+// 最多允许一笔未完成事务；请求被接受后必须锁存目标选择直至响应完成；
+// 请求握手当拍允许从设备返回零延迟响应。
+`include "common/assertions.svh"
+
 module corebus_addr_router
   import riscv_bus_pkg::*;
 #(
-  parameter logic [31:0] DeviceBase = 32'h0200_0000,
-  parameter logic [31:0] DeviceMask = 32'hffff_0000
+  parameter int unsigned AddrWidth = 32,
+  parameter int unsigned DataWidth = 32,
+  parameter logic [AddrWidth-1:0] DeviceBase = 32'h0200_0000,
+  parameter logic [AddrWidth-1:0] DeviceMask = 32'hffff_0000
 ) (
+  // 全局控制
   input logic clk_i,
   input logic rst_ni,
 
-  input  core_bus_req_t  master_req_i,
-  output core_bus_resp_t master_resp_o,
-
-  output core_bus_req_t  device_req_o,
-  input  core_bus_resp_t device_resp_i,
-
-  output core_bus_req_t  fallback_req_o,
-  input  core_bus_resp_t fallback_resp_i
+  // 上游与下游事务
+  core_bus_if.slave master_bus,
+  core_bus_if.master device_bus,
+  core_bus_if.master fallback_bus
 );
+
+  ////////////////////////
+  // 路由选择与事务状态 //
+  ////////////////////////
 
   logic busy_q;
   logic owner_device_q;
@@ -30,44 +37,78 @@ module corebus_addr_router
   logic request_fire;
   logic response_fire;
 
-  assign request_device = (master_req_i.addr & DeviceMask) ==
+  assign request_device = (master_bus.addr & DeviceMask) ==
       (DeviceBase & DeviceMask);
   assign active_device = busy_q ? owner_device_q : request_device;
 
+  ////////////////////
+  // 请求与响应路由 //
+  ////////////////////
+
   always_comb begin
-    device_req_o = master_req_i;
-    fallback_req_o = master_req_i;
+    device_bus.addr = master_bus.addr;
+    device_bus.write = master_bus.write;
+    device_bus.size = master_bus.size;
+    device_bus.wdata = master_bus.wdata;
+    device_bus.wstrb = master_bus.wstrb;
+    fallback_bus.addr = master_bus.addr;
+    fallback_bus.write = master_bus.write;
+    fallback_bus.size = master_bus.size;
+    fallback_bus.wdata = master_bus.wdata;
+    fallback_bus.wstrb = master_bus.wstrb;
 
-    // Only one transaction may be outstanding through this router.  This is
-    // the contract used by the current precise-exception LSU.
-    device_req_o.req_valid = master_req_i.req_valid && !busy_q && request_device;
-    fallback_req_o.req_valid = master_req_i.req_valid && !busy_q && !request_device;
-    device_req_o.rsp_ready = master_req_i.rsp_ready && active_device;
-    fallback_req_o.rsp_ready = master_req_i.rsp_ready && !active_device;
+    // 路由器最多允许一笔未完成事务，与当前精确异常 LSU 的单 outstanding 约束一致。
+    device_bus.req_valid = master_bus.req_valid && !busy_q && request_device;
+    fallback_bus.req_valid = master_bus.req_valid && !busy_q && !request_device;
+    device_bus.rsp_ready = master_bus.rsp_ready && active_device;
+    fallback_bus.rsp_ready = master_bus.rsp_ready && !active_device;
 
-    master_resp_o = '0;
+    master_bus.req_ready = 1'b0;
+    master_bus.rdata = '0;
+    master_bus.error = 1'b0;
+    master_bus.rsp_valid = 1'b0;
     if (!busy_q) begin
-      master_resp_o.req_ready = request_device ? device_resp_i.req_ready :
-          fallback_resp_i.req_ready;
+      master_bus.req_ready = request_device ? device_bus.req_ready :
+          fallback_bus.req_ready;
     end
 
-    // Selecting the response while a request is being accepted also preserves
-    // the CoreBus allowance for a zero-latency slave response.
-    if (busy_q || master_req_i.req_valid) begin
+    // 接受请求的同拍即按当前地址选择响应源，使 CoreBus 仍支持从设备零延迟响应。
+    if (busy_q || master_bus.req_valid) begin
       if (active_device) begin
-        master_resp_o.rdata = device_resp_i.rdata;
-        master_resp_o.error = device_resp_i.error;
-        master_resp_o.rsp_valid = device_resp_i.rsp_valid;
+        master_bus.rdata = device_bus.rdata;
+        master_bus.error = device_bus.error;
+        master_bus.rsp_valid = device_bus.rsp_valid;
       end else begin
-        master_resp_o.rdata = fallback_resp_i.rdata;
-        master_resp_o.error = fallback_resp_i.error;
-        master_resp_o.rsp_valid = fallback_resp_i.rsp_valid;
+        master_bus.rdata = fallback_bus.rdata;
+        master_bus.error = fallback_bus.error;
+        master_bus.rsp_valid = fallback_bus.rsp_valid;
       end
     end
   end
 
-  assign request_fire = master_req_i.req_valid && master_resp_o.req_ready;
-  assign response_fire = master_resp_o.rsp_valid && master_req_i.rsp_ready;
+  assign request_fire = master_bus.req_valid && master_bus.req_ready;
+  assign response_fire = master_bus.rsp_valid && master_bus.rsp_ready;
+
+  //////////////
+  // 参数断言 //
+  //////////////
+
+  `ASSERT_INIT(CoreBusRouterAddrWidthValid, AddrWidth > 0)
+  `ASSERT_INIT(CoreBusRouterDataWidthValid,
+               DataWidth >= 8 && (DataWidth % 8) == 0 &&
+                   (DataWidth & (DataWidth - 1)) == 0)
+  `ASSERT_INIT(CoreBusRouterMasterAddrWidth,
+               $bits(master_bus.addr) == AddrWidth)
+  `ASSERT_INIT(CoreBusRouterMasterDataWidth,
+               $bits(master_bus.wdata) == DataWidth)
+  `ASSERT_INIT(CoreBusRouterDeviceAddrWidth,
+               $bits(device_bus.addr) == AddrWidth)
+  `ASSERT_INIT(CoreBusRouterFallbackDataWidth,
+               $bits(fallback_bus.wdata) == DataWidth)
+
+  ////////////////////
+  // 目标所有权寄存 //
+  ////////////////////
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

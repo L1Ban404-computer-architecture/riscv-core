@@ -1,8 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// cache 子系统的公共命名空间。这里只保存跨 cache 模块共享、且不依赖具体实例几何
-// 的默认参数、语义类型和纯函数；总线协议结构仍由 riscv_bus_pkg 独立拥有。
+// Cache 默认参数、几何检查及按字节选通合并数据的公共函数。
 package cache_pkg;
 
   // cache 顶层参数的默认值。它们只提供一致的实例化基线，不参与固定 package 类型宽度；

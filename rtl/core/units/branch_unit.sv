@@ -1,17 +1,21 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
+// 条件分支与跳转判定单元，生成 EX 级控制流改道请求。
 module branch_unit
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
+  // 执行条件与操作数
   input logic execute_fire_i,
   input logic illegal_instr_i,
   input branch_op_e branch_op_i,
   input word_t rs1_value_i,
   input word_t rs2_value_i,
   input word_t alu_target_i,
-  output redirect_bus_t redirect_o
+
+  // 改道结果
+  redirect_if.producer redirect
 );
 
   logic taken;
@@ -30,12 +34,11 @@ module branch_unit
       default: ;
     endcase
 
-    redirect_o = '0;
-    redirect_o.valid = execute_fire_i && taken && !illegal_instr_i;
+    redirect.valid = execute_fire_i && taken && !illegal_instr_i;
 
     // RISC-V 要求 JALR 目标地址的最低位清零；其他跳转目标直接使用
     // ALU 计算得到的 PC-relative 地址。
-    redirect_o.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) : alu_target_i;
+    redirect.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) : alu_target_i;
 
   end
 

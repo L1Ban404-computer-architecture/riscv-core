@@ -1,6 +1,10 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
+// 五级顺序 RV32 核心。
+//
+// 连接 IF、ID、EX、MEM、WB 流水级，并集中处理改道、串行化、数据前递和
+// 性能观测通路。
 module riscv_core_impl
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
@@ -8,105 +12,69 @@ module riscv_core_impl
   parameter int unsigned FetchOutstandingDepth = 1,
   parameter int unsigned IfIdQueueDepth = 2
 ) (
+  // 全局控制
   input logic clk_i,
   input logic rst_ni,
-
-  // 启动 PC 由上层集成逻辑提供。当前顶层只把它交给 IF stage，
-  // 后续 IF stage 内部会维护真实 PC 寄存器、取指请求队列和 redirect 处理。
   input pc_t boot_pc_i,
 
-  // ---------------------------------------------------------------------------
-  // CoreBus 取指接口
-  // ---------------------------------------------------------------------------
-  //
-  // IF 只发起 write=0、size=word 的固定字宽读事务。
-  output core_bus_req_t imem_req_o,
-  input core_bus_resp_t imem_resp_i,
+  // 存储器接口
+  core_bus_if.master imem,
+  core_bus_if.master dmem,
 
-  // ---------------------------------------------------------------------------
-  // CoreBus 数据接口
-  // ---------------------------------------------------------------------------
-  //
-  // MEM stage 负责把流水线访存转换为统一的顺序 CoreBus 请求。为保证异常前
-  // 不存在无法撤销的年轻 store，数据侧当前只允许一个 outstanding 请求。
-  output core_bus_req_t dmem_req_o,
-  input core_bus_resp_t dmem_resp_i,
-
-  // valid 表示本周期是否退休；退休数据保持最后一次事件，性能计数器为实时值。
-  // 这些信号均只供仿真观察，不参与功能控制。
-  output logic core_retire_valid_o,
-  output core_retire_debug_bus_t core_retire_debug_o,
-  output core_performance_debug_bus_t core_performance_debug_o
+  // 调试与性能观测
+  retire_debug_if.producer debug_retire,
+  performance_debug_if.producer performance
 );
 
-  // ---------------------------------------------------------------------------
-  // 阶段间事务通道
-  // ---------------------------------------------------------------------------
-  //
-  // valid/ready 属于 stage 间流控；payload 使用 riscv_core_pkg 中定义的
-  // 阶段事务类型。具体寄存器墙/FIFO 属于各 stage 内部，顶层只负责连线。
-  logic if_id_valid;
-  logic if_id_ready;
-  if_id_bus_t if_id_bus;
+  //////////////////
+  // 流水级间接口 //
+  //////////////////
+  if_id_if if_id();
+  id_ex_if id_ex();
+  ex_mem_if ex_mem();
+  mem_wb_if mem_wb();
 
-  logic id_ex_valid;
-  logic id_ex_ready;
-  id_ex_bus_t id_ex_bus;
+  redirect_if ex_redirect();
+  redirect_if wb_redirect();
+  redirect_if resolved_redirect();
+  csr_read_if csr_read();
+  writeback_if mem_wb_forward();
+  writeback_if wb();
+  mem_pending_if mem_pending();
 
-  logic ex_mem_valid;
-  logic ex_mem_ready;
-  ex_mem_bus_t ex_mem_bus;
-
-  logic mem_wb_valid;
-  logic mem_wb_ready;
-  mem_wb_bus_t mem_wb_bus;
-
-  // ---------------------------------------------------------------------------
-  // redirect、前递和写回旁路
-  // ---------------------------------------------------------------------------
-  //
-  // 顶层集中仲裁两类 redirect：EX 分支/JAL/JALR 仅清除错误路径前端；
-  // WB trap/MRET 年龄更老，具有最高优先级并同时产生后端 flush。
-  redirect_bus_t branch_redirect;
-  pipeline_control_bus_t pipeline_control;
-  pipeline_control_bus_t wb_control;
   logic serialize_block;
   logic serialize_ready;
   logic mem_busy;
   logic mem_side_effect_block;
+  logic backend_flush;
 
-  csr_addr_t csr_read_addr;
-  csr_read_rsp_bus_t csr_read_rsp;
-
-  // 写回请求同时承担寄存器堆写回和 MEM/WB 数据前递角色。EX/MEM 候选
-  // 由 EX stage 内部保存，不再经过顶层绕回。
-  wb_req_bus_t mem_wb_req;
-  logic mem_pending_valid;
-  reg_addr_t mem_pending_rd_addr;
-  wb_req_bus_t wb_wb_req;
-  logic wb_retire_valid;
-
-  // WB is the sole architectural commit point.  Feed the performance block
-  // with the actual commit handshake instead of the registered debug pulse.
-  assign wb_retire_valid = mem_wb_valid && mem_wb_ready;
+  //////////////////////////
+  // 全局改道与串行化控制 //
+  //////////////////////////
 
   // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
   // 必须采用 WB 目标，年轻分支随后由后端 flush 清除。
-  always_comb begin
-    pipeline_control = '0;
-    pipeline_control.redirect = branch_redirect;
-    if (wb_control.redirect.valid) pipeline_control = wb_control;
-  end
-
+  // 分支只需要刷新前端；WB 的 trap/MRET 同时刷新前端和后端。
+  // WB 更老，因此它的目标地址覆盖同周期 EX 产生的分支目标。
+  assign resolved_redirect.valid = wb_redirect.valid || ex_redirect.valid;
+  assign resolved_redirect.target_pc = wb_redirect.valid ?
+      wb_redirect.target_pc : ex_redirect.target_pc;
   // CSR/SYSTEM 在 ID/EX 至 WB 期间构成串行屏障。它进入 EX 前先等待更老
   // EX/MEM、LSU outstanding 和 MEM/WB 排空，因此 CSR 读取无需专用前递。
   assign serialize_block =
-      (id_ex_valid && (id_ex_bus.ctrl.serialize || id_ex_bus.exception.valid)) ||
-      (ex_mem_valid && (ex_mem_bus.commit.serialize || ex_mem_bus.exception.valid)) ||
-      (mem_wb_valid && (mem_wb_bus.commit.serialize || mem_wb_bus.exception.valid));
-  assign serialize_ready = !ex_mem_valid && !mem_busy && !mem_wb_valid;
-  assign mem_side_effect_block = mem_wb_valid &&
-      (mem_wb_bus.commit.serialize || mem_wb_bus.exception.valid);
+      (id_ex.valid && (id_ex.payload.ctrl.serialize ||
+                       id_ex.payload.exception.valid)) ||
+      (ex_mem.valid && (ex_mem.payload.commit.serialize ||
+                        ex_mem.payload.exception.valid)) ||
+      (mem_wb.valid && (mem_wb.payload.commit.serialize ||
+                        mem_wb.payload.exception.valid));
+  assign serialize_ready = !ex_mem.valid && !mem_busy && !mem_wb.valid;
+  assign mem_side_effect_block = mem_wb.valid &&
+      (mem_wb.payload.commit.serialize || mem_wb.payload.exception.valid);
+
+  //////////////////////////
+  // 流水级与性能统计实例 //
+  //////////////////////////
 
   if_stage #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
@@ -115,95 +83,68 @@ module riscv_core_impl
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
-    .redirect_i(pipeline_control.redirect),
-    .imem_req_o(imem_req_o),
-    .imem_resp_i(imem_resp_i),
-    .if_id_valid_o(if_id_valid),
-    .if_id_ready_i(if_id_ready),
-    .if_id_bus_o(if_id_bus)
+    .redirect(resolved_redirect),
+    .imem,
+    .if_id
   );
 
   id_stage u_id_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .flush_i(pipeline_control.flush_backend),
+    .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
-    .if_id_valid_i(if_id_valid),
-    .if_id_ready_o(if_id_ready),
-    .if_id_bus_i(if_id_bus),
-    .wb_req_i(wb_wb_req),
-    .id_ex_valid_o(id_ex_valid),
-    .id_ex_ready_i(id_ex_ready),
-    .id_ex_bus_o(id_ex_bus)
+    .if_id,
+    .wb,
+    .id_ex
   );
 
   ex_stage u_ex_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .flush_i(pipeline_control.flush_backend),
+    .flush_i(backend_flush),
     .serialize_ready_i(serialize_ready),
-    .id_ex_valid_i(id_ex_valid),
-    .id_ex_ready_o(id_ex_ready),
-    .id_ex_bus_i(id_ex_bus),
-    .mem_pending_valid_i(mem_pending_valid),
-    .mem_pending_rd_addr_i(mem_pending_rd_addr),
-    .mem_wb_req_i(mem_wb_req),
-    .csr_read_addr_o(csr_read_addr),
-    .csr_read_rsp_i(csr_read_rsp),
-    .redirect_o(branch_redirect),
-    .ex_mem_valid_o(ex_mem_valid),
-    .ex_mem_ready_i(ex_mem_ready),
-    .ex_mem_bus_o(ex_mem_bus)
+    .id_ex,
+    .mem_pending,
+    .mem_wb(mem_wb_forward),
+    .csr_read,
+    .redirect(ex_redirect),
+    .ex_mem
   );
 
   mem_stage u_mem_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
-    .flush_i(pipeline_control.flush_backend),
+    .flush_i(backend_flush),
     .side_effect_block_i(mem_side_effect_block),
-    .ex_mem_valid_i(ex_mem_valid),
-    .ex_mem_ready_o(ex_mem_ready),
-    .ex_mem_bus_i(ex_mem_bus),
-    .dmem_req_o(dmem_req_o),
-    .dmem_resp_i(dmem_resp_i),
-    .mem_pending_valid_o(mem_pending_valid),
-    .mem_pending_rd_addr_o(mem_pending_rd_addr),
-    .mem_wb_req_o(mem_wb_req),
-    .mem_wb_valid_o(mem_wb_valid),
-    .mem_wb_ready_i(mem_wb_ready),
-    .mem_wb_bus_o(mem_wb_bus),
+    .ex_mem,
+    .dmem,
+    .mem_pending,
+    .mem_wb_forward,
+    .mem_wb,
     .busy_o(mem_busy)
   );
 
   wb_stage u_wb_stage (
     .clk_i,
     .rst_ni,
-    .mem_wb_valid_i(mem_wb_valid),
-    .mem_wb_ready_o(mem_wb_ready),
-    .mem_wb_bus_i(mem_wb_bus),
-    .csr_read_addr_i(csr_read_addr),
-    .csr_read_rsp_o(csr_read_rsp),
-    .control_o(wb_control),
-    .wb_req_o(wb_wb_req),
-    .core_retire_valid_o(core_retire_valid_o),
-    .core_retire_debug_o(core_retire_debug_o)
+    .mem_wb,
+    .csr_read,
+    .redirect(wb_redirect),
+    .flush_o(backend_flush),
+    .wb,
+    .debug_retire
   );
 
   performance_stats u_performance_stats (
     .clk_i,
     .rst_ni,
-    .retire_valid_i(wb_retire_valid),
-    .if_id_valid_i(if_id_valid),
-    .if_id_ready_i(if_id_ready),
-    .id_ex_valid_i(id_ex_valid),
-    .id_ex_ready_i(id_ex_ready),
-    .ex_mem_valid_i(ex_mem_valid),
-    .ex_mem_ready_i(ex_mem_ready),
-    .mem_wb_valid_i(mem_wb_valid),
-    .mem_wb_ready_i(mem_wb_ready),
-    .frontend_flush_i(pipeline_control.redirect.valid),
-    .backend_flush_i(pipeline_control.flush_backend),
-    .performance_debug_o(core_performance_debug_o)
+    .if_id,
+    .id_ex,
+    .ex_mem,
+    .mem_wb,
+    .redirect(resolved_redirect),
+    .flush_backend_i(backend_flush),
+    .performance
   );
 
 endmodule

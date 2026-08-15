@@ -1,35 +1,46 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// Blocking AXI4 burst memory used by the cache self-checking testbench.  The
-// five channels can be delayed independently, and write/read errors are
-// captured with their corresponding address handshake.
+// Cache Testbench AXI4 存储模型。
+//
+// 提供支持 burst 的阻塞式字节存储，并对五个 AXI 通道独立注入随机延迟和错误。
+// 一次只处理一笔读和一笔写；错误在地址握手时锁存并归属于对应事务；
+// 地址属性、burst 类型、ID 与末拍标志不合法时立即终止测试。
 module cache_axi_memory_model
   import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
 #(
   parameter int unsigned MemoryBytes = 64 * 1024,
-  parameter axi4_id_t AxiId = DCACHE_AXI_ID
+  parameter int unsigned IdWidth = 4,
+  parameter int unsigned AxiId = DCACHE_AXI_ID
 ) (
+  // 全局控制
   input logic clk_i,
   input logic rst_ni,
 
-  input axi4_req_t axi_req_i,
-  output axi4_resp_t axi_resp_o,
+  // AXI4 从接口
+  axi4_if.slave axi,
 
+  // 延迟与错误注入
   input logic random_backpressure_i,
   input logic [4:0] random_bits_i,
   input logic inject_b_error_i,
   input logic inject_r_error_i,
 
+  // 后门观察
   input word_t inspect_address_i,
   output word_t inspect_data_o,
 
+  // 事务计数
   output int unsigned aw_count_o,
   output int unsigned ar_count_o,
   output int unsigned writeback_count_o,
   output int unsigned refill_count_o
 );
+
+  ////////////////////////
+  // 存储阵列与通道状态 //
+  ////////////////////////
 
   logic [7:0] memory[MemoryBytes];
 
@@ -52,6 +63,10 @@ module cache_axi_memory_model
   logic [1:0] rresp_q;
   logic rlast_q;
 
+  //////////////////////////////
+  // 后门读取与 AXI4 组合驱动 //
+  //////////////////////////////
+
   function automatic word_t read_word(input word_t address);
     word_t result;
 
@@ -66,24 +81,38 @@ module cache_axi_memory_model
   assign inspect_data_o = read_word(inspect_address_i);
 
   always_comb begin
-    axi_resp_o = '0;
-    axi_resp_o.awready = rst_ni && !write_active_q &&
+    axi.awready = 1'b0;
+    axi.wready = 1'b0;
+    axi.bvalid = 1'b0;
+    axi.bresp = '0;
+    axi.bid = '0;
+    axi.arready = 1'b0;
+    axi.rvalid = 1'b0;
+    axi.rresp = '0;
+    axi.rdata = '0;
+    axi.rlast = 1'b0;
+    axi.rid = '0;
+    axi.awready = rst_ni && !write_active_q &&
         !write_response_pending_q && !bvalid_q &&
         (!random_backpressure_i || random_bits_i[0]);
-    axi_resp_o.wready = rst_ni && write_active_q &&
+    axi.wready = rst_ni && write_active_q &&
         (!random_backpressure_i || random_bits_i[1]);
-    axi_resp_o.bvalid = bvalid_q;
-    axi_resp_o.bresp = bresp_q;
-    axi_resp_o.bid = AxiId;
+    axi.bvalid = bvalid_q;
+    axi.bresp = bresp_q;
+    axi.bid = IdWidth'(AxiId);
 
-    axi_resp_o.arready = rst_ni && !read_active_q && !rvalid_q &&
+    axi.arready = rst_ni && !read_active_q && !rvalid_q &&
         (!random_backpressure_i || random_bits_i[2]);
-    axi_resp_o.rvalid = rvalid_q;
-    axi_resp_o.rdata = rdata_q;
-    axi_resp_o.rresp = rresp_q;
-    axi_resp_o.rlast = rlast_q;
-    axi_resp_o.rid = AxiId;
+    axi.rvalid = rvalid_q;
+    axi.rdata = rdata_q;
+    axi.rresp = rresp_q;
+    axi.rlast = rlast_q;
+    axi.rid = IdWidth'(AxiId);
   end
+
+  ////////////////////////////
+  // 写地址、写数据与写响应 //
+  ////////////////////////////
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -98,29 +127,29 @@ module cache_axi_memory_model
       aw_count_o <= 0;
       writeback_count_o <= 0;
     end else begin
-      if (axi_req_i.awvalid && axi_resp_o.awready) begin
-        if (axi_req_i.awid != AxiId || axi_req_i.awsize != 3'd2 ||
-            axi_req_i.awburst != AXI4_BURST_INCR)
+      if (axi.awvalid && axi.awready) begin
+        if (axi.awid != IdWidth'(AxiId) || axi.awsize != 3'd2 ||
+            axi.awburst != AXI4_BURST_INCR)
           $fatal(1, "Invalid AXI write address attributes.");
         write_active_q <= 1'b1;
-        write_address_q <= axi_req_i.awaddr;
-        write_len_q <= axi_req_i.awlen;
+        write_address_q <= axi.awaddr;
+        write_len_q <= axi.awlen;
         write_beat_q <= '0;
         write_error_q <= inject_b_error_i;
         aw_count_o <= aw_count_o + 1;
       end
 
-      if (axi_req_i.wvalid && axi_resp_o.wready) begin
-        if (axi_req_i.wlast != (write_beat_q == write_len_q))
+      if (axi.wvalid && axi.wready) begin
+        if (axi.wlast != (write_beat_q == write_len_q))
           $fatal(1, "AXI WLAST does not match AWLEN.");
         for (int unsigned lane = 0; lane < StrbW; lane++) begin
-          if (axi_req_i.wstrb[lane]) begin
+          if (axi.wstrb[lane]) begin
             memory[int'(write_address_q) +
                    int'(write_beat_q) * StrbW + lane] <=
-                axi_req_i.wdata[lane * ByteW +: ByteW];
+                axi.wdata[lane * ByteW +: ByteW];
           end
         end
-        if (axi_req_i.wlast) begin
+        if (axi.wlast) begin
           write_active_q <= 1'b0;
           write_response_pending_q <= 1'b1;
           bresp_q <= write_error_q ? 2'b10 : AXI4_RESP_OKAY;
@@ -136,12 +165,16 @@ module cache_axi_memory_model
         bvalid_q <= 1'b1;
       end
 
-      if (bvalid_q && axi_req_i.bready) begin
+      if (bvalid_q && axi.bready) begin
         bvalid_q <= 1'b0;
         bresp_q <= AXI4_RESP_OKAY;
       end
     end
   end
+
+  ////////////////////
+  // 读地址与读数据 //
+  ////////////////////
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -157,13 +190,13 @@ module cache_axi_memory_model
       ar_count_o <= 0;
       refill_count_o <= 0;
     end else begin
-      if (axi_req_i.arvalid && axi_resp_o.arready) begin
-        if (axi_req_i.arid != AxiId || axi_req_i.arsize != 3'd2 ||
-            axi_req_i.arburst != AXI4_BURST_INCR)
+      if (axi.arvalid && axi.arready) begin
+        if (axi.arid != IdWidth'(AxiId) || axi.arsize != 3'd2 ||
+            axi.arburst != AXI4_BURST_INCR)
           $fatal(1, "Invalid AXI read address attributes.");
         read_active_q <= 1'b1;
-        read_address_q <= axi_req_i.araddr;
-        read_len_q <= axi_req_i.arlen;
+        read_address_q <= axi.araddr;
+        read_len_q <= axi.arlen;
         read_beat_q <= '0;
         read_error_q <= inject_r_error_i;
         ar_count_o <= ar_count_o + 1;
@@ -178,7 +211,7 @@ module cache_axi_memory_model
         rlast_q <= read_beat_q == read_len_q;
       end
 
-      if (rvalid_q && axi_req_i.rready) begin
+      if (rvalid_q && axi.rready) begin
         rvalid_q <= 1'b0;
         if (rlast_q) begin
           read_active_q <= 1'b0;
@@ -189,6 +222,10 @@ module cache_axi_memory_model
       end
     end
   end
+
+  ////////////////////
+  // 存储器初始内容 //
+  ////////////////////
 
   initial begin
     for (int unsigned address = 0; address < MemoryBytes; address++) begin

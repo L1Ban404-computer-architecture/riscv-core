@@ -1,8 +1,13 @@
 # CoreBus 接口
 
-CoreBus 是核心内部连接取指、访存和总线适配器的轻量级顺序事务接口。协议结构定义以
-`rtl/bus/riscv_bus_pkg.sv` 为准；数据字和 byte enable 等共享基础类型定义在
-`rtl/common/riscv_common_pkg.sv`。
+CoreBus 是核心内部连接取指、访存和总线适配器的轻量级顺序事务接口。参数化信号定义
+以 `rtl/bus/riscv_bus_if.sv` 中的 `core_bus_if` 为准；协议枚举和常量由
+`rtl/bus/riscv_bus_pkg.sv` 拥有。interface 不包含时钟和复位，行为模块仍显式接收
+`clk_i/rst_ni`。
+
+`core_bus_if` 的 `AddrWidth`、`DataWidth` 默认均为 32，`StrbWidth=DataWidth/8` 且不可
+从实例外覆盖。`master`、`slave` 和 `monitor` modport 分别用于发起端、接收端和只读
+scoreboard；跨模块端口必须声明合适的 modport。
 
 ## 信号方向
 
@@ -28,8 +33,9 @@ rsp_fire = rsp_valid && rsp_ready;
 
 ## 编码
 
-`write=0` 表示读，`write=1` 表示写。`size` 使用 `core_bus_size_e`，分别表示 byte、
-halfword 和 word，编码与 AXI `AxSIZE` 一致。该类型属于 CoreBus ABI，与核心内部
+`write=0` 表示读，`write=1` 表示写。`size` 使用固定 2-bit 的 `core_bus_size_e`，分别
+表示 byte、halfword、word 和 doubleword，编码与 AXI `AxSIZE` 一致。该类型属于
+CoreBus ABI，与核心内部
 `mem_size_e` 相互独立；MEM stage 在产生数据请求时逐项完成两者转换。地址必须保留
 byte offset，并按访问宽度自然对齐。
 
@@ -48,3 +54,15 @@ lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表�
 响应仍按顺序匹配。当前数据侧深度固定为 1，取指侧深度由参数控制。
 
 RTL 中保留请求、响应稳定性和关键编码约束的仿真 assertion。
+
+## AXI4 interface
+
+同文件中的 `axi4_if` 保存项目使用的 AXI4 五通道子集，提供相同的
+`master/slave/monitor` modport。`AddrWidth=32`、`DataWidth=32`、`IdWidth=4` 为默认值，
+strobe 宽度由数据宽度自动派生；LEN、SIZE、BURST 和 RESP 等协议字段保持 AXI 固定
+宽度。AXI ID 常量是 package 中的整数，在连接具体 interface 时按 `IdWidth` 显式转换，
+拥有行为的模块同时检查常量可表示性。
+
+通用 `corebus_addr_router` 和 `cache_axi4_mux` 支持非默认几何。仓库用 40-bit 地址、
+64-bit 数据、6-bit ID 的自检覆盖高地址位、8-bit strobe、ID 路由和背压。RV32 core、
+CLINT 及当前 cache endpoint 仍使用默认 32-bit 数据配置，这不代表 RV64 支持。

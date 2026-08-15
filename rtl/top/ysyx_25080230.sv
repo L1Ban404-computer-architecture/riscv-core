@@ -1,14 +1,22 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
+// ysyx SoC 集成顶层。
+//
+// 连接 RV32 核心、I/D Cache、AXI4 汇聚器和片内 CLINT，并将参数化内部接口
+// 适配为评测平台规定的固定引脚。
+// 外部 AXI4 主接口固定为 32 位地址/数据和 4 位 ID；外部从接口当前停用；
+// CLINT 占用 0x0200_0000～0x0200_ffff，其余数据访问转发至外部主接口。
 module ysyx_25080230
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 (
+  // 全局控制
   input         clock,
   input         reset,
   input         io_interrupt,
 
+  // 外部 AXI4 主接口
   input         io_master_awready,
   output        io_master_awvalid,
   output [31:0] io_master_awaddr,
@@ -39,6 +47,7 @@ module ysyx_25080230
   input         io_master_rlast,
   input  [3:0]  io_master_rid,
 
+  // 外部 AXI4 从接口
   output        io_slave_awready,
   input         io_slave_awvalid,
   input  [31:0] io_slave_awaddr,
@@ -70,24 +79,21 @@ module ysyx_25080230
   output [3:0]  io_slave_rid
 );
 
-  core_bus_req_t imem_req;
-  core_bus_resp_t imem_resp;
-  core_bus_req_t dmem_req;
-  core_bus_resp_t dmem_resp;
-  core_bus_req_t clint_req;
-  core_bus_resp_t clint_resp;
-  core_bus_req_t axi_dmem_req;
-  core_bus_resp_t axi_dmem_resp;
-  axi4_req_t icache_axi_req;
-  axi4_resp_t icache_axi_resp;
-  axi4_req_t dcache_axi_req;
-  axi4_resp_t dcache_axi_resp;
-  axi4_req_t master_axi_req;
-  axi4_resp_t master_axi_resp;
+  ////////////////////////
+  // 内部总线与调试接口 //
+  ////////////////////////
+
+  core_bus_if imem_bus();
+  core_bus_if dmem_bus();
+  core_bus_if clint_bus();
+  core_bus_if axi_dmem_bus();
+  axi4_if icache_axi();
+  axi4_if dcache_axi();
+  axi4_if master_axi();
   logic rst_ni;
   logic core_retire_valid /* verilator public_flat_rd */;
-  core_retire_debug_bus_t core_retire_debug;
-  core_performance_debug_bus_t core_performance_debug;
+  retire_debug_if retire_debug();
+  performance_debug_if performance_debug();
 
   logic [31:0] debug_retire_pc              /* verilator public_flat_rd */;
   logic [31:0] debug_retire_instr           /* verilator public_flat_rd */;
@@ -131,81 +137,89 @@ module ysyx_25080230
   logic [63:0] debug_perf_wb_local_stall_cycle_count
       /* verilator public_flat_rd */;
 
-  assign debug_retire_pc = core_retire_debug.pc;
-  assign debug_retire_instr = core_retire_debug.instr;
-  assign debug_retire_instid = core_retire_debug.instid;
-  assign debug_retire_redirect_valid = core_retire_debug.redirect_valid;
-  assign debug_retire_redirect_target = core_retire_debug.redirect_target_pc;
-  assign debug_retire_mem_op = core_retire_debug.mem_op;
-  assign debug_retire_mem_size = core_retire_debug.mem_size;
-  assign debug_retire_mem_addr = core_retire_debug.mem_addr;
-  assign debug_retire_mem_data = core_retire_debug.mem_data;
-  assign debug_retire_gpr_we = core_retire_debug.gpr_we;
-  assign debug_retire_gpr_waddr = core_retire_debug.gpr_waddr;
-  assign debug_retire_gpr_wdata = core_retire_debug.gpr_wdata;
-  assign debug_retire_mstatus = core_retire_debug.csr.mstatus;
-  assign debug_retire_mtvec = core_retire_debug.csr.mtvec;
-  assign debug_retire_mepc = core_retire_debug.csr.mepc;
-  assign debug_retire_mcause = core_retire_debug.csr.mcause;
-  assign debug_retire_mtval = core_retire_debug.csr.mtval;
-  assign debug_perf_cycle_count = core_performance_debug.cycle_count;
-  assign debug_perf_instret_count = core_performance_debug.instret_count;
-  assign debug_perf_if_id_fire_count = core_performance_debug.if_id_fire_count;
-  assign debug_perf_id_ex_fire_count = core_performance_debug.id_ex_fire_count;
-  assign debug_perf_ex_mem_fire_count = core_performance_debug.ex_mem_fire_count;
-  assign debug_perf_mem_wb_fire_count = core_performance_debug.mem_wb_fire_count;
+  ////////////////////////
+  // 退休与性能观测信号 //
+  ////////////////////////
+
+  assign debug_retire_pc = retire_debug.pc;
+  assign debug_retire_instr = retire_debug.instr;
+  assign debug_retire_instid = retire_debug.instid;
+  assign debug_retire_redirect_valid = retire_debug.redirect_valid;
+  assign debug_retire_redirect_target = retire_debug.redirect_target_pc;
+  assign debug_retire_mem_op = retire_debug.mem_op;
+  assign debug_retire_mem_size = retire_debug.mem_size;
+  assign debug_retire_mem_addr = retire_debug.mem_addr;
+  assign debug_retire_mem_data = retire_debug.mem_data;
+  assign debug_retire_gpr_we = retire_debug.gpr_we;
+  assign debug_retire_gpr_waddr = retire_debug.gpr_waddr;
+  assign debug_retire_gpr_wdata = retire_debug.gpr_wdata;
+  assign debug_retire_mstatus = retire_debug.csr_mstatus;
+  assign debug_retire_mtvec = retire_debug.csr_mtvec;
+  assign debug_retire_mepc = retire_debug.csr_mepc;
+  assign debug_retire_mcause = retire_debug.csr_mcause;
+  assign debug_retire_mtval = retire_debug.csr_mtval;
+  assign debug_perf_cycle_count = performance_debug.cycle_count;
+  assign debug_perf_instret_count = performance_debug.instret_count;
+  assign debug_perf_if_id_fire_count = performance_debug.if_id_fire_count;
+  assign debug_perf_id_ex_fire_count = performance_debug.id_ex_fire_count;
+  assign debug_perf_ex_mem_fire_count = performance_debug.ex_mem_fire_count;
+  assign debug_perf_mem_wb_fire_count = performance_debug.mem_wb_fire_count;
   assign debug_perf_if_id_stall_cycle_count =
-      core_performance_debug.if_id_stall_cycle_count;
+      performance_debug.if_id_stall_cycle_count;
   assign debug_perf_id_ex_stall_cycle_count =
-      core_performance_debug.id_ex_stall_cycle_count;
+      performance_debug.id_ex_stall_cycle_count;
   assign debug_perf_ex_mem_stall_cycle_count =
-      core_performance_debug.ex_mem_stall_cycle_count;
+      performance_debug.ex_mem_stall_cycle_count;
   assign debug_perf_mem_wb_stall_cycle_count =
-      core_performance_debug.mem_wb_stall_cycle_count;
-  assign debug_perf_if_starve_cycle_count = core_performance_debug.if_starve_cycle_count;
+      performance_debug.mem_wb_stall_cycle_count;
+  assign debug_perf_if_starve_cycle_count = performance_debug.if_starve_cycle_count;
   assign debug_perf_id_local_stall_cycle_count =
-      core_performance_debug.id_local_stall_cycle_count;
+      performance_debug.id_local_stall_cycle_count;
   assign debug_perf_ex_local_stall_cycle_count =
-      core_performance_debug.ex_local_stall_cycle_count;
+      performance_debug.ex_local_stall_cycle_count;
   assign debug_perf_mem_local_stall_cycle_count =
-      core_performance_debug.mem_local_stall_cycle_count;
+      performance_debug.mem_local_stall_cycle_count;
   assign debug_perf_wb_local_stall_cycle_count =
-      core_performance_debug.wb_local_stall_cycle_count;
+      performance_debug.wb_local_stall_cycle_count;
 
   assign rst_ni = ~reset;
+  assign core_retire_valid = retire_debug.valid;
 
-  // Keep packed AXI signals inside the design and expand them only at the
-  // fixed public ysyx interface.
-  assign io_master_awvalid = master_axi_req.awvalid;
-  assign io_master_awaddr = master_axi_req.awaddr;
-  assign io_master_awid = master_axi_req.awid;
-  assign io_master_awlen = master_axi_req.awlen;
-  assign io_master_awsize = master_axi_req.awsize;
-  assign io_master_awburst = master_axi_req.awburst;
-  assign io_master_wvalid = master_axi_req.wvalid;
-  assign io_master_wdata = master_axi_req.wdata;
-  assign io_master_wstrb = master_axi_req.wstrb;
-  assign io_master_wlast = master_axi_req.wlast;
-  assign io_master_bready = master_axi_req.bready;
-  assign io_master_arvalid = master_axi_req.arvalid;
-  assign io_master_araddr = master_axi_req.araddr;
-  assign io_master_arid = master_axi_req.arid;
-  assign io_master_arlen = master_axi_req.arlen;
-  assign io_master_arsize = master_axi_req.arsize;
-  assign io_master_arburst = master_axi_req.arburst;
-  assign io_master_rready = master_axi_req.rready;
+  ////////////////////////
+  // 外部 AXI4 接口适配 //
+  ////////////////////////
 
-  assign master_axi_resp.awready = io_master_awready;
-  assign master_axi_resp.wready = io_master_wready;
-  assign master_axi_resp.bvalid = io_master_bvalid;
-  assign master_axi_resp.bresp = io_master_bresp;
-  assign master_axi_resp.bid = io_master_bid;
-  assign master_axi_resp.arready = io_master_arready;
-  assign master_axi_resp.rvalid = io_master_rvalid;
-  assign master_axi_resp.rresp = io_master_rresp;
-  assign master_axi_resp.rdata = io_master_rdata;
-  assign master_axi_resp.rlast = io_master_rlast;
-  assign master_axi_resp.rid = io_master_rid;
+  // 主接口逐字段适配，外部从接口保持停用。
+  assign io_master_awvalid = master_axi.awvalid;
+  assign io_master_awaddr = master_axi.awaddr;
+  assign io_master_awid = master_axi.awid;
+  assign io_master_awlen = master_axi.awlen;
+  assign io_master_awsize = master_axi.awsize;
+  assign io_master_awburst = master_axi.awburst;
+  assign io_master_wvalid = master_axi.wvalid;
+  assign io_master_wdata = master_axi.wdata;
+  assign io_master_wstrb = master_axi.wstrb;
+  assign io_master_wlast = master_axi.wlast;
+  assign io_master_bready = master_axi.bready;
+  assign io_master_arvalid = master_axi.arvalid;
+  assign io_master_araddr = master_axi.araddr;
+  assign io_master_arid = master_axi.arid;
+  assign io_master_arlen = master_axi.arlen;
+  assign io_master_arsize = master_axi.arsize;
+  assign io_master_arburst = master_axi.arburst;
+  assign io_master_rready = master_axi.rready;
+
+  assign master_axi.awready = io_master_awready;
+  assign master_axi.wready = io_master_wready;
+  assign master_axi.bvalid = io_master_bvalid;
+  assign master_axi.bresp = io_master_bresp;
+  assign master_axi.bid = io_master_bid;
+  assign master_axi.arready = io_master_arready;
+  assign master_axi.rvalid = io_master_rvalid;
+  assign master_axi.rresp = io_master_rresp;
+  assign master_axi.rdata = io_master_rdata;
+  assign master_axi.rlast = io_master_rlast;
+  assign master_axi.rid = io_master_rid;
 
   assign io_slave_awready = 1'b0;
   assign io_slave_wready = 1'b0;
@@ -228,34 +242,29 @@ module ysyx_25080230
                            io_slave_arlen, io_slave_arsize, io_slave_arburst,
                            io_slave_rready};
 
+  ////////////////////////
+  // 核心与片上互连实例 //
+  ////////////////////////
+
   riscv_core_impl u_core (
     .clk_i(clock),
     .rst_ni,
     .boot_pc_i(32'h3000_0000),
-    .imem_req_o(imem_req),
-    .imem_resp_i(imem_resp),
-    .dmem_req_o(dmem_req),
-    .dmem_resp_i(dmem_resp),
-    .core_retire_valid_o(core_retire_valid),
-    .core_retire_debug_o(core_retire_debug),
-    .core_performance_debug_o(core_performance_debug)
+    .imem(imem_bus),
+    .dmem(dmem_bus),
+    .debug_retire(retire_debug),
+    .performance(performance_debug)
   );
 
-  // CLINT is local to the processor and occupies the SoC-reserved
-  // 0x0200_0000--0x0200_ffff region.  All other data traffic continues to the
-  // external AXI master unchanged.
   corebus_addr_router #(
     .DeviceBase(32'h0200_0000),
     .DeviceMask(32'hffff_0000)
   ) u_dmem_router (
     .clk_i(clock),
     .rst_ni,
-    .master_req_i(dmem_req),
-    .master_resp_o(dmem_resp),
-    .device_req_o(clint_req),
-    .device_resp_i(clint_resp),
-    .fallback_req_o(axi_dmem_req),
-    .fallback_resp_i(axi_dmem_resp)
+    .master_bus(dmem_bus),
+    .device_bus(clint_bus),
+    .fallback_bus(axi_dmem_bus)
   );
 
   corebus_clint #(
@@ -263,37 +272,29 @@ module ysyx_25080230
   ) u_clint (
     .clk_i(clock),
     .rst_ni,
-    .req_i(clint_req),
-    .resp_o(clint_resp)
+    .core_bus(clint_bus)
   );
 
   icache u_icache (
     .clk_i(clock),
     .rst_ni,
-    .core_req_i(imem_req),
-    .core_resp_o(imem_resp),
-    .axi_req_o(icache_axi_req),
-    .axi_resp_i(icache_axi_resp)
+    .core_bus(imem_bus),
+    .axi(icache_axi)
   );
 
   dcache u_dcache (
     .clk_i(clock),
     .rst_ni,
-    .core_req_i(axi_dmem_req),
-    .core_resp_o(axi_dmem_resp),
-    .axi_req_o(dcache_axi_req),
-    .axi_resp_i(dcache_axi_resp)
+    .core_bus(axi_dmem_bus),
+    .axi(dcache_axi)
   );
 
   cache_axi4_mux u_cache_axi4_mux (
     .clk_i(clock),
     .rst_ni,
-    .icache_req_i(icache_axi_req),
-    .icache_resp_o(icache_axi_resp),
-    .dcache_req_i(dcache_axi_req),
-    .dcache_resp_o(dcache_axi_resp),
-    .master_req_o(master_axi_req),
-    .master_resp_i(master_axi_resp)
+    .icache_axi,
+    .dcache_axi,
+    .master_axi
   );
 
 endmodule

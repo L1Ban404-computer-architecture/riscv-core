@@ -1,32 +1,43 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
+// EX 操作数前递与冒险检测。
+//
+// 为两路源操作数选择最近的可用生产者，并保存阻塞期间短暂出现的写回数据。
+// EX/MEM 优先于 MEM/WB；最近生产者尚未给出数据时不得绕过到更老结果；
+// 暂存值只属于当前 ID/EX 事务，事务完成或失效时必须清除。
 module forwarding_unit
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
+  // 全局控制
   input logic clk_i,
   input logic rst_ni,
-
-  // 暂存状态始终从属于当前 ID/EX 事务。事务执行或输入变为无效时清除，
-  // 避免同周期替换后的新指令继承旧操作数。
   input logic transaction_valid_i,
   input logic execute_fire_i,
 
+  // 源操作数
   input reg_addr_t rs1_addr_i,
   input reg_addr_t rs2_addr_i,
   input logic rs1_used_i,
   input logic rs2_used_i,
   input word_t rs1_value_i,
   input word_t rs2_value_i,
-  input wb_req_bus_t ex_wb_req_i,
-  input logic mem_pending_valid_i,
-  input reg_addr_t mem_pending_rd_addr_i,
-  input wb_req_bus_t mem_wb_req_i,
+
+  // 前递来源
+  writeback_if.consumer ex_wb,
+  mem_pending_if.consumer mem_pending,
+  writeback_if.consumer mem_wb,
+
+  // 选择结果
   output word_t rs1_value_o,
   output word_t rs2_value_o,
   output logic stall_o
 );
+
+  ////////////////////////
+  // 内部暂存与相关状态 //
+  ////////////////////////
 
   word_t rs1_base_value;
   word_t rs2_base_value;
@@ -40,6 +51,10 @@ module forwarding_unit
   logic held_rs1_valid_q;
   logic held_rs2_valid_q;
 
+  //////////////////////////
+  // 前递优先级与阻塞判定 //
+  //////////////////////////
+
   // MEM/WB 可以在当前事务受阻时独立完成写回。已经观察到的前递值必须
   // 保存到该事务执行为止，否则会退回使用 ID/EX 中锁存的旧寄存器值。
   assign rs1_base_value = held_rs1_valid_q ? held_rs1_value_q : rs1_value_i;
@@ -49,10 +64,10 @@ module forwarding_unit
     rs1_pending = 1'b0;
     rs2_pending = 1'b0;
 
-    rs1_pending = mem_pending_valid_i &&
-        (mem_pending_rd_addr_i == rs1_addr_i);
-    rs2_pending = mem_pending_valid_i &&
-        (mem_pending_rd_addr_i == rs2_addr_i);
+    rs1_pending = mem_pending.valid &&
+        (mem_pending.rd_addr == rs1_addr_i);
+    rs2_pending = mem_pending.valid &&
+        (mem_pending.rd_addr == rs2_addr_i);
   end
 
   always_comb begin
@@ -65,14 +80,14 @@ module forwarding_unit
     // 年龄最近的 EX/MEM 写回候选优先于 MEM/WB。匹配但 data_valid
     // 尚未成立时阻塞当前 EX 事务，不能绕过它使用更老的写回值。
     if (rs1_used_i && (rs1_addr_i != ZeroReg)) begin
-      if (ex_wb_req_i.valid && (ex_wb_req_i.rd_addr == rs1_addr_i)) begin
-        if (ex_wb_req_i.data_valid) rs1_value_o = ex_wb_req_i.wdata;
+      if (ex_wb.valid && (ex_wb.rd_addr == rs1_addr_i)) begin
+        if (ex_wb.data_valid) rs1_value_o = ex_wb.wdata;
         else stall_o = 1'b1;
       end else if (rs1_pending) begin
         stall_o = 1'b1;
-      end else if (mem_wb_req_i.valid && (mem_wb_req_i.rd_addr == rs1_addr_i)) begin
-        if (mem_wb_req_i.data_valid) begin
-          rs1_value_o = mem_wb_req_i.wdata;
+      end else if (mem_wb.valid && (mem_wb.rd_addr == rs1_addr_i)) begin
+        if (mem_wb.data_valid) begin
+          rs1_value_o = mem_wb.wdata;
           mem_wb_rs1_forwarded = 1'b1;
         end else begin
           stall_o = 1'b1;
@@ -81,14 +96,14 @@ module forwarding_unit
     end
 
     if (rs2_used_i && (rs2_addr_i != ZeroReg)) begin
-      if (ex_wb_req_i.valid && (ex_wb_req_i.rd_addr == rs2_addr_i)) begin
-        if (ex_wb_req_i.data_valid) rs2_value_o = ex_wb_req_i.wdata;
+      if (ex_wb.valid && (ex_wb.rd_addr == rs2_addr_i)) begin
+        if (ex_wb.data_valid) rs2_value_o = ex_wb.wdata;
         else stall_o = 1'b1;
       end else if (rs2_pending) begin
         stall_o = 1'b1;
-      end else if (mem_wb_req_i.valid && (mem_wb_req_i.rd_addr == rs2_addr_i)) begin
-        if (mem_wb_req_i.data_valid) begin
-          rs2_value_o = mem_wb_req_i.wdata;
+      end else if (mem_wb.valid && (mem_wb.rd_addr == rs2_addr_i)) begin
+        if (mem_wb.data_valid) begin
+          rs2_value_o = mem_wb.wdata;
           mem_wb_rs2_forwarded = 1'b1;
         end else begin
           stall_o = 1'b1;
@@ -96,6 +111,10 @@ module forwarding_unit
       end
     end
   end
+
+  ////////////////////////
+  // 阻塞期间的数据暂存 //
+  ////////////////////////
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

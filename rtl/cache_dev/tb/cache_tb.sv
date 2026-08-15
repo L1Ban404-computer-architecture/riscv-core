@@ -3,8 +3,12 @@
 
 `timescale 1ns/1ps
 
-// Cache scenario driver and architectural reference model.  AXI protocol
-// behavior and ordered CoreBus checking live in dedicated reusable modules.
+// Cache 自检 Testbench。
+//
+// 维护架构参考存储，驱动定向与随机 CoreBus 场景，并组织 AXI 存储模型和
+// 顺序计分板完成端到端自检。
+// 同一测试覆盖命中、缺失、反压、替换、写回和错误传播；只读配置不得出现
+// AXI 写事务；所有请求必须在全局超时前按序完成。
 module cache_tb
   import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
@@ -16,7 +20,7 @@ module cache_tb
   parameter int unsigned WayCount = CacheDefaultWayCount,
   parameter int unsigned LookupLatency = CacheDefaultLookupLatency,
   parameter int unsigned MaxOutstanding = CacheDefaultMaxOutstanding,
-  parameter axi4_id_t AxiId = ReadOnly ? ICACHE_AXI_ID : DCACHE_AXI_ID
+  parameter int unsigned AxiId = ReadOnly ? ICACHE_AXI_ID : DCACHE_AXI_ID
 );
 
   localparam int unsigned MemoryBytes = 64 * 1024;
@@ -24,10 +28,8 @@ module cache_tb
 
   logic clk_i;
   logic rst_ni;
-  core_bus_req_t core_req;
-  core_bus_resp_t core_resp;
-  axi4_req_t axi_req;
-  axi4_resp_t axi_resp;
+  core_bus_if core_bus();
+  axi4_if axi();
 
   logic [7:0] reference_memory[MemoryBytes];
 
@@ -51,6 +53,10 @@ module cache_tb
   int unsigned random_seed;
   int unsigned cycle_count_q;
 
+  //////////////////////////////////////
+  // 被测 Cache、AXI 存储模型与计分板 //
+  //////////////////////////////////////
+
   cache #(
     .ReadOnly(ReadOnly),
     .BlockBytes(BlockBytes),
@@ -62,10 +68,8 @@ module cache_tb
   ) u_dut (
     .clk_i,
     .rst_ni,
-    .core_req_i(core_req),
-    .core_resp_o(core_resp),
-    .axi_req_o(axi_req),
-    .axi_resp_i(axi_resp)
+    .core_bus,
+    .axi
   );
 
   cache_axi_memory_model #(
@@ -74,8 +78,7 @@ module cache_tb
   ) u_axi_memory (
     .clk_i,
     .rst_ni,
-    .axi_req_i(axi_req),
-    .axi_resp_o(axi_resp),
+    .axi,
     .random_backpressure_i(random_backpressure),
     .random_bits_i(lfsr_q[4:0]),
     .inject_b_error_i(inject_b_error),
@@ -85,7 +88,7 @@ module cache_tb
     .aw_count_o(aw_count),
     .ar_count_o(ar_count),
     .writeback_count_o(writeback_count),
-    .refill_count_o(  /* unused */)
+    .refill_count_o(  /* 未使用 */)
   );
 
   cache_corebus_scoreboard #(
@@ -93,17 +96,16 @@ module cache_tb
   ) u_scoreboard (
     .clk_i,
     .rst_ni,
-    .request_valid_i(core_req.req_valid),
-    .request_ready_i(core_resp.req_ready),
-    .response_valid_i(core_resp.rsp_valid),
-    .response_ready_i(core_req.rsp_ready),
-    .response_rdata_i(core_resp.rdata),
-    .response_error_i(core_resp.error),
+    .core_bus,
     .expected_rdata_i(expected_request_rdata),
     .expected_error_i(expected_request_error),
     .empty_o(scoreboard_empty),
-    .pending_o(  /* unused */)
+    .pending_o(  /* 未使用 */)
   );
+
+  //////////////////////////////
+  // 时钟、随机序列与响应反压 //
+  //////////////////////////////
 
   always #5 clk_i = !clk_i;
 
@@ -121,9 +123,13 @@ module cache_tb
     end
   end
 
-  assign core_req.rsp_ready = core_rsp_ready;
+  assign core_bus.rsp_ready = core_rsp_ready;
   assign core_rsp_ready = rst_ni && !force_core_stall &&
       (!random_backpressure || lfsr_q[8]);
+
+  ////////////////////////////
+  // 参考存储与地址辅助函数 //
+  ////////////////////////////
 
   function automatic word_t reference_word(input word_t address);
     word_t result;
@@ -147,6 +153,10 @@ module cache_tb
     return base + word_t'(line_number * SetCount * BlockBytes);
   endfunction
 
+  ////////////////////////////
+  // CoreBus 驱动与等待任务 //
+  ////////////////////////////
+
   task automatic issue_request(
     input word_t address,
     input logic write,
@@ -158,24 +168,24 @@ module cache_tb
   );
     int unsigned timeout;
 
-    core_req.addr = address;
-    core_req.write = write;
-    core_req.size = size;
-    core_req.wdata = wdata;
-    core_req.wstrb = wstrb;
+    core_bus.addr = address;
+    core_bus.write = write;
+    core_bus.size = size;
+    core_bus.wdata = wdata;
+    core_bus.wstrb = wstrb;
     expected_request_rdata = expected_data;
     expected_request_error = expected_fault;
-    core_req.req_valid = 1'b1;
+    core_bus.req_valid = 1'b1;
 
     timeout = 0;
     do begin
       @(posedge clk_i);
       timeout++;
       if (timeout > 2000) $fatal(1, "CoreBus request timed out.");
-    end while (!core_resp.req_ready);
+    end while (!core_bus.req_ready);
 
     @(negedge clk_i);
-    core_req.req_valid = 1'b0;
+    core_bus.req_valid = 1'b0;
   endtask
 
   task automatic issue_load(
@@ -240,7 +250,7 @@ module cache_tb
     int unsigned timeout;
 
     timeout = 0;
-    while (!(axi_req.awvalid && axi_resp.awready)) begin
+    while (!(axi.awvalid && axi.awready)) begin
       @(posedge clk_i);
       timeout++;
       if (timeout > 5000) $fatal(1, "Expected AXI AW request did not arrive.");
@@ -252,7 +262,7 @@ module cache_tb
     int unsigned timeout;
 
     timeout = 0;
-    while (!(axi_req.arvalid && axi_resp.arready)) begin
+    while (!(axi.arvalid && axi.arready)) begin
       @(posedge clk_i);
       timeout++;
       if (timeout > 5000) $fatal(1, "Expected AXI AR request did not arrive.");
@@ -264,7 +274,7 @@ module cache_tb
     if (rst_ni && !scoreboard_empty)
       $fatal(1, "Cannot reset with expected responses outstanding.");
     rst_ni = 1'b0;
-    core_req.req_valid = 1'b0;
+    core_bus.req_valid = 1'b0;
     force_core_stall = 1'b0;
     repeat (3) @(posedge clk_i);
     @(negedge clk_i);
@@ -284,6 +294,10 @@ module cache_tb
              address, expected, backing_inspect_data);
     end
   endtask
+
+  ////////////////////////
+  // 定向与随机测试场景 //
+  ////////////////////////
 
   task automatic run_load_tests;
     word_t base;
@@ -329,7 +343,7 @@ module cache_tb
     issue_load(base);
     if (MaxOutstanding > 1) issue_load(base + word_t'(StrbW));
     repeat (5) @(posedge clk_i);
-    if (!core_resp.rsp_valid)
+    if (!core_bus.rsp_valid)
       $fatal(1, "A completed load must remain visible during CoreBus backpressure.");
     @(negedge clk_i);
     force_core_stall = 1'b0;
@@ -453,10 +467,19 @@ module cache_tb
     random_backpressure = 1'b0;
   endtask
 
+  ////////////////////////
+  // 测试流程与全局超时 //
+  ////////////////////////
+
   initial begin
     clk_i = 1'b0;
     rst_ni = 1'b0;
-    core_req = '0;
+    core_bus.addr = '0;
+    core_bus.write = 1'b0;
+    core_bus.size = CORE_BUS_SIZE_BYTE;
+    core_bus.wdata = '0;
+    core_bus.wstrb = '0;
+    core_bus.req_valid = 1'b0;
     expected_request_rdata = '0;
     expected_request_error = 1'b0;
     backing_inspect_address = '0;

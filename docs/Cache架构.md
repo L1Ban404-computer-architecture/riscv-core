@@ -21,6 +21,7 @@ v1 不实现 hit-under-miss、多 MSHR、cache maintenance、I/D 一致性和 `F
 
 | 参数 | 默认值 | 含义 |
 | --- | ---: | --- |
+| `AddrWidth` / `DataWidth` / `IdWidth` | 32 / 32 / 4 | 外部 interface 几何 |
 | `ReadOnly` | 0 | 生成只读实例 |
 | `BlockBytes` | 16 | cache line 字节数 |
 | `SetCount` | 64 | 组数 |
@@ -43,22 +44,22 @@ block offset = {word index, byte lane}
 CoreBus store data 和 strobe 已经按 byte lane 对齐。cache 始终返回包含目标地址的
 完整 32 位 word，byte/halfword 选择和符号扩展由核心完成。
 
-## Package 与类型边界
+## Package 与 interface 边界
 
-内存接口类型按三层组织：
+内存协议按 package 常量和参数化 interface 两层组织：
 
 ```text
-riscv_common_pkg            字宽和标量数据；所在文件统一包含 assertion 宏
-  ├── riscv_bus_pkg         增加 CoreBus/AXI 协议结构和常量
-  ├── riscv_core_pkg        增加 ISA、流水线和 debug 类型
-  └── cache_pkg             增加 cache 默认值、语义类型和函数
+riscv_common_pkg            RV32 标量和无领域依赖的公共声明
+  ├── riscv_bus_pkg         CoreBus/AXI 协议枚举和常量
+  ├── riscv_core_pkg        ISA、标量、流水和调试 payload 类型
+  └── cache_pkg             cache 默认值和无几何依赖的函数
+riscv_bus_if.sv             参数化 CoreBus/AXI4 interface
+cache_if.sv                 参数化 cache 内部语义 interface
 ```
 
-`riscv_bus_pkg`、`riscv_core_pkg` 和 `cache_pkg` 可以在自身声明中导入
-`riscv_common_pkg` 并将 common 符号重导出；core 与 cache package 仍不依赖 bus。
-每个 RTL 和 testbench 导入本域 package，跨领域边界再显式导入其他领域 package，
-且 cache 不依赖 core 专属 package。CoreBus 和 AXI 类型没有重复定义，因此未来接入
-SoC 时两侧端口使用同一个规范类型，而不是仅具有相同位宽的两套 struct。
+各 package 不保存依赖实例参数的 packed bus 类型。每个 RTL 和 testbench 显式导入
+需要的 package，cache 不依赖 core 专属 package。CoreBus、AXI 和 cache 内部协议由
+同一规范 interface 定义，并通过 modport 限制方向。
 
 核心内部的 `mem_size_e` 表示 RISC-V load/store 执行宽度，CoreBus 的
 `core_bus_size_e` 表示协议传输宽度。两者虽然都采用 `log2(字节数)` 编码，但不共享
@@ -95,12 +96,14 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 
 ## 内部协议
 
-内部协议直接以具名字段端口连接 `cache_control`、`cache_array` 和
-`cache_refill_engine`。协议的字段集合固定，字段位宽由两端相同的 `BlockBytes`、
+内部每条协议使用独立 interface 连接 `cache_control`、`cache_array` 和
+`cache_refill_engine`。协议的字段集合固定，字段位宽在 interface 内由 `AddrWidth`、
+`DataWidth`、`BlockBytes`、
 `SetCount`、`WayCount` 和 `MaxOutstanding` 等基础配置推导；派生宽度均为不可覆盖的
 `localparam`。模块参数中不注入 payload 类型，package 也不固定实例几何或使用最大预留
 位宽。array 内部的 lookup 流水仍可使用私有 packed struct 保存状态，但该类型不属于模块
-接口。内部没有使用 SystemVerilog `interface`，避免工具兼容性和层次可见性问题。
+接口。lookup、victim、word write、line install、replacement update 和 refill 请求/响应
+均各自提供 producer、consumer 和 monitor modport。
 
 | 通道 | payload | 流控 |
 | --- | --- | --- |

@@ -1,10 +1,12 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
+// RV32 整数算术逻辑单元，组合实现算术、比较、移位和逻辑运算。
 module alu
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
+  // 运算请求与结果
   input alu_op_e alu_op_i,
   input word_t operand_a_i,
   input word_t operand_b_i,

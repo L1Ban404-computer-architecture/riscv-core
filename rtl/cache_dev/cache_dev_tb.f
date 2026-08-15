@@ -4,6 +4,8 @@
 rtl/common/riscv_common_pkg.sv
 rtl/bus/riscv_bus_pkg.sv
 rtl/cache_dev/cache_pkg.sv
+rtl/bus/riscv_bus_if.sv
+rtl/cache_dev/cache_if.sv
 rtl/cache_dev/cache_data_bank.sv
 rtl/cache_dev/cache_replacement_policy.sv
 rtl/cache_dev/cache_array.sv

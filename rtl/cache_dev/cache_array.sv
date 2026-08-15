@@ -1,9 +1,12 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// Cache data plane.  Raw per-way metadata never crosses this boundary: tag
-// comparison, hit data selection, victim selection, and Tree-PLRU live next to
-// the physical arrays.  Lookup responses are fixed-latency completion events.
+// Cache 阵列数据通路。
+//
+// 保存标签、有效位、脏位和数据，完成并行标签比较、命中数据选择、牺牲路选择、
+// 单字写入、整行安装和牺牲行读取。
+// 原始逐路元数据不得跨出本模块；查询响应延迟固定；同拍阵列操作互斥并按
+// 整行安装 > 单字写入 > 牺牲行读取 > 普通查询的顺序仲裁。
 `include "common/assertions.svh"
 
 module cache_array
@@ -30,56 +33,25 @@ module cache_array
       (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1,
   localparam int unsigned LineBits = BlockBytes * ByteW
 ) (
+  // 全局控制
   input logic clk_i,
   input logic rst_ni,
 
-  input logic lookup_req_valid_i,
-  output logic lookup_req_ready_o,
-  input logic [TxnIdW-1:0] lookup_req_txn_id_i,
-  input logic lookup_req_epoch_i,
-  input logic [SetIndexW-1:0] lookup_req_set_i,
-  input logic [TagW-1:0] lookup_req_tag_i,
-  input logic [WordIndexW-1:0] lookup_req_word_i,
+  // 查询事务
+  cache_lookup_req_if.consumer lookup_req,
+  cache_lookup_rsp_if.producer lookup_rsp,
 
-  output logic lookup_rsp_valid_o,
-  output logic [TxnIdW-1:0] lookup_rsp_txn_id_o,
-  output logic lookup_rsp_epoch_o,
-  output logic lookup_rsp_hit_o,
-  output logic [WayIndexW-1:0] lookup_rsp_hit_way_o,
-  output word_t lookup_rsp_rdata_o,
-  output logic [WayIndexW-1:0] lookup_rsp_victim_way_o,
-  output logic [TagW-1:0] lookup_rsp_victim_tag_o,
-  output logic lookup_rsp_victim_valid_o,
-  output logic lookup_rsp_victim_dirty_o,
-
-  input logic victim_req_valid_i,
-  output logic victim_req_ready_o,
-  input logic [SetIndexW-1:0] victim_req_set_i,
-  input logic [WayIndexW-1:0] victim_req_way_i,
-
-  output logic victim_rsp_valid_o,
-  input logic victim_rsp_ready_i,
-  output logic [LineBits-1:0] victim_rsp_line_o,
-
-  input logic word_write_valid_i,
-  output logic word_write_ready_o,
-  input logic [SetIndexW-1:0] word_write_set_i,
-  input logic [WayIndexW-1:0] word_write_way_i,
-  input logic [WordIndexW-1:0] word_write_word_i,
-  input word_t word_write_data_i,
-
-  input logic line_install_valid_i,
-  output logic line_install_ready_o,
-  input logic [SetIndexW-1:0] line_install_set_i,
-  input logic [WayIndexW-1:0] line_install_way_i,
-  input logic [LineBits-1:0] line_install_data_i,
-  input logic [TagW-1:0] line_install_tag_i,
-  input logic line_install_dirty_i,
-
-  input logic replacement_update_valid_i,
-  input logic [SetIndexW-1:0] replacement_update_set_i,
-  input logic [WayIndexW-1:0] replacement_update_way_i
+  // 阵列维护事务
+  cache_victim_req_if.consumer victim_req,
+  cache_victim_rsp_if.producer victim_rsp,
+  cache_word_write_if.consumer word_write,
+  cache_line_install_if.consumer line_install,
+  cache_replacement_update_if.consumer replacement_update
 );
+
+  //////////////////////////////
+  // 私有类型、阵列与流水状态 //
+  //////////////////////////////
 
   typedef logic [TxnIdW-1:0] txn_id_t;
   typedef logic [WayIndexW-1:0] way_index_t;
@@ -130,45 +102,53 @@ module cache_array
   logic [WayIndexW-1:0] lookup_hit_way;
   logic [WayIndexW-1:0] lookup_victim_way;
   lookup_rsp_t lookup_base_rsp;
-  lookup_rsp_t lookup_rsp;
+  lookup_rsp_t lookup_rsp_payload;
 
   logic victim_rsp_valid_q;
   logic [WayIndexW-1:0] victim_way_q;
 
-  // A pending victim response reserves the data banks until it is consumed.
-  // Among new operations, line installs have priority over word writes,
-  // victim reads, and lookups.
-  assign line_install_ready_o =
-      !victim_rsp_valid_q || victim_rsp_ready_i;
-  assign word_write_ready_o =
-      line_install_ready_o && !line_install_valid_i;
-  assign victim_req_ready_o =
-      word_write_ready_o && !word_write_valid_i;
-  assign lookup_req_ready_o =
-      victim_req_ready_o && !victim_req_valid_i;
+  //////////////////
+  // 阵列操作仲裁 //
+  //////////////////
 
-  assign lookup_fire = lookup_req_valid_i && lookup_req_ready_o;
-  assign victim_fire = victim_req_valid_i && victim_req_ready_o;
-  assign word_write_fire = word_write_valid_i && word_write_ready_o;
+  // 未被接收的牺牲行响应会持续占用数据 bank。新操作按“整行安装、单字写入、
+  // 牺牲行读取、普通查询”从高到低仲裁，避免同拍多写或读写目标冲突。
+  assign line_install.ready =
+      !victim_rsp_valid_q || victim_rsp.ready;
+  assign word_write.ready =
+      line_install.ready && !line_install.valid;
+  assign victim_req.ready =
+      word_write.ready && !word_write.valid;
+  assign lookup_req.ready =
+      victim_req.ready && !victim_req.valid;
+
+  assign lookup_fire = lookup_req.valid && lookup_req.ready;
+  assign victim_fire = victim_req.valid && victim_req.ready;
+  assign word_write_fire = word_write.valid && word_write.ready;
   assign line_install_fire =
-      line_install_valid_i && line_install_ready_o;
-  assign bank_read_set = victim_fire ? victim_req_set_i : lookup_req_set_i;
+      line_install.valid && line_install.ready;
+  assign bank_read_set = victim_fire ? victim_req.payload.set : lookup_req.payload.set;
+
+  ////////////////////////////
+  // 数据、标签与元数据阵列 //
+  ////////////////////////////
 
   for (genvar way = 0; way < WayCount; way++) begin : gen_way
     for (genvar bank = 0; bank < WordCount; bank++) begin : gen_word_bank
       assign bank_read_valid[way][bank] =
           (lookup_fire &&
-           (lookup_req_word_i == WordIndexW'(bank))) ||
+           (lookup_req.payload.word == WordIndexW'(bank))) ||
           (victim_fire &&
-           (victim_req_way_i == WayIndexW'(way)));
+           (victim_req.payload.way == WayIndexW'(way)));
       assign bank_write_valid[way][bank] =
           (line_install_fire &&
-           (line_install_way_i == WayIndexW'(way))) ||
+           (line_install.payload.way == WayIndexW'(way))) ||
           (word_write_fire &&
-           (word_write_way_i == WayIndexW'(way)) &&
-           (word_write_word_i == WordIndexW'(bank)));
+           (word_write.payload.way == WayIndexW'(way)) &&
+           (word_write.payload.word == WordIndexW'(bank)));
       assign bank_write_data[way][bank] = line_install_fire ?
-          line_install_data_i[bank * XLen +: XLen] : word_write_data_i;
+          line_install.payload.data[bank * XLen +: XLen] :
+          word_write.payload.data;
 
       cache_data_bank #(
         .SetCount(SetCount)
@@ -179,8 +159,8 @@ module cache_array
         .read_set_i(bank_read_set),
         .read_data_o(bank_read_data[way][bank]),
         .write_valid_i(bank_write_valid[way][bank]),
-        .write_set_i(line_install_fire ? line_install_set_i :
-                                           word_write_set_i),
+        .write_set_i(line_install_fire ? line_install.payload.set :
+                                           word_write.payload.set),
         .write_data_i(bank_write_data[way][bank])
       );
     end
@@ -192,7 +172,7 @@ module cache_array
     logic dirty_mem[WayCount][SetCount];
 
     for (genvar way = 0; way < WayCount; way++) begin : gen_dirty_read
-      assign dirty_read[way] = dirty_mem[way][lookup_req_set_i];
+      assign dirty_read[way] = dirty_mem[way][lookup_req.payload.set];
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -203,10 +183,10 @@ module cache_array
           end
         end
       end else if (line_install_fire) begin
-        dirty_mem[line_install_way_i][line_install_set_i] <=
-            line_install_dirty_i;
+        dirty_mem[line_install.payload.way][line_install.payload.set] <=
+            line_install.payload.dirty;
       end else if (word_write_fire) begin
-        dirty_mem[word_write_way_i][word_write_set_i] <= 1'b1;
+        dirty_mem[word_write.payload.way][word_write.payload.set] <= 1'b1;
       end
     end
   end
@@ -219,13 +199,14 @@ module cache_array
         end
       end
     end else if (line_install_fire) begin
-      valid_mem[line_install_way_i][line_install_set_i] <= 1'b1;
+      valid_mem[line_install.payload.way][line_install.payload.set] <= 1'b1;
     end
   end
 
   always_ff @(posedge clk_i) begin
     if (line_install_fire)
-      tag_mem[line_install_way_i][line_install_set_i] <= line_install_tag_i;
+      tag_mem[line_install.payload.way][line_install.payload.set] <=
+          line_install.payload.tag;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -233,18 +214,22 @@ module cache_array
     else lookup_base_valid_q <= lookup_fire;
   end
 
-  // Tag and metadata reads use the same request edge as the selected word-bank
-  // reads.  Only valid state is reset; tag and data payloads remain unreset.
+  //////////////////////
+  // 固定延迟查询流水 //
+  //////////////////////
+
+  // 标签、元数据和目标 word bank 在同一请求沿读取。复位只清除 valid 状态，
+  // 标签与数据内容不复位，并始终由 valid 位屏蔽其中的无效值。
   always_ff @(posedge clk_i) begin
     if (lookup_fire) begin
-      lookup_req_q.txn_id <= lookup_req_txn_id_i;
-      lookup_req_q.epoch <= lookup_req_epoch_i;
-      lookup_req_q.set <= lookup_req_set_i;
-      lookup_req_q.tag <= lookup_req_tag_i;
-      lookup_req_q.word <= lookup_req_word_i;
+      lookup_req_q.txn_id <= lookup_req.payload.txn_id;
+      lookup_req_q.epoch <= lookup_req.payload.epoch;
+      lookup_req_q.set <= lookup_req.payload.set;
+      lookup_req_q.tag <= lookup_req.payload.tag;
+      lookup_req_q.word <= lookup_req.payload.word;
       for (int unsigned way = 0; way < WayCount; way++) begin
-        lookup_tags_q[way] <= tag_mem[way][lookup_req_set_i];
-        lookup_valids_q[way] <= valid_mem[way][lookup_req_set_i];
+        lookup_tags_q[way] <= tag_mem[way][lookup_req.payload.set];
+        lookup_valids_q[way] <= valid_mem[way][lookup_req.payload.set];
         lookup_dirty_q[way] <= dirty_read[way];
       end
     end
@@ -287,8 +272,8 @@ module cache_array
   end
 
   if (LookupLatency == 1) begin : gen_one_cycle_lookup
-    assign lookup_rsp_valid_o = lookup_base_valid_q;
-    assign lookup_rsp = lookup_base_rsp;
+    assign lookup_rsp.valid = lookup_base_valid_q;
+    assign lookup_rsp_payload = lookup_base_rsp;
   end else begin : gen_pipelined_lookup
     lookup_rsp_t payload_q[LookupLatency-1];
     logic [LookupLatency-2:0] valid_q;
@@ -311,25 +296,21 @@ module cache_array
       end
     end
 
-    assign lookup_rsp_valid_o = valid_q[LookupLatency-2];
-    assign lookup_rsp = payload_q[LookupLatency-2];
+    assign lookup_rsp.valid = valid_q[LookupLatency-2];
+    assign lookup_rsp_payload = payload_q[LookupLatency-2];
   end
 
-  assign lookup_rsp_txn_id_o = lookup_rsp.txn_id;
-  assign lookup_rsp_epoch_o = lookup_rsp.epoch;
-  assign lookup_rsp_hit_o = lookup_rsp.hit;
-  assign lookup_rsp_hit_way_o = lookup_rsp.hit_way;
-  assign lookup_rsp_rdata_o = lookup_rsp.rdata;
-  assign lookup_rsp_victim_way_o = lookup_rsp.victim_way;
-  assign lookup_rsp_victim_tag_o = lookup_rsp.victim_tag;
-  assign lookup_rsp_victim_valid_o = lookup_rsp.victim_valid;
-  assign lookup_rsp_victim_dirty_o = lookup_rsp.victim_dirty;
+  assign lookup_rsp.payload = lookup_rsp_payload;
 
-  assign victim_rsp_valid_o = victim_rsp_valid_q;
+  ////////////////
+  // 牺牲行读取 //
+  ////////////////
+
+  assign victim_rsp.valid = victim_rsp_valid_q;
   always_comb begin
-    victim_rsp_line_o = '0;
+    victim_rsp.payload = '0;
     for (int unsigned bank = 0; bank < WordCount; bank++) begin
-      victim_rsp_line_o[bank * XLen +: XLen] =
+      victim_rsp.payload.line[bank * XLen +: XLen] =
           bank_read_data[victim_way_q][bank];
     end
   end
@@ -339,14 +320,18 @@ module cache_array
       victim_rsp_valid_q <= 1'b0;
       victim_way_q <= '0;
     end else begin
-      if (victim_rsp_valid_q && victim_rsp_ready_i)
+      if (victim_rsp_valid_q && victim_rsp.ready)
         victim_rsp_valid_q <= 1'b0;
       if (victim_fire) begin
         victim_rsp_valid_q <= 1'b1;
-        victim_way_q <= victim_req_way_i;
+        victim_way_q <= victim_req.payload.way;
       end
     end
   end
+
+  //////////////
+  // 替换策略 //
+  //////////////
 
   cache_replacement_policy #(
     .SetCount(SetCount),
@@ -357,16 +342,32 @@ module cache_array
     .select_set_i(lookup_req_q.set),
     .select_valid_i(lookup_valids_q),
     .victim_way_o(lookup_victim_way),
-    .access_valid_i(replacement_update_valid_i),
-    .access_set_i(replacement_update_set_i),
-    .access_way_i(replacement_update_way_i)
+    .access_valid_i(replacement_update.valid),
+    .access_set_i(replacement_update.payload.set),
+    .access_way_i(replacement_update.payload.way)
   );
+
+  ////////////////////
+  // 协议与参数断言 //
+  ////////////////////
 
   // verilog_format: off
   `ASSERT_INIT(CacheArrayLookupLatencyValid, LookupLatency > 0,
                "Cache lookup latency must be positive.")
+  `ASSERT_INIT(CacheArrayInterfaceWidths,
+               $bits(lookup_req.payload.txn_id) == TxnIdW &&
+                   $bits(lookup_req.payload.set) == SetIndexW &&
+                   $bits(lookup_req.payload.tag) == TagW &&
+                   $bits(lookup_req.payload.word) == WordIndexW &&
+                   $bits(lookup_rsp.payload.hit_way) == WayIndexW &&
+                   $bits(lookup_rsp.payload.rdata) == XLen &&
+                   $bits(victim_req.payload.way) == WayIndexW &&
+                   $bits(victim_rsp.payload.line) == LineBits &&
+                   $bits(word_write.payload.data) == XLen &&
+                   $bits(line_install.payload.data) == LineBits,
+               "Cache array geometry must match every connected interface.")
   `ASSERT(CacheArrayLookupResponseFixedLatency,
-          lookup_rsp_valid_o == $past(lookup_fire, LookupLatency),
+          lookup_rsp.valid == $past(lookup_fire, LookupLatency),
           clk_i, !rst_ni,
           "Every accepted lookup must return after exactly LookupLatency cycles.")
   `ASSERT(CacheArrayOperationsExclusive,
@@ -375,39 +376,32 @@ module cache_array
           clk_i, !rst_ni,
           "Lookup, victim read, word write, and line install operations must be exclusive.")
   `ASSERT(CacheArrayWriteRequestsExclusive,
-          !(word_write_valid_i && line_install_valid_i),
+          !(word_write.valid && line_install.valid),
           clk_i, !rst_ni,
           "Word write and line install requests must be exclusive.")
   `ASSERT(CacheArrayLookupRequestStable,
-          lookup_req_valid_i && !lookup_req_ready_o |=>
-              $stable({lookup_req_valid_i, lookup_req_txn_id_i,
-                       lookup_req_epoch_i, lookup_req_set_i, lookup_req_tag_i,
-                       lookup_req_word_i}),
+          lookup_req.valid && !lookup_req.ready |=>
+              $stable({lookup_req.valid, lookup_req.payload}),
           clk_i, !rst_ni,
           "Lookup request payload must remain stable while backpressured.")
   `ASSERT(CacheArrayVictimRequestStable,
-          victim_req_valid_i && !victim_req_ready_o |=>
-              $stable({victim_req_valid_i, victim_req_set_i,
-                       victim_req_way_i}),
+          victim_req.valid && !victim_req.ready |=>
+              $stable({victim_req.valid, victim_req.payload}),
           clk_i, !rst_ni,
           "Victim request payload must remain stable while backpressured.")
   `ASSERT(CacheArrayWordWriteStable,
-          word_write_valid_i && !word_write_ready_o |=>
-              $stable({word_write_valid_i, word_write_set_i,
-                       word_write_way_i, word_write_word_i,
-                       word_write_data_i}),
+          word_write.valid && !word_write.ready |=>
+              $stable({word_write.valid, word_write.payload}),
           clk_i, !rst_ni,
           "Word write payload must remain stable while backpressured.")
   `ASSERT(CacheArrayLineInstallStable,
-          line_install_valid_i && !line_install_ready_o |=>
-              $stable({line_install_valid_i, line_install_set_i,
-                       line_install_way_i, line_install_data_i,
-                       line_install_tag_i, line_install_dirty_i}),
+          line_install.valid && !line_install.ready |=>
+              $stable({line_install.valid, line_install.payload}),
           clk_i, !rst_ni,
           "Line install payload must remain stable while backpressured.")
   `ASSERT(CacheArrayVictimResponseStable,
-          victim_rsp_valid_o && !victim_rsp_ready_i |=>
-              $stable({victim_rsp_valid_o, victim_rsp_line_o}),
+          victim_rsp.valid && !victim_rsp.ready |=>
+              $stable({victim_rsp.valid, victim_rsp.payload}),
           clk_i, !rst_ni,
           "Victim line must remain stable while its response is backpressured.")
   `ASSERT(CacheArrayLookupHitUnique,
@@ -423,11 +417,11 @@ module cache_array
 
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheArrayReadOnlyWordWrite,
-            !word_write_valid_i,
+            !word_write.valid,
             clk_i, !rst_ni,
             "A read-only cache may install refill lines but cannot commit stores.")
     `ASSERT(CacheArrayReadOnlyDirtyInstall,
-            line_install_valid_i |-> !line_install_dirty_i,
+            line_install.valid |-> !line_install.payload.dirty,
             clk_i, !rst_ni,
             "A read-only cache must install clean lines.")
   end

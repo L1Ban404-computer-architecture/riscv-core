@@ -17,7 +17,7 @@ rtl/common/          ready/valid 基础单元和公共 assertion 宏
 `riscv_core_impl.sv` 只负责内部核心连接；`rtl/top/ysyx_25080230.sv` 保持公开
 SoC ABI。跨子系统共享的字宽和标量类型由
 `rtl/common/riscv_common_pkg.sv` 唯一定义；`rtl/bus/riscv_bus_pkg.sv` 只拥有
-CoreBus/AXI4 协议结构和常量，`rtl/core/riscv_core_pkg.sv` 与
+CoreBus/AXI4 协议枚举和常量，`rtl/core/riscv_core_pkg.sv` 与
 `rtl/cache_dev/cache_pkg.sv` 只聚合各自领域声明。common 声明不通过领域 package
 间接重导出；为了兼容 yosys-slang，直接使用 `XLen`、`ByteW`、`StrbW`、`word_t`
 或 `byte_en_t` 的模块必须显式导入 `riscv_common_pkg`，package 内部则使用
@@ -26,9 +26,12 @@ compilation-unit scope 或依赖工具的库文件解析顺序。
 
 `riscv_common_pkg` 必须保持为无依赖的最底层 package，不得加入具体总线协议或子系统
 私有声明。其他 package 只保存跨模块共享且不依赖实例参数的常量、类型和纯函数。依赖实例几何的跨模块
-协议直接暴露语义字段，字段位宽由两端相同的基础配置参数推导；所有派生宽度使用
-`localparam`，不得作为可覆盖参数。模块私有状态、流水 payload、只使用一次的实现类型
-和状态相关函数继续留在拥有者模块中。公共 include 根固定为 `rtl/`，引用 `.svh` 时带上
+协议使用专属 interface 直接暴露具名语义字段，字段位宽由 interface 的基础配置参数
+推导；所有派生宽度使用 `localparam`，不得作为可覆盖参数。文件列表必须遵循
+package → interface → module 的编译顺序。interface 不拥有时钟、复位或行为 assertion；
+模块端口使用 `master/slave/producer/consumer/monitor` modport 明确方向，行为约束留在
+协议拥有者模块。模块私有状态、只使用一次的实现类型和状态相关函数继续留在拥有者模块中；
+跨流水级共享的 payload 类型集中放在 `riscv_core_pkg`。公共 include 根固定为 `rtl/`，引用 `.svh` 时带上
 子系统目录名。
 
 ## 编码规则
@@ -38,11 +41,16 @@ compilation-unit scope 或依赖工具的库文件解析顺序。
 - 输入、输出分别使用 `_i`、`_o`；寄存器状态和下一状态使用 `_q`、`_d`。
 - 主时钟和低有效复位命名为 `clk_i`、`rst_ni`。
 - 组合块先给默认值，避免 latch；互斥且完整的分支优先使用 `unique case`。
-- 流水 payload 使用 packed struct，控制选择使用有明确位宽的 enum。
-- 同一 ABI 类型只允许一个 package 实际定义，其他模块通过显式 package import 或限定名重用；
-  不得复制一份字段相同的 struct。
+- 跨模块流水 payload 使用独立 interface 的具名字段；控制选择使用有明确位宽的 enum。
+- packed struct 只允许保存模块内部状态或 FIFO payload，不得出现在模块端口。拥有状态
+  的模块在 interface 字段与私有 payload 之间显式打包、解包。
 - ready/valid 在受背压时必须保持 valid 和 payload 稳定。
 - 优先复用 `stream_register`、`fall_through_register` 和 `stream_fifo`。
+
+每个自有模块在声明前用一至数句自然语言说明职责；只有确实影响使用方式的关键约束
+才写入模块说明，不设置“功能”“约束”等固定字段。端口区只用简短注释分组，不描述
+内部实现。模块内仅为状态机、主要数据通路、寄存器组等独立功能区使用三行 `//` 框式
+标题；较小的局部逻辑不加分隔横幅。
 
 注释应解释协议假设、优先级和非直观状态转换，并放在对应 RTL 附近；不要在文档
 中复制实现过程，也不要写仅重复代码表面的注释。关键握手和状态约束使用
@@ -62,12 +70,14 @@ compilation-unit scope 或依赖工具的库文件解析顺序。
 ```bash
 make lint       # SystemVerilog lint
 make verilator  # 构建 ysyx_25080230 C++ 模型
-make yosys-slang # 使用 yosys-slang 检查 core 和 cache 综合入口
+make bus-width-test # 运行 40/64/6 非默认总线配置自检
+make yosys-slang # 检查 core、cache 及非默认总线综合入口
 make check      # 执行 lint、Verilator 和 yosys-slang 检查
 ```
 
-yosys-slang 检查使用 `--single-unit`，保证由 `riscv_common_pkg.sv` 首次包含的
-assertion 宏对整个 filelist 可见。`rtl/cache_dev/` 下的 testbench 仍由 Verilator
-仿真，不作为 Yosys 综合顶层。
+yosys-slang 检查使用 `--single-unit`。由于该前端不允许带未连接 interface 端口的裸
+顶层，cache 和非默认总线检查使用 `cache_synth_top`、`bus_width_synth_top` 轻量封装；
+它们只实例化 interface 并提供确定的对端输入，不属于公开集成 ABI。仿真 assertion 在
+`SYNTHESIS` 下自动移除。`rtl/cache_dev/` 下的功能 testbench 仍由 Verilator 仿真。
 
 生成文件统一写入 `build/`，不应手工修改或提交。

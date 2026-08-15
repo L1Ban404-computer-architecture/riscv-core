@@ -1,8 +1,11 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// Per-set Tree-PLRU.  Invalid ways always win in ascending way order.  A PLRU
-// node bit points at the subtree selected for the next replacement.
+// Cache Tree-PLRU 替换策略。
+//
+// 为每个组维护 Tree-PLRU 状态，并根据有效位选择下一牺牲路。
+// 无效路按路号升序优先；全部有效时按 PLRU 树选择；组数和路数必须为
+// 正二次幂；直接映射配置不保存替换状态。
 `include "common/assertions.svh"
 
 module cache_replacement_policy
@@ -15,17 +18,24 @@ module cache_replacement_policy
   localparam int unsigned WayIndexW =
       (WayCount > 1) ? $clog2(WayCount) : 1
 ) (
+  // 全局控制
   input logic clk_i,
   input logic rst_ni,
 
+  // 牺牲路查询
   input logic [SetIndexW-1:0] select_set_i,
   input logic [WayCount-1:0] select_valid_i,
   output logic [WayIndexW-1:0] victim_way_o,
 
+  // 访问状态更新
   input logic access_valid_i,
   input logic [SetIndexW-1:0] access_set_i,
   input logic [WayIndexW-1:0] access_way_i
 );
+
+  ///////////////////////////////
+  // 直接映射与 Tree-PLRU 实现 //
+  ///////////////////////////////
 
   if (WayCount == 1) begin : gen_direct_mapped
     assign victim_way_o = '0;
@@ -106,6 +116,10 @@ module cache_replacement_policy
             clk_i, !rst_ni,
             "A PLRU update must identify an implemented cache way.")
   end
+
+  //////////////
+  // 参数断言 //
+  //////////////
 
   `ASSERT_INIT(CacheReplacementSetCountValid,
                cache_is_power_of_two(SetCount),
