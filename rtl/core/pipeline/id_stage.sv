@@ -46,12 +46,12 @@ module id_stage
   //////////////////////////////
 
   decoder u_decoder (
-    .instr_i(if_id_payload.instr),
+    .instr_i(if_id_payload.meta.instr),
     .decode_o(decoded)
   );
 
   imm_gen u_imm_gen (
-    .instr_i(if_id_payload.instr[31:7]),
+    .instr_i(if_id_payload.meta.instr[31:7]),
     .imm_type_i(decoded.imm_type),
     .imm_o(decoded_imm)
   );
@@ -71,14 +71,12 @@ module id_stage
 
   always_comb begin
     decoded_id_ex_bus = '0;
-    decoded_id_ex_bus.pc = if_id_payload.pc;
-    decoded_id_ex_bus.instr = if_id_payload.instr;
+    decoded_id_ex_bus.meta = if_id_payload.meta;
     decoded_id_ex_bus.reg_addr = decoded.reg_addr;
     decoded_id_ex_bus.exec_data.rs1_value = rs1_value;
     decoded_id_ex_bus.exec_data.rs2_value = rs2_value;
     decoded_id_ex_bus.exec_data.imm = decoded_imm;
     decoded_id_ex_bus.ctrl = decoded.ctrl;
-    decoded_id_ex_bus.debug = if_id_payload.debug;
     // IF 异常年龄更老且优先。仅在取指正常时，ID 才根据译码补充同步异常。
     decoded_id_ex_bus.exception = if_id_payload.exception;
     if (!if_id_payload.exception.valid) begin
@@ -86,7 +84,7 @@ module id_stage
         decoded_id_ex_bus.exception = '0;
         decoded_id_ex_bus.exception.valid = 1'b1;
         decoded_id_ex_bus.exception.cause = EXC_ILLEGAL_INSTR;
-        decoded_id_ex_bus.exception.tval = if_id_payload.instr;
+        decoded_id_ex_bus.exception.tval = if_id_payload.meta.instr;
       end else if (decoded.ctrl.system_op == SYS_ECALL) begin
         decoded_id_ex_bus.exception = '0;
         decoded_id_ex_bus.exception.valid = 1'b1;

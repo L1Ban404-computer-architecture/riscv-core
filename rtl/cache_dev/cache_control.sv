@@ -257,16 +257,16 @@ module cache_control
   // CoreBus 只允许由顺序事务表的队首产生完成响应，确保内部乱序完成不会改变外部顺序。
   assign core_bus.rsp_valid =
       (usage_q != '0) && (txn_q[head_q].state == TxnDone);
-  assign core_bus.rdata = txn_q[head_q].rdata;
-  assign core_bus.error = txn_q[head_q].error;
+  assign core_bus.rsp_payload.rdata = txn_q[head_q].rdata;
+  assign core_bus.rsp_payload.error = txn_q[head_q].error;
   assign core_response_fire = core_bus.rsp_valid && core_bus.rsp_ready;
 
   assign queue_credit =
       (usage_q < txn_count_t'(MaxOutstanding)) || core_response_fire;
   assign direct_lookup_allowed = (state_q == StateRun) &&
       !store_context.active && queue_credit &&
-      (!ReadOnly || !core_bus.write) &&
-      (!core_bus.write || (lookup_inflight_q == '0));
+      (!ReadOnly || !core_bus.req_payload.write) &&
+      (!core_bus.req_payload.write || (lookup_inflight_q == '0));
   assign direct_lookup_valid = direct_lookup_allowed && core_bus.req_valid;
   assign replay_lookup_valid =
       (state_q == StateReplay) && (replay_remaining_q != '0);
@@ -286,10 +286,10 @@ module cache_control
       lookup_req.valid = 1'b1;
       lookup_req.payload.txn_id = tail_q;
       lookup_req.payload.set =
-          block_set(core_bus.addr[XLen-1:BlockOffsetW]);
+          block_set(core_bus.req_payload.addr[XLen-1:BlockOffsetW]);
       lookup_req.payload.tag =
-          block_tag(core_bus.addr[XLen-1:BlockOffsetW]);
-      lookup_req.payload.word = address_word(core_bus.addr);
+          block_tag(core_bus.req_payload.addr[XLen-1:BlockOffsetW]);
+      lookup_req.payload.word = address_word(core_bus.req_payload.addr);
     end
   end
 
@@ -462,7 +462,7 @@ module cache_control
     end
   end
 
-  assign store_capture = core_request_fire && core_bus.write;
+  assign store_capture = core_request_fire && core_bus.req_payload.write;
   assign store_release = store_commit_fire ||
       (refill_rsp_fire && miss_context_q.is_store);
   assign store_hit_capture = lookup_response_current &&
@@ -487,7 +487,8 @@ module cache_control
     logic unused_store_inputs;
 
     assign store_context = '0;
-    assign unused_store_inputs = ^{core_bus.wdata, core_bus.wstrb,
+    assign unused_store_inputs = ^{core_bus.req_payload.wdata,
+        core_bus.req_payload.wstrb,
         store_capture, store_release, store_hit_capture, store_hit};
   end else begin : gen_store_context
     store_context_t store_context_q;
@@ -502,8 +503,8 @@ module cache_control
         if (store_capture) begin
           store_context_q.active <= 1'b1;
           store_context_q.txn_id <= tail_q;
-          store_context_q.wdata <= core_bus.wdata;
-          store_context_q.wstrb <= core_bus.wstrb;
+          store_context_q.wdata <= core_bus.req_payload.wdata;
+          store_context_q.wstrb <= core_bus.req_payload.wstrb;
         end
         if (store_hit_capture) begin
           store_context_q.commit_set <= store_hit.set;
@@ -563,8 +564,8 @@ module cache_control
     if (core_request_fire) begin
       txn_d[tail_q].state = TxnInflight;
       txn_d[tail_q].block_addr =
-          core_bus.addr[XLen-1:BlockOffsetW];
-      txn_d[tail_q].word = address_word(core_bus.addr);
+          core_bus.req_payload.addr[XLen-1:BlockOffsetW];
+      txn_d[tail_q].word = address_word(core_bus.req_payload.addr);
       txn_d[tail_q].rdata = '0;
       txn_d[tail_q].error = 1'b0;
     end
@@ -648,8 +649,8 @@ module cache_control
 
   // verilog_format: off
   `ASSERT_INIT(CacheControlInterfaceWidths,
-               $bits(core_bus.addr) == XLen &&
-                   $bits(core_bus.wdata) == XLen &&
+               $bits(core_bus.req_payload.addr) == XLen &&
+                   $bits(core_bus.req_payload.wdata) == XLen &&
                    $bits(lookup_req.payload.txn_id) == TxnIdW &&
                    $bits(lookup_req.payload.set) == SetIndexW &&
                    $bits(lookup_req.payload.tag) == TagW &&
@@ -666,8 +667,7 @@ module cache_control
                "Cache control geometry must match every connected interface.")
   `ASSERT(CacheCoreResponseStable,
           core_bus.rsp_valid && !core_bus.rsp_ready |=>
-              $stable({core_bus.rsp_valid, core_bus.rdata,
-                       core_bus.error}),
+              $stable({core_bus.rsp_valid, core_bus.rsp_payload}),
           clk_i, !rst_ni,
           "CoreBus response payload must remain stable while backpressured.")
   `ASSERT(CacheControlLookupRequestStable,
@@ -719,29 +719,31 @@ module cache_control
           clk_i, !rst_ni,
           "Replacement state may update only for a committed cache access.")
   `ASSERT(CacheStoreWaitsForOlderLookups,
-          core_request_fire && core_bus.write |->
+          core_request_fire && core_bus.req_payload.write |->
               (lookup_inflight_q == '0),
           clk_i, !rst_ni,
           "A store may issue only after all older lookups have resolved.")
   `ASSERT(CacheCoreRequestSizeValid,
-          core_bus.req_valid |-> (core_bus.size <= CORE_BUS_SIZE_WORD),
+          core_bus.req_valid |->
+              (core_bus.req_payload.size <= CORE_BUS_SIZE_WORD),
           clk_i, !rst_ni,
           "Cache requests support byte, halfword, and word accesses.")
   `ASSERT(CacheCoreRequestAligned,
           core_bus.req_valid |->
-              ((core_bus.size == CORE_BUS_SIZE_BYTE) ||
-               ((core_bus.size == CORE_BUS_SIZE_HALF) && !core_bus.addr[0]) ||
-               ((core_bus.size == CORE_BUS_SIZE_WORD) &&
-                (core_bus.addr[1:0] == '0))),
+              ((core_bus.req_payload.size == CORE_BUS_SIZE_BYTE) ||
+               ((core_bus.req_payload.size == CORE_BUS_SIZE_HALF) &&
+                !core_bus.req_payload.addr[0]) ||
+               ((core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
+                (core_bus.req_payload.addr[1:0] == '0))),
           clk_i, !rst_ni,
           "Cache requests must be naturally aligned.")
   `ASSERT(CacheCoreRequestStrobeValid,
           core_bus.req_valid |->
-              (core_bus.write ?
-                   (core_bus.wstrb ==
-                    expected_store_strobe(core_bus.addr,
-                                          core_bus.size)) :
-                   (core_bus.wstrb == '0)),
+              (core_bus.req_payload.write ?
+                   (core_bus.req_payload.wstrb ==
+                    expected_store_strobe(core_bus.req_payload.addr,
+                                          core_bus.req_payload.size)) :
+                   (core_bus.req_payload.wstrb == '0)),
           clk_i, !rst_ni,
           "CoreBus byte strobes must match the request address and size.")
   `ASSERT(CacheReplayEntryExpected,
@@ -753,7 +755,7 @@ module cache_control
 
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheControlReadOnlyRequest,
-            core_bus.req_valid |-> !core_bus.write,
+          core_bus.req_valid |-> !core_bus.req_payload.write,
             clk_i, !rst_ni,
             "A read-only cache control plane must never receive a write request.")
     `ASSERT(CacheControlReadOnlyWriteback,

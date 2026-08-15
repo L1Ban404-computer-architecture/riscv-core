@@ -37,7 +37,7 @@ module corebus_addr_router
   logic request_fire;
   logic response_fire;
 
-  assign request_device = (master_bus.addr & DeviceMask) ==
+  assign request_device = (master_bus.req_payload.addr & DeviceMask) ==
       (DeviceBase & DeviceMask);
   assign active_device = busy_q ? owner_device_q : request_device;
 
@@ -46,16 +46,8 @@ module corebus_addr_router
   ////////////////////
 
   always_comb begin
-    device_bus.addr = master_bus.addr;
-    device_bus.write = master_bus.write;
-    device_bus.size = master_bus.size;
-    device_bus.wdata = master_bus.wdata;
-    device_bus.wstrb = master_bus.wstrb;
-    fallback_bus.addr = master_bus.addr;
-    fallback_bus.write = master_bus.write;
-    fallback_bus.size = master_bus.size;
-    fallback_bus.wdata = master_bus.wdata;
-    fallback_bus.wstrb = master_bus.wstrb;
+    device_bus.req_payload = master_bus.req_payload;
+    fallback_bus.req_payload = master_bus.req_payload;
 
     // 路由器最多允许一笔未完成事务，与当前精确异常 LSU 的单 outstanding 约束一致。
     device_bus.req_valid = master_bus.req_valid && !busy_q && request_device;
@@ -64,8 +56,7 @@ module corebus_addr_router
     fallback_bus.rsp_ready = master_bus.rsp_ready && !active_device;
 
     master_bus.req_ready = 1'b0;
-    master_bus.rdata = '0;
-    master_bus.error = 1'b0;
+    master_bus.rsp_payload = '0;
     master_bus.rsp_valid = 1'b0;
     if (!busy_q) begin
       master_bus.req_ready = request_device ? device_bus.req_ready :
@@ -75,12 +66,10 @@ module corebus_addr_router
     // 接受请求的同拍即按当前地址选择响应源，使 CoreBus 仍支持从设备零延迟响应。
     if (busy_q || master_bus.req_valid) begin
       if (active_device) begin
-        master_bus.rdata = device_bus.rdata;
-        master_bus.error = device_bus.error;
+        master_bus.rsp_payload = device_bus.rsp_payload;
         master_bus.rsp_valid = device_bus.rsp_valid;
       end else begin
-        master_bus.rdata = fallback_bus.rdata;
-        master_bus.error = fallback_bus.error;
+        master_bus.rsp_payload = fallback_bus.rsp_payload;
         master_bus.rsp_valid = fallback_bus.rsp_valid;
       end
     end
@@ -98,13 +87,13 @@ module corebus_addr_router
                DataWidth >= 8 && (DataWidth % 8) == 0 &&
                    (DataWidth & (DataWidth - 1)) == 0)
   `ASSERT_INIT(CoreBusRouterMasterAddrWidth,
-               $bits(master_bus.addr) == AddrWidth)
+               $bits(master_bus.req_payload.addr) == AddrWidth)
   `ASSERT_INIT(CoreBusRouterMasterDataWidth,
-               $bits(master_bus.wdata) == DataWidth)
+               $bits(master_bus.req_payload.wdata) == DataWidth)
   `ASSERT_INIT(CoreBusRouterDeviceAddrWidth,
-               $bits(device_bus.addr) == AddrWidth)
+               $bits(device_bus.req_payload.addr) == AddrWidth)
   `ASSERT_INIT(CoreBusRouterFallbackDataWidth,
-               $bits(fallback_bus.wdata) == DataWidth)
+               $bits(fallback_bus.req_payload.wdata) == DataWidth)
 
   ////////////////////
   // 目标所有权寄存 //

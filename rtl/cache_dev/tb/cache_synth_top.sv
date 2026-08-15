@@ -32,25 +32,18 @@ module cache_synth_top
     .IdWidth(IdWidth)
   ) axi();
 
-  assign core_bus.addr = '0;
-  assign core_bus.write = 1'b0;
-  assign core_bus.size = riscv_bus_pkg::CORE_BUS_SIZE_WORD;
-  assign core_bus.wdata = '0;
-  assign core_bus.wstrb = '0;
+  assign core_bus.req_payload = '0;
+  assign core_bus.req_payload.size = riscv_bus_pkg::CORE_BUS_SIZE_WORD;
   assign core_bus.req_valid = 1'b0;
   assign core_bus.rsp_ready = 1'b0;
 
   assign axi.awready = 1'b0;
   assign axi.wready = 1'b0;
   assign axi.bvalid = 1'b0;
-  assign axi.bresp = '0;
-  assign axi.bid = '0;
+  assign axi.b_payload = '0;
   assign axi.arready = 1'b0;
   assign axi.rvalid = 1'b0;
-  assign axi.rresp = '0;
-  assign axi.rdata = '0;
-  assign axi.rlast = 1'b0;
-  assign axi.rid = '0;
+  assign axi.r_payload = '0;
 
   //////////////////////////
   // Cache 实例与活动汇聚 //
@@ -67,10 +60,10 @@ module cache_synth_top
     .axi
   );
 
-  assign activity_o = ^{core_bus.req_ready, core_bus.rdata, core_bus.error,
-                        core_bus.rsp_valid, axi.awvalid, axi.awaddr,
-                        axi.awid, axi.wvalid, axi.wdata, axi.wstrb,
-                        axi.bready, axi.arvalid, axi.araddr, axi.arid,
+  assign activity_o = ^{core_bus.req_ready, core_bus.rsp_payload,
+                        core_bus.rsp_valid, axi.awvalid, axi.aw_payload,
+                        axi.wvalid, axi.w_payload,
+                        axi.bready, axi.arvalid, axi.ar_payload,
                         axi.rready};
 
 endmodule

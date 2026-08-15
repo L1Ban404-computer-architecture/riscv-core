@@ -9,12 +9,34 @@ CoreBus 是核心内部连接取指、访存和总线适配器的轻量级顺序
 从实例外覆盖。`master`、`slave` 和 `monitor` modport 分别用于发起端、接收端和只读
 scoreboard；跨模块端口必须声明合适的 modport。
 
+## Payload 与握手边界
+
+CoreBus 将请求和响应分别封装成 typed payload；`valid/ready` 独立存在，不放入
+payload，也不在 interface 中保留同一字段的兼容别名：
+
+```systemverilog
+core_bus.req_payload.addr
+core_bus.req_payload.wdata
+core_bus.rsp_payload.rdata
+core_bus.rsp_payload.error
+core_bus.req_valid, core_bus.req_ready
+core_bus.rsp_valid, core_bus.rsp_ready
+```
+
+| payload | 字段 |
+| --- | --- |
+| `req_payload_t` | `addr`、`write`、`size`、`wdata`、`wstrb` |
+| `rsp_payload_t` | `rdata`、`error` |
+
+接口参数决定 payload 内字段宽度；请求或响应整体赋值适用于同一几何的总线连接。
+只有在 `mem_size_e` 与 `core_bus_size_e` 等不同协议类型之间才保留显式字段转换。
+
 ## 信号方向
 
 | 方向 | 主要字段 |
 | --- | --- |
-| master -> slave | `addr`、`write`、`size`、`wdata`、`wstrb`、`req_valid`、`rsp_ready` |
-| slave -> master | `req_ready`、`rdata`、`error`、`rsp_valid` |
+| master -> slave | `req_payload`、`req_valid`、`rsp_ready` |
+| slave -> master | `req_ready`、`rsp_payload`、`rsp_valid` |
 
 请求和响应各自使用 ready/valid：
 
@@ -60,8 +82,20 @@ RTL 中保留请求、响应稳定性和关键编码约束的仿真 assertion。
 同文件中的 `axi4_if` 保存项目使用的 AXI4 五通道子集，提供相同的
 `master/slave/monitor` modport。`AddrWidth=32`、`DataWidth=32`、`IdWidth=4` 为默认值，
 strobe 宽度由数据宽度自动派生；LEN、SIZE、BURST 和 RESP 等协议字段保持 AXI 固定
-宽度。AXI ID 常量是 package 中的整数，在连接具体 interface 时按 `IdWidth` 显式转换，
-拥有行为的模块同时检查常量可表示性。
+宽度。每个通道的数据字段也分别组成 payload，握手仍是独立的标量：
+
+| 通道 | payload 字段 |
+| --- | --- |
+| AW | `addr`、`id`、`len`、`size`、`burst` |
+| W | `data`、`strb`、`last` |
+| B | `resp`、`id` |
+| AR | `addr`、`id`、`len`、`size`、`burst` |
+| R | `resp`、`data`、`last`、`id` |
+
+例如 `axi.aw_payload.addr` 与 `axi.awvalid` 配套使用。AXI ID 常量是 package 中的
+整数，在连接具体 interface 时按 `IdWidth` 显式转换，拥有行为的模块同时检查常量
+可表示性。AXI mux 在通道边界整体转移 payload；读响应 FIFO 可以使用局部等价类型，
+但只在 FIFO 边界做一次结构转换。
 
 通用 `corebus_addr_router` 和 `cache_axi4_mux` 支持非默认几何。仓库用 40-bit 地址、
 64-bit 数据、6-bit ID 的自检覆盖高地址位、8-bit strobe、ID 路由和背压。RV32 core、

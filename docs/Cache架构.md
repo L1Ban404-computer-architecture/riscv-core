@@ -58,8 +58,9 @@ cache_if.sv                 参数化 cache 内部语义 interface
 ```
 
 各 package 不保存依赖实例参数的 packed bus 类型。每个 RTL 和 testbench 显式导入
-需要的 package，cache 不依赖 core 专属 package。CoreBus、AXI 和 cache 内部协议由
-同一规范 interface 定义，并通过 modport 限制方向。
+需要的 package，cache 不依赖 core 专属 package。CoreBus 和 AXI 的参数化 interface
+分别提供 `req_payload/rsp_payload` 与五个 AXI channel payload；握手信号独立存在，
+并通过 modport 限制方向。cache 内部协议也遵循同样的 `payload + valid/ready` 边界。
 
 核心内部的 `mem_size_e` 表示 RISC-V load/store 执行宽度，CoreBus 的
 `core_bus_size_e` 表示协议传输宽度。两者虽然都采用 `log2(字节数)` 编码，但不共享
@@ -68,6 +69,11 @@ cache_if.sv                 参数化 cache 内部语义 interface
 `cache_pkg` 中的 `automatic function` 只处理与实例几何无关的逻辑，例如参数合法性、
 32 位 store byte merge 和合法 strobe 计算。依赖 `BlockBytes`、`SetCount`、
 `WayCount` 或 `MaxOutstanding` 的类型和函数仍在对应参数作用域中定义。
+
+CoreBus 请求和响应应整体传递：请求字段从 `core_bus.req_payload` 读取，响应字段从
+`core_bus.rsp_payload` 读取；AXI mux 和 refill engine 对 AW/W/B/AR/R 分别整体传递
+对应 channel payload。跨协议的 `mem_size_e` 到 `core_bus_size_e` 转换仍只在 MEM
+边界逐项完成，不通过强制类型转换隐藏编码假设。
 
 ## 模块分工
 

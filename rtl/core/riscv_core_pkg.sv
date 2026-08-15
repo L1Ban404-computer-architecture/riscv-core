@@ -262,23 +262,66 @@ package riscv_core_pkg;
   } commit_ctrl_payload_t;
 
   //////////////////////////////////
-  // 调试与性能观测事务 payload 类型 //
+  // 提交、调试与性能观测 payload 类型 //
   //////////////////////////////////
 
-  // 退休调试 payload。功能流水级逐步补充字段，WB 在唯一提交点完成最终快照。
+  // 指令的不可变元数据。它是流水线事务的唯一 PC/指令来源，避免外层字段和
+  // debug 字段重复携带相同信息。
   typedef struct packed {
     pc_t pc;
     instr_t instr;
     logic [63:0] instid;
-    logic gpr_we;
-    reg_addr_t gpr_waddr;
-    riscv_common_pkg::word_t gpr_wdata;
+  } instruction_meta_payload_t;
+
+  // MEM 完成后仍需送达退休观察端的访存结果。功能 mem_req 仍独立保留 sign_ext
+  // 和原始 store 数据，避免调试语义反向约束执行请求。
+  typedef struct packed {
     retire_mem_op_e mem_op;
     mem_size_e mem_size;
     riscv_common_pkg::word_t mem_addr;
     riscv_common_pkg::word_t mem_data;
-    logic redirect_valid;
-    pc_t redirect_target_pc;
+  } retire_mem_payload_t;
+
+  typedef struct packed {
+    logic valid;
+    pc_t target_pc;
+  } retire_redirect_payload_t;
+
+  // 尚未返回的 load 目标寄存器；valid 属于该组合旁路事件，不重复放入 payload。
+  typedef struct packed {
+    reg_addr_t rd_addr;
+  } mem_pending_payload_t;
+
+  // WB 到 CSR 单元的完整架构状态更新请求。
+  typedef struct packed {
+    csr_write_payload_t write;
+    logic trap;
+    riscv_common_pkg::word_t trap_epc;
+    logic trap_is_interrupt;
+    exception_cause_e trap_cause;
+    riscv_common_pkg::word_t trap_tval;
+    logic mret;
+  } csr_commit_payload_t;
+
+  // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在 outstanding 完成时修改
+  // retire_mem.mem_data，其余字段直接整体转移。
+  typedef struct packed {
+    instruction_meta_payload_t meta;
+    writeback_payload_t wb_req;
+    exception_payload_t exception;
+    commit_ctrl_payload_t commit;
+    retire_mem_payload_t retire_mem;
+    retire_redirect_payload_t redirect;
+  } commit_context_payload_t;
+
+  // 完整退休快照只在 WB 生成，CSR 快照和 GPR 写回字段不再随流水线传播。
+  typedef struct packed {
+    instruction_meta_payload_t meta;
+    logic gpr_we;
+    reg_addr_t gpr_waddr;
+    riscv_common_pkg::word_t gpr_wdata;
+    retire_mem_payload_t mem;
+    retire_redirect_payload_t redirect;
     csr_state_payload_t csr;
   } retire_debug_payload_t;
 
@@ -305,39 +348,27 @@ package riscv_core_pkg;
   // 流水级边界事务 //
   ////////////////////
 
-  // 四个流水级边界的公共事务类型；越靠后只保留仍可能影响提交的功能字段。
+  // 四个流水级边界的事务类型；越靠后只保留仍可能影响提交的功能字段。
   typedef struct packed {
-    pc_t pc;
-    instr_t instr;
+    instruction_meta_payload_t meta;
     exception_payload_t exception;
-    retire_debug_payload_t debug;
   } if_id_payload_t;
 
   typedef struct packed {
-    pc_t pc;
-    instr_t instr;
+    instruction_meta_payload_t meta;
     reg_addr_payload_t reg_addr;
     exec_data_payload_t exec_data;
     execute_ctrl_payload_t ctrl;
     exception_payload_t exception;
-    retire_debug_payload_t debug;
   } id_ex_payload_t;
 
   typedef struct packed {
-    pc_t pc;
+    // "context" is a SystemVerilog keyword in the target toolchain; keep the
+    // same semantic boundary under a tool-safe field name.
+    commit_context_payload_t commit_ctx;
     mem_req_payload_t mem_req;
-    writeback_payload_t wb_req;
-    exception_payload_t exception;
-    commit_ctrl_payload_t commit;
-    retire_debug_payload_t debug;
   } ex_mem_payload_t;
 
-  typedef struct packed {
-    pc_t pc;
-    writeback_payload_t wb_req;
-    exception_payload_t exception;
-    commit_ctrl_payload_t commit;
-    retire_debug_payload_t debug;
-  } mem_wb_payload_t;
+  typedef commit_context_payload_t mem_wb_payload_t;
 
 endpackage

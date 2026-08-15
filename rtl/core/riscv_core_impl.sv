@@ -57,15 +57,15 @@ module riscv_core_impl
   // 分支只需要刷新前端；WB 的 trap/MRET 同时刷新前端和后端。
   // WB 更老，因此它的目标地址覆盖同周期 EX 产生的分支目标。
   assign resolved_redirect.valid = wb_redirect.valid || ex_redirect.valid;
-  assign resolved_redirect.target_pc = wb_redirect.valid ?
-      wb_redirect.target_pc : ex_redirect.target_pc;
+  assign resolved_redirect.payload.target_pc = wb_redirect.valid ?
+      wb_redirect.payload.target_pc : ex_redirect.payload.target_pc;
   // CSR/SYSTEM 在 ID/EX 至 WB 期间构成串行屏障。它进入 EX 前先等待更老
   // EX/MEM、LSU outstanding 和 MEM/WB 排空，因此 CSR 读取无需专用前递。
   assign serialize_block =
       (id_ex.valid && (id_ex.payload.ctrl.serialize ||
                        id_ex.payload.exception.valid)) ||
-      (ex_mem.valid && (ex_mem.payload.commit.serialize ||
-                        ex_mem.payload.exception.valid)) ||
+      (ex_mem.valid && (ex_mem.payload.commit_ctx.commit.serialize ||
+                        ex_mem.payload.commit_ctx.exception.valid)) ||
       (mem_wb.valid && (mem_wb.payload.commit.serialize ||
                         mem_wb.payload.exception.valid));
   assign serialize_ready = !ex_mem.valid && !mem_busy && !mem_wb.valid;

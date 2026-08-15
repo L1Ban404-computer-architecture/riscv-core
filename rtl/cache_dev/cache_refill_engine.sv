@@ -97,10 +97,11 @@ module cache_refill_engine
   assign r_fire = axi.rvalid && axi.rready;
   assign expected_last = beat_index_q == BeatIndexW'(LineBeats - 1);
   assign write_response_error =
-      (axi.bid != IdWidth'(AxiId)) || (axi.bresp != AXI4_RESP_OKAY);
-  assign read_beat_error = (axi.rid != IdWidth'(AxiId)) ||
-      (axi.rresp != AXI4_RESP_OKAY) ||
-      (axi.rlast != expected_last);
+      (axi.b_payload.id != IdWidth'(AxiId)) ||
+      (axi.b_payload.resp != AXI4_RESP_OKAY);
+  assign read_beat_error = (axi.r_payload.id != IdWidth'(AxiId)) ||
+      (axi.r_payload.resp != AXI4_RESP_OKAY) ||
+      (axi.r_payload.last != expected_last);
 
   ///////////////////
   // AXI4 通道驱动 //
@@ -108,22 +109,12 @@ module cache_refill_engine
 
   always_comb begin
     axi.awvalid = 1'b0;
-    axi.awaddr = '0;
-    axi.awid = '0;
-    axi.awlen = '0;
-    axi.awsize = '0;
-    axi.awburst = '0;
+    axi.aw_payload = '0;
     axi.wvalid = 1'b0;
-    axi.wdata = '0;
-    axi.wstrb = '0;
-    axi.wlast = 1'b0;
+    axi.w_payload = '0;
     axi.bready = 1'b0;
     axi.arvalid = 1'b0;
-    axi.araddr = '0;
-    axi.arid = '0;
-    axi.arlen = '0;
-    axi.arsize = '0;
-    axi.arburst = '0;
+    axi.ar_payload = '0;
     axi.rready = 1'b0;
     refill_req.ready = state_q == StateIdle;
     refill_rsp.valid = state_q == StateResponse;
@@ -133,19 +124,19 @@ module cache_refill_engine
     unique case (state_q)
       StateWriteAddress: begin
         axi.awvalid = 1'b1;
-        axi.awaddr = block_byte_address(writeback_block_addr_q);
-        axi.awid = IdWidth'(AxiId);
-        axi.awlen = 8'(LineBeats - 1);
-        axi.awsize = 3'd2;
-        axi.awburst = AXI4_BURST_INCR;
+        axi.aw_payload.addr = block_byte_address(writeback_block_addr_q);
+        axi.aw_payload.id = IdWidth'(AxiId);
+        axi.aw_payload.len = 8'(LineBeats - 1);
+        axi.aw_payload.size = 3'd2;
+        axi.aw_payload.burst = AXI4_BURST_INCR;
       end
 
       StateWriteData: begin
         axi.wvalid = 1'b1;
-        axi.wdata =
+        axi.w_payload.data =
             line_buffer_q[int'(beat_index_q) * XLen +: XLen];
-        axi.wstrb = '1;
-        axi.wlast = expected_last;
+        axi.w_payload.strb = '1;
+        axi.w_payload.last = expected_last;
       end
 
       StateWriteResponse: begin
@@ -154,11 +145,11 @@ module cache_refill_engine
 
       StateReadAddress: begin
         axi.arvalid = 1'b1;
-        axi.araddr = block_byte_address(refill_block_addr_q);
-        axi.arid = IdWidth'(AxiId);
-        axi.arlen = 8'(LineBeats - 1);
-        axi.arsize = 3'd2;
-        axi.arburst = AXI4_BURST_INCR;
+        axi.ar_payload.addr = block_byte_address(refill_block_addr_q);
+        axi.ar_payload.id = IdWidth'(AxiId);
+        axi.ar_payload.len = 8'(LineBeats - 1);
+        axi.ar_payload.size = 3'd2;
+        axi.ar_payload.burst = AXI4_BURST_INCR;
       end
 
       StateReadData: begin
@@ -235,9 +226,9 @@ module cache_refill_engine
         StateReadData: begin
           if (r_fire) begin
             line_buffer_q[int'(beat_index_q) * XLen +: XLen] <=
-                axi.rdata;
+                axi.r_payload.data;
             error_q <= error_q || read_beat_error;
-            if (axi.rlast || expected_last) begin
+            if (axi.r_payload.last || expected_last) begin
               state_q <= StateResponse;
             end else begin
               beat_index_q <= beat_index_q + BeatIndexW'(1);
@@ -278,22 +269,17 @@ module cache_refill_engine
           "Refill response must remain stable while backpressured.")
   `ASSERT(CacheRefillAwStable,
           axi.awvalid && !axi.awready |=>
-              $stable({axi.awvalid, axi.awaddr, axi.awid,
-                       axi.awlen,
-                       axi.awsize, axi.awburst}),
+              $stable({axi.awvalid, axi.aw_payload}),
           clk_i, !rst_ni,
           "AXI write address payload must remain stable while backpressured.")
   `ASSERT(CacheRefillWStable,
           axi.wvalid && !axi.wready |=>
-              $stable({axi.wvalid, axi.wdata, axi.wstrb,
-                       axi.wlast}),
+              $stable({axi.wvalid, axi.w_payload}),
           clk_i, !rst_ni,
           "AXI write data payload must remain stable while backpressured.")
   `ASSERT(CacheRefillArStable,
           axi.arvalid && !axi.arready |=>
-              $stable({axi.arvalid, axi.araddr, axi.arid,
-                       axi.arlen,
-                       axi.arsize, axi.arburst}),
+              $stable({axi.arvalid, axi.ar_payload}),
           clk_i, !rst_ni,
           "AXI read address payload must remain stable while backpressured.")
   // verilog_format: on
@@ -317,10 +303,10 @@ module cache_refill_engine
                DataWidth >= 8 && (DataWidth % 8) == 0 &&
                    (DataWidth & (DataWidth - 1)) == 0)
   `ASSERT_INIT(CacheRefillAxiAddrWidth,
-               $bits(axi.awaddr) == AddrWidth)
+               $bits(axi.aw_payload.addr) == AddrWidth)
   `ASSERT_INIT(CacheRefillAxiDataWidth,
-               $bits(axi.wdata) == DataWidth)
-  `ASSERT_INIT(CacheRefillAxiIdWidth, $bits(axi.awid) == IdWidth)
+               $bits(axi.w_payload.data) == DataWidth)
+  `ASSERT_INIT(CacheRefillAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
   `ASSERT_INIT(CacheRefillAxiIdFits, (AxiId >> IdWidth) == 0)
   `ASSERT_INIT(CacheRefillInterfaceWidths,
                $bits(refill_req.payload.block_addr) == BlockAddrW &&

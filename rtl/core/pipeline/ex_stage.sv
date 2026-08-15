@@ -73,10 +73,10 @@ module ex_stage
   assign id_ex_payload = id_ex.payload;
   assign ex_mem.payload = ex_mem_payload;
 
-  assign ex_wb.valid = ex_mem.valid && ex_mem_payload.wb_req.valid;
-  assign ex_wb.data_valid = ex_mem_payload.wb_req.data_valid;
-  assign ex_wb.rd_addr = ex_mem_payload.wb_req.rd_addr;
-  assign ex_wb.wdata = ex_mem_payload.wb_req.wdata;
+  always_comb begin
+    ex_wb.payload = ex_mem_payload.commit_ctx.wb_req;
+    ex_wb.payload.valid = ex_mem.valid && ex_mem_payload.commit_ctx.wb_req.valid;
+  end
 
   //////////////////////////////
   // 数据相关检测与操作数前递 //
@@ -123,7 +123,7 @@ module ex_stage
   //////////////////////
 
   assign operand_a = (id_ex_payload.ctrl.op_a_sel == OP_A_PC) ?
-      id_ex_payload.pc : rs1_value;
+      id_ex_payload.meta.pc : rs1_value;
   assign
       operand_b = (id_ex_payload.ctrl.op_b_sel == OP_B_IMM) ? id_ex_payload.exec_data.imm : rs2_value;
 
@@ -148,7 +148,7 @@ module ex_stage
   // CSR 访问与同步异常检测 //
   ////////////////////////////
 
-  assign csr_read.addr = id_ex_payload.ctrl.csr_addr;
+  assign csr_read.req_payload.addr = id_ex_payload.ctrl.csr_addr;
   assign csr_source = id_ex_payload.ctrl.csr_use_imm ? id_ex_payload.exec_data.imm : rs1_value;
   assign csr_write_attempt = (id_ex_payload.ctrl.csr_cmd == CSR_RW) ||
       (((id_ex_payload.ctrl.csr_cmd == CSR_RS) ||
@@ -166,10 +166,10 @@ module ex_stage
     // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex_payload.exception;
     if (!executed_exception.valid && branch_redirect.valid &&
-                 (branch_redirect.target_pc[1:0] != 2'b00)) begin
+                 (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
-      executed_exception.tval = branch_redirect.target_pc;
+      executed_exception.tval = branch_redirect.payload.target_pc;
     end else if (!executed_exception.valid && (id_ex_payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ?
@@ -177,23 +177,23 @@ module ex_stage
       executed_exception.tval = alu_result;
     end else if (!executed_exception.valid &&
                  (id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
-                 (!csr_read.valid ||
+                 (!csr_read.rsp_payload.valid ||
                   (csr_write_attempt && (id_ex_payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_ILLEGAL_INSTR;
-      executed_exception.tval = id_ex_payload.instr;
+      executed_exception.tval = id_ex_payload.meta.instr;
     end
 
     redirect.valid = branch_redirect.valid;
-    redirect.target_pc = branch_redirect.target_pc;
+    redirect.payload.target_pc = branch_redirect.payload.target_pc;
     // taken 控制流若恰好落到顺序 PC+4，不需要产生多余的前端 flush。
     // 这也统一了退休 debug 的 redirect 语义：只报告下一 PC 的实际改道。
     if (executed_exception.valid ||
-        (branch_redirect.valid && (branch_redirect.target_pc == pc_plus_4)))
+        (branch_redirect.valid && (branch_redirect.payload.target_pc == pc_plus_4)))
       redirect.valid = 1'b0;
   end
 
-  assign pc_plus_4 = id_ex_payload.pc + word_t'(4);
+  assign pc_plus_4 = id_ex_payload.meta.pc + word_t'(4);
 
   //////////////////////////////
   // 写回、访存与提交事务生成 //
@@ -220,7 +220,7 @@ module ex_stage
       end
       WB_CSR: begin
         wb_req.data_valid = 1'b1;
-        wb_req.wdata = csr_read.data;
+        wb_req.wdata = csr_read.rsp_payload.data;
       end
       default: wb_req = '0;
     endcase
@@ -243,8 +243,8 @@ module ex_stage
   always_comb begin
     unique case (id_ex_payload.ctrl.csr_cmd)
       CSR_RW: csr_new_value = csr_source;
-      CSR_RS: csr_new_value = csr_read.data | csr_source;
-      CSR_RC: csr_new_value = csr_read.data & ~csr_source;
+      CSR_RS: csr_new_value = csr_read.rsp_payload.data | csr_source;
+      CSR_RC: csr_new_value = csr_read.rsp_payload.data & ~csr_source;
       default: csr_new_value = '0;
     endcase
 
@@ -274,22 +274,18 @@ module ex_stage
 
   always_comb begin
     executed_ex_mem_bus = '0;
-    executed_ex_mem_bus.pc = id_ex_payload.pc;
-    executed_ex_mem_bus.mem_req = mem_req;
-    executed_ex_mem_bus.wb_req = wb_req;
-    executed_ex_mem_bus.exception = executed_exception;
-    executed_ex_mem_bus.commit = commit_ctrl;
-    executed_ex_mem_bus.debug = id_ex_payload.debug;
-    executed_ex_mem_bus.debug.gpr_we = wb_req.valid && wb_req.data_valid;
-    executed_ex_mem_bus.debug.gpr_waddr = wb_req.rd_addr;
-    executed_ex_mem_bus.debug.gpr_wdata = wb_req.wdata;
-    executed_ex_mem_bus.debug.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
+    executed_ex_mem_bus.commit_ctx.meta = id_ex_payload.meta;
+    executed_ex_mem_bus.commit_ctx.wb_req = wb_req;
+    executed_ex_mem_bus.commit_ctx.exception = executed_exception;
+    executed_ex_mem_bus.commit_ctx.commit = commit_ctrl;
+    executed_ex_mem_bus.commit_ctx.retire_mem.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
         (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    executed_ex_mem_bus.debug.mem_size = mem_req.size;
-    executed_ex_mem_bus.debug.mem_addr = mem_req.addr;
-    executed_ex_mem_bus.debug.mem_data = mem_req.wdata;
-    executed_ex_mem_bus.debug.redirect_valid = redirect.valid;
-    executed_ex_mem_bus.debug.redirect_target_pc = redirect.target_pc;
+    executed_ex_mem_bus.commit_ctx.retire_mem.mem_size = mem_req.size;
+    executed_ex_mem_bus.commit_ctx.retire_mem.mem_addr = mem_req.addr;
+    executed_ex_mem_bus.commit_ctx.retire_mem.mem_data = mem_req.wdata;
+    executed_ex_mem_bus.commit_ctx.redirect.valid = redirect.valid;
+    executed_ex_mem_bus.commit_ctx.redirect.target_pc = redirect.payload.target_pc;
+    executed_ex_mem_bus.mem_req = mem_req;
   end
 
   // 满载且 MEM 就绪时允许同拍弹出和写入，不在连续指令之间插入气泡。

@@ -52,30 +52,7 @@ module performance_stats
   // 计数器输出 //
   ////////////////
 
-  assign performance.cycle_count = performance_debug_q.cycle_count;
-  assign performance.instret_count = performance_debug_q.instret_count;
-  assign performance.if_id_fire_count = performance_debug_q.if_id_fire_count;
-  assign performance.id_ex_fire_count = performance_debug_q.id_ex_fire_count;
-  assign performance.ex_mem_fire_count = performance_debug_q.ex_mem_fire_count;
-  assign performance.mem_wb_fire_count = performance_debug_q.mem_wb_fire_count;
-  assign performance.if_id_stall_cycle_count =
-      performance_debug_q.if_id_stall_cycle_count;
-  assign performance.id_ex_stall_cycle_count =
-      performance_debug_q.id_ex_stall_cycle_count;
-  assign performance.ex_mem_stall_cycle_count =
-      performance_debug_q.ex_mem_stall_cycle_count;
-  assign performance.mem_wb_stall_cycle_count =
-      performance_debug_q.mem_wb_stall_cycle_count;
-  assign performance.if_starve_cycle_count =
-      performance_debug_q.if_starve_cycle_count;
-  assign performance.id_local_stall_cycle_count =
-      performance_debug_q.id_local_stall_cycle_count;
-  assign performance.ex_local_stall_cycle_count =
-      performance_debug_q.ex_local_stall_cycle_count;
-  assign performance.mem_local_stall_cycle_count =
-      performance_debug_q.mem_local_stall_cycle_count;
-  assign performance.wb_local_stall_cycle_count =
-      performance_debug_q.wb_local_stall_cycle_count;
+  assign performance.payload = performance_debug_q;
 
   //////////////////////////////
   // 传输、阻塞与局部背压事件 //

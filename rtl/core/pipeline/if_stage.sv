@@ -113,11 +113,11 @@ module if_stage
   assign fetch_req_data = '{pc: pc_q};
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
-  assign imem.addr = req_hold_data.pc;
-  assign imem.write = 1'b0;
-  assign imem.size = CORE_BUS_SIZE_WORD;
-  assign imem.wdata = '0;
-  assign imem.wstrb = '0;
+  assign imem.req_payload.addr = req_hold_data.pc;
+  assign imem.req_payload.write = 1'b0;
+  assign imem.req_payload.size = CORE_BUS_SIZE_WORD;
+  assign imem.req_payload.wdata = '0;
+  assign imem.req_payload.wstrb = '0;
   assign imem.req_valid = req_hold_valid && pc_fifo_ready;
   // valid_i 不依赖 pc_fifo_ready；stream_fifo 内部再与 ready_o 相与得到的
   // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
@@ -167,15 +167,13 @@ module if_stage
 
   always_comb begin
     fetch_fifo_data = '0;
-    fetch_fifo_data.pc = pc_fifo_data.pc;
-    fetch_fifo_data.instr = instr_t'(imem.rdata);
-    fetch_fifo_data.exception.valid = imem.error;
-    fetch_fifo_data.exception.cause = imem.error ? EXC_INST_ACCESS_FAULT :
+    fetch_fifo_data.meta.pc = pc_fifo_data.pc;
+    fetch_fifo_data.meta.instr = instr_t'(imem.rsp_payload.rdata);
+    fetch_fifo_data.meta.instid = pc_fifo_data.instid;
+    fetch_fifo_data.exception.valid = imem.rsp_payload.error;
+    fetch_fifo_data.exception.cause = imem.rsp_payload.error ? EXC_INST_ACCESS_FAULT :
         exception_cause_e'('0);
-    fetch_fifo_data.exception.tval = imem.error ? pc_fifo_data.pc : '0;
-    fetch_fifo_data.debug.pc = pc_fifo_data.pc;
-    fetch_fifo_data.debug.instr = instr_t'(imem.rdata);
-    fetch_fifo_data.debug.instid = pc_fifo_data.instid;
+    fetch_fifo_data.exception.tval = imem.rsp_payload.error ? pc_fifo_data.pc : '0;
   end
 
   ////////////////////
@@ -250,7 +248,7 @@ module if_stage
     // redirect 优先于顺序取指。fetch FIFO 由 flush_i 清空；已经发出的
     // CoreBus 读请求留在 PC FIFO 中，后续返回时按待丢弃响应计数清除旧路径。
     if (redirect.valid) begin
-      pc_d = redirect.target_pc;
+      pc_d = redirect.payload.target_pc;
     end else if (boot_pending_q) begin
       pc_d = boot_pc_i;
     end else if (fetch_req_fire) begin
@@ -293,7 +291,7 @@ module if_stage
     ImemReqStable,
     imem.req_valid,
     imem.req_ready,
-    {imem.addr, imem.write, imem.size, imem.wdata, imem.wstrb},
+    imem.req_payload,
     '0,
     clk_i,
     !rst_ni,

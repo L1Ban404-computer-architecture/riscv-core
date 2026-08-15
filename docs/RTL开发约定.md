@@ -41,11 +41,20 @@ package → interface → module 的编译顺序。interface 不拥有时钟、�
 - 输入、输出分别使用 `_i`、`_o`；寄存器状态和下一状态使用 `_q`、`_d`。
 - 主时钟和低有效复位命名为 `clk_i`、`rst_ni`。
 - 组合块先给默认值，避免 latch；互斥且完整的分支优先使用 `unique case`。
-- 跨模块流水 payload 使用独立 interface 的具名字段；控制选择使用有明确位宽的 enum。
-- packed struct 只允许保存模块内部状态或 FIFO payload，不得出现在模块端口。拥有状态
-  的模块在 interface 字段与私有 payload 之间显式打包、解包。
+- 跨模块流水 payload 使用 `riscv_core_pkg` 中的 typed payload；控制选择使用有明确
+  位宽的 enum。
+- `packed struct` 是 CoreBus、AXI 和核心流水 interface 的正式 payload 类型，也可用于
+  模块内部状态或 FIFO payload。握手信号始终独立于 payload；同一 payload 几何的边界
+  使用整体赋值，只有协议类型转换才逐字段显式映射。
 - ready/valid 在受背压时必须保持 valid 和 payload 稳定。
 - 优先复用 `stream_register`、`fall_through_register` 和 `stream_fifo`。
+
+核心流水 payload 按职责分层：`instruction_meta_payload_t` 保存唯一的 PC/指令来源，
+`commit_context_payload_t` 保存仍可能影响功能提交的上下文，`retire_mem_payload_t`
+和 `retire_redirect_payload_t` 保存退休观察所需的事件。`ex_mem_payload_t` 由
+`commit_ctx + mem_req` 组成，`mem_wb_payload_t` 是公共提交上下文的类型别名；MEM
+不再重新构造一份 EX/MEM 的公共字段。完整 `retire_debug_payload_t` 只在 WB 生成，
+CSR 快照和 GPR 写回字段不随流水级复制。
 
 每个自有模块在声明前用一至数句自然语言说明职责；只有确实影响使用方式的关键约束
 才写入模块说明，不设置“功能”“约束”等固定字段。端口区只用简短注释分组，不描述

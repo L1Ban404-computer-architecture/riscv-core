@@ -41,10 +41,10 @@ module cache_axi4_mux
   ////////////////////////
 
   typedef struct packed {
-    logic [1:0] rresp;
-    logic [DataWidth-1:0] rdata;
-    logic rlast;
-    logic [IdWidth-1:0] rid;
+    logic [1:0] resp;
+    logic [DataWidth-1:0] data;
+    logic last;
+    logic [IdWidth-1:0] id;
   } read_response_t;
 
   logic ar_locked_q;
@@ -83,18 +83,16 @@ module cache_axi4_mux
       (dcache_axi.arvalid && dcache_ar_credit);
 
   assign master_read_response = '{
-    rresp: master_axi.rresp,
-    rdata: master_axi.rdata,
-    rlast: master_axi.rlast,
-    rid: master_axi.rid
+    resp: master_axi.r_payload.resp,
+    data: master_axi.r_payload.data,
+    last: master_axi.r_payload.last,
+    id: master_axi.r_payload.id
   };
   assign icache_read_fire = icache_read_valid && icache_axi.rready;
   assign dcache_read_fire = dcache_read_valid && dcache_axi.rready;
 
-  assign unused_icache_write_payload = ^{icache_axi.awaddr, icache_axi.awid,
-                                        icache_axi.awlen, icache_axi.awsize,
-                                        icache_axi.awburst, icache_axi.wdata,
-                                        icache_axi.wstrb, icache_axi.wlast};
+  assign unused_icache_write_payload = ^{icache_axi.aw_payload,
+                                        icache_axi.w_payload};
 
   ////////////////////////
   // AXI 通道仲裁与路由 //
@@ -102,66 +100,41 @@ module cache_axi4_mux
 
   always_comb begin
     master_axi.awvalid = 1'b0;
-    master_axi.awaddr = '0;
-    master_axi.awid = '0;
-    master_axi.awlen = '0;
-    master_axi.awsize = '0;
-    master_axi.awburst = '0;
+    master_axi.aw_payload = '0;
     master_axi.wvalid = 1'b0;
-    master_axi.wdata = '0;
-    master_axi.wstrb = '0;
-    master_axi.wlast = 1'b0;
+    master_axi.w_payload = '0;
     master_axi.bready = 1'b0;
     master_axi.arvalid = 1'b0;
-    master_axi.araddr = '0;
-    master_axi.arid = '0;
-    master_axi.arlen = '0;
-    master_axi.arsize = '0;
-    master_axi.arburst = '0;
+    master_axi.ar_payload = '0;
     master_axi.rready = 1'b0;
 
     icache_axi.awready = 1'b0;
     icache_axi.wready = 1'b0;
     icache_axi.bvalid = 1'b0;
-    icache_axi.bresp = '0;
-    icache_axi.bid = '0;
+    icache_axi.b_payload = '0;
     icache_axi.arready = 1'b0;
     icache_axi.rvalid = 1'b0;
-    icache_axi.rresp = '0;
-    icache_axi.rdata = '0;
-    icache_axi.rlast = 1'b0;
-    icache_axi.rid = '0;
+    icache_axi.r_payload = '0;
     dcache_axi.awready = 1'b0;
     dcache_axi.wready = 1'b0;
     dcache_axi.bvalid = 1'b0;
-    dcache_axi.bresp = '0;
-    dcache_axi.bid = '0;
+    dcache_axi.b_payload = '0;
     dcache_axi.arready = 1'b0;
     dcache_axi.rvalid = 1'b0;
-    dcache_axi.rresp = '0;
-    dcache_axi.rdata = '0;
-    dcache_axi.rlast = 1'b0;
-    dcache_axi.rid = '0;
+    dcache_axi.r_payload = '0;
 
     // 当前只有 DCache 能发起内存写事务，写通道无需仲裁。
     master_axi.awvalid = dcache_axi.awvalid;
-    master_axi.awaddr = dcache_axi.awaddr;
-    master_axi.awid = dcache_axi.awid;
-    master_axi.awlen = dcache_axi.awlen;
-    master_axi.awsize = dcache_axi.awsize;
-    master_axi.awburst = dcache_axi.awburst;
+    master_axi.aw_payload = dcache_axi.aw_payload;
     dcache_axi.awready = master_axi.awready;
 
     master_axi.wvalid = dcache_axi.wvalid;
-    master_axi.wdata = dcache_axi.wdata;
-    master_axi.wstrb = dcache_axi.wstrb;
-    master_axi.wlast = dcache_axi.wlast;
+    master_axi.w_payload = dcache_axi.w_payload;
     dcache_axi.wready = master_axi.wready;
 
     master_axi.bready = dcache_axi.bready;
     dcache_axi.bvalid = master_axi.bvalid;
-    dcache_axi.bresp = master_axi.bresp;
-    dcache_axi.bid = master_axi.bid;
+    dcache_axi.b_payload = master_axi.b_payload;
 
     // 每笔被接受的读请求都预留一个响应 FIFO credit，因此合法 AXI 响应总能被接收；
     // 同时切断公开主接口上从 RVALID/RID 到 RREADY 的组合路径。
@@ -170,34 +143,20 @@ module cache_axi4_mux
     // 数据读只在 AR 冲突当拍取得优先权。写事务使用独立 AXI 通道，不在此阻塞取指读。
     if (select_dcache) begin
       master_axi.arvalid = dcache_axi.arvalid && dcache_ar_credit;
-      master_axi.araddr = dcache_axi.araddr;
-      master_axi.arid = dcache_axi.arid;
-      master_axi.arlen = dcache_axi.arlen;
-      master_axi.arsize = dcache_axi.arsize;
-      master_axi.arburst = dcache_axi.arburst;
+      master_axi.ar_payload = dcache_axi.ar_payload;
       dcache_axi.arready = master_axi.arready && dcache_ar_credit;
     end else begin
       master_axi.arvalid = icache_axi.arvalid && icache_ar_credit;
-      master_axi.araddr = icache_axi.araddr;
-      master_axi.arid = icache_axi.arid;
-      master_axi.arlen = icache_axi.arlen;
-      master_axi.arsize = icache_axi.arsize;
-      master_axi.arburst = icache_axi.arburst;
+      master_axi.ar_payload = icache_axi.ar_payload;
       icache_axi.arready = master_axi.arready && icache_ar_credit;
     end
 
     // 空响应 FIFO 采用 fall-through 路径，不增加原有响应延迟；被反压的响应则在本地
     // 锁存，之后按两个 AXI ID 分别独立排空。
     icache_axi.rvalid = icache_read_valid;
-    icache_axi.rdata = icache_read_response.rdata;
-    icache_axi.rresp = icache_read_response.rresp;
-    icache_axi.rlast = icache_read_response.rlast;
-    icache_axi.rid = icache_read_response.rid;
+    icache_axi.r_payload = icache_read_response;
     dcache_axi.rvalid = dcache_read_valid;
-    dcache_axi.rdata = dcache_read_response.rdata;
-    dcache_axi.rresp = dcache_read_response.rresp;
-    dcache_axi.rlast = dcache_read_response.rlast;
-    dcache_axi.rid = dcache_read_response.rid;
+    dcache_axi.r_payload = dcache_read_response;
   end
 
   assign master_ar_fire = master_axi.arvalid && master_axi.arready;
@@ -220,7 +179,7 @@ module cache_axi4_mux
     .usage_o(  /* 未使用 */),
     .data_i(master_read_response),
     .valid_i(rst_ni && master_axi.rvalid &&
-        (master_axi.rid == IdWidth'(ICacheAxiId))),
+        (master_axi.r_payload.id == IdWidth'(ICacheAxiId))),
     .ready_o(icache_read_input_ready),
     .data_o(icache_read_response),
     .valid_o(icache_read_valid),
@@ -239,7 +198,7 @@ module cache_axi4_mux
     .usage_o(  /* 未使用 */),
     .data_i(master_read_response),
     .valid_i(rst_ni && master_axi.rvalid &&
-        (master_axi.rid == IdWidth'(DCacheAxiId))),
+        (master_axi.r_payload.id == IdWidth'(DCacheAxiId))),
     .ready_o(dcache_read_input_ready),
     .data_o(dcache_read_response),
     .valid_o(dcache_read_valid),
@@ -300,27 +259,32 @@ module cache_axi4_mux
           clk_i, !rst_ni, "ICache must not drive AXI write channels.")
   `ASSERT(CacheReadIdKnown,
           master_axi.rvalid |->
-              (master_axi.rid == IdWidth'(ICacheAxiId)) ||
-              (master_axi.rid == IdWidth'(DCacheAxiId)),
+              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) ||
+              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)),
           clk_i, !rst_ni, "AXI read response ID must identify a cache.")
   `ASSERT(ICacheReadResponseExpected,
-          master_axi.rvalid && (master_axi.rid == IdWidth'(ICacheAxiId)) |->
+          master_axi.rvalid &&
+              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) |->
               (icache_read_count_q != '0) || icache_ar_fire,
           clk_i, !rst_ni, "ICache read response must match an accepted request.")
   `ASSERT(DCacheReadResponseExpected,
-          master_axi.rvalid && (master_axi.rid == IdWidth'(DCacheAxiId)) |->
+          master_axi.rvalid &&
+              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)) |->
               (dcache_read_count_q != '0) || dcache_ar_fire,
           clk_i, !rst_ni, "DCache read response must match an accepted request.")
   `ASSERT(ICacheReadResponseFits,
-          master_axi.rvalid && (master_axi.rid == IdWidth'(ICacheAxiId)) |->
+          master_axi.rvalid &&
+              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) |->
               icache_read_input_ready,
           clk_i, !rst_ni, "ICache read response FIFO must have space.")
   `ASSERT(DCacheReadResponseFits,
-          master_axi.rvalid && (master_axi.rid == IdWidth'(DCacheAxiId)) |->
+          master_axi.rvalid &&
+              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)) |->
               dcache_read_input_ready,
           clk_i, !rst_ni, "DCache read response FIFO must have space.")
   `ASSERT(DCacheWriteId,
-          master_axi.bvalid |-> (master_axi.bid == IdWidth'(DCacheAxiId)),
+          master_axi.bvalid |->
+              (master_axi.b_payload.id == IdWidth'(DCacheAxiId)),
           clk_i, !rst_ni, "Only DCache may receive AXI write responses.")
 
   `ASSERT_INIT(AxiMuxAddressAndIdWidthsValid,
@@ -331,10 +295,10 @@ module cache_axi4_mux
   `ASSERT_INIT(AxiMuxICacheIdFits, (ICacheAxiId >> IdWidth) == 0)
   `ASSERT_INIT(AxiMuxDCacheIdFits, (DCacheAxiId >> IdWidth) == 0)
   `ASSERT_INIT(AxiMuxAddressWidthMatches,
-               $bits(master_axi.awaddr) == AddrWidth)
+               $bits(master_axi.aw_payload.addr) == AddrWidth)
   `ASSERT_INIT(AxiMuxDataWidthMatches,
-               $bits(master_axi.wdata) == DataWidth)
+               $bits(master_axi.w_payload.data) == DataWidth)
   `ASSERT_INIT(AxiMuxIdWidthMatches,
-               $bits(master_axi.awid) == IdWidth)
+               $bits(master_axi.aw_payload.id) == IdWidth)
 
 endmodule

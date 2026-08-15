@@ -168,11 +168,11 @@ module cache_tb
   );
     int unsigned timeout;
 
-    core_bus.addr = address;
-    core_bus.write = write;
-    core_bus.size = size;
-    core_bus.wdata = wdata;
-    core_bus.wstrb = wstrb;
+    core_bus.req_payload.addr = address;
+    core_bus.req_payload.write = write;
+    core_bus.req_payload.size = size;
+    core_bus.req_payload.wdata = wdata;
+    core_bus.req_payload.wstrb = wstrb;
     expected_request_rdata = expected_data;
     expected_request_error = expected_fault;
     core_bus.req_valid = 1'b1;
@@ -474,11 +474,8 @@ module cache_tb
   initial begin
     clk_i = 1'b0;
     rst_ni = 1'b0;
-    core_bus.addr = '0;
-    core_bus.write = 1'b0;
-    core_bus.size = CORE_BUS_SIZE_BYTE;
-    core_bus.wdata = '0;
-    core_bus.wstrb = '0;
+    core_bus.req_payload = '0;
+    core_bus.req_payload.size = CORE_BUS_SIZE_BYTE;
     core_bus.req_valid = 1'b0;
     expected_request_rdata = '0;
     expected_request_error = 1'b0;

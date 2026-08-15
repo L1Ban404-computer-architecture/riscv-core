@@ -60,14 +60,14 @@ module cache_corebus_scoreboard
 
       if (response_fire) begin
         if (pending_o == '0) $fatal(1, "Unexpected CoreBus response.");
-        if (core_bus.error !== expected_error_q[head_q]) begin
+        if (core_bus.rsp_payload.error !== expected_error_q[head_q]) begin
           $fatal(1, "CoreBus error mismatch at response %0d.", head_q);
         end
-        if (!core_bus.error &&
-            (core_bus.rdata !== expected_rdata_q[head_q])) begin
+        if (!core_bus.rsp_payload.error &&
+            (core_bus.rsp_payload.rdata !== expected_rdata_q[head_q])) begin
           $fatal(1,
                  "CoreBus data mismatch at response %0d: expected %08x, got %08x.",
-                 head_q, expected_rdata_q[head_q], core_bus.rdata);
+                 head_q, expected_rdata_q[head_q], core_bus.rsp_payload.rdata);
         end
         head_q <= head_q + 1;
       end

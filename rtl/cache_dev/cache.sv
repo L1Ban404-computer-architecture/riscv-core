@@ -170,7 +170,7 @@ module cache
 
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheReadOnlyRequest,
-            core_bus.req_valid |-> !core_bus.write,
+            core_bus.req_valid |-> !core_bus.req_payload.write,
             clk_i, !rst_ni, "A read-only cache must never receive a write request.")
   end
 
@@ -183,9 +183,9 @@ module cache
                    (DataWidth & (DataWidth - 1)) == 0)
   `ASSERT_INIT(CacheAxiIdFits, (AxiId >> IdWidth) == 0)
   `ASSERT_INIT(CacheCoreBusAddrWidth,
-               $bits(core_bus.addr) == AddrWidth)
+               $bits(core_bus.req_payload.addr) == AddrWidth)
   `ASSERT_INIT(CacheCoreBusDataWidth,
-               $bits(core_bus.wdata) == DataWidth)
-  `ASSERT_INIT(CacheAxiIdWidth, $bits(axi.awid) == IdWidth)
+               $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(CacheAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
 
 endmodule

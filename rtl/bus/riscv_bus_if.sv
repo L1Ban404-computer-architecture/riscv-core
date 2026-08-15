@@ -18,29 +18,37 @@ interface core_bus_if #(
   parameter int unsigned DataWidth = 32,
   localparam int unsigned StrbWidth = DataWidth / 8
 );
-  logic [AddrWidth-1:0] addr;
-  logic write;
-  riscv_bus_pkg::core_bus_size_e size;
-  logic [DataWidth-1:0] wdata;
-  logic [StrbWidth-1:0] wstrb;
+  typedef struct packed {
+    logic [AddrWidth-1:0] addr;
+    logic write;
+    riscv_bus_pkg::core_bus_size_e size;
+    logic [DataWidth-1:0] wdata;
+    logic [StrbWidth-1:0] wstrb;
+  } req_payload_t;
+
+  typedef struct packed {
+    logic [DataWidth-1:0] rdata;
+    logic error;
+  } rsp_payload_t;
+
+  req_payload_t req_payload;
+  rsp_payload_t rsp_payload;
   logic req_valid;
   logic req_ready;
-  logic [DataWidth-1:0] rdata;
-  logic error;
   logic rsp_valid;
   logic rsp_ready;
 
   modport master (
-    output addr, write, size, wdata, wstrb, req_valid, rsp_ready,
-    input req_ready, rdata, error, rsp_valid
+    output req_payload, req_valid, rsp_ready,
+    input req_ready, rsp_payload, rsp_valid
   );
   modport slave (
-    input addr, write, size, wdata, wstrb, req_valid, rsp_ready,
-    output req_ready, rdata, error, rsp_valid
+    input req_payload, req_valid, rsp_ready,
+    output req_ready, rsp_payload, rsp_valid
   );
   modport monitor (
-    input addr, write, size, wdata, wstrb, req_valid, req_ready,
-          rdata, error, rsp_valid, rsp_ready
+    input req_payload, req_valid, req_ready,
+          rsp_payload, rsp_valid, rsp_ready
   );
 endinterface
 
@@ -54,60 +62,81 @@ interface axi4_if #(
   parameter int unsigned IdWidth = 4,
   localparam int unsigned StrbWidth = DataWidth / 8
 );
+  typedef struct packed {
+    logic [AddrWidth-1:0] addr;
+    logic [IdWidth-1:0] id;
+    logic [7:0] len;
+    logic [2:0] size;
+    logic [1:0] burst;
+  } aw_payload_t;
+
+  typedef struct packed {
+    logic [DataWidth-1:0] data;
+    logic [StrbWidth-1:0] strb;
+    logic last;
+  } w_payload_t;
+
+  typedef struct packed {
+    logic [1:0] resp;
+    logic [IdWidth-1:0] id;
+  } b_payload_t;
+
+  typedef struct packed {
+    logic [AddrWidth-1:0] addr;
+    logic [IdWidth-1:0] id;
+    logic [7:0] len;
+    logic [2:0] size;
+    logic [1:0] burst;
+  } ar_payload_t;
+
+  typedef struct packed {
+    logic [1:0] resp;
+    logic [DataWidth-1:0] data;
+    logic last;
+    logic [IdWidth-1:0] id;
+  } r_payload_t;
+
+  aw_payload_t aw_payload;
+  w_payload_t w_payload;
+  b_payload_t b_payload;
+  ar_payload_t ar_payload;
+  r_payload_t r_payload;
+
   logic awvalid;
   logic awready;
-  logic [AddrWidth-1:0] awaddr;
-  logic [IdWidth-1:0] awid;
-  logic [7:0] awlen;
-  logic [2:0] awsize;
-  logic [1:0] awburst;
 
   logic wvalid;
   logic wready;
-  logic [DataWidth-1:0] wdata;
-  logic [StrbWidth-1:0] wstrb;
-  logic wlast;
 
   logic bvalid;
   logic bready;
-  logic [1:0] bresp;
-  logic [IdWidth-1:0] bid;
 
   logic arvalid;
   logic arready;
-  logic [AddrWidth-1:0] araddr;
-  logic [IdWidth-1:0] arid;
-  logic [7:0] arlen;
-  logic [2:0] arsize;
-  logic [1:0] arburst;
 
   logic rvalid;
   logic rready;
-  logic [1:0] rresp;
-  logic [DataWidth-1:0] rdata;
-  logic rlast;
-  logic [IdWidth-1:0] rid;
 
   modport master (
-    output awvalid, awaddr, awid, awlen, awsize, awburst,
-           wvalid, wdata, wstrb, wlast, bready,
-           arvalid, araddr, arid, arlen, arsize, arburst, rready,
-    input awready, wready, bvalid, bresp, bid,
-          arready, rvalid, rresp, rdata, rlast, rid
+    output awvalid, aw_payload,
+           wvalid, w_payload, bready,
+           arvalid, ar_payload, rready,
+    input awready, wready, bvalid, b_payload,
+          arready, rvalid, r_payload
   );
   modport slave (
-    input awvalid, awaddr, awid, awlen, awsize, awburst,
-          wvalid, wdata, wstrb, wlast, bready,
-          arvalid, araddr, arid, arlen, arsize, arburst, rready,
-    output awready, wready, bvalid, bresp, bid,
-           arready, rvalid, rresp, rdata, rlast, rid
+    input awvalid, aw_payload,
+          wvalid, w_payload, bready,
+          arvalid, ar_payload, rready,
+    output awready, wready, bvalid, b_payload,
+           arready, rvalid, r_payload
   );
   modport monitor (
-    input awvalid, awready, awaddr, awid, awlen, awsize, awburst,
-          wvalid, wready, wdata, wstrb, wlast,
-          bvalid, bready, bresp, bid,
-          arvalid, arready, araddr, arid, arlen, arsize, arburst,
-          rvalid, rready, rresp, rdata, rlast, rid
+    input awvalid, awready, aw_payload,
+          wvalid, wready, w_payload,
+          bvalid, bready, b_payload,
+          arvalid, arready, ar_payload,
+          rvalid, rready, r_payload
   );
 endinterface
 /* verilator lint_on DECLFILENAME */

@@ -141,46 +141,46 @@ module ysyx_25080230
   // 退休与性能观测信号 //
   ////////////////////////
 
-  assign debug_retire_pc = retire_debug.pc;
-  assign debug_retire_instr = retire_debug.instr;
-  assign debug_retire_instid = retire_debug.instid;
-  assign debug_retire_redirect_valid = retire_debug.redirect_valid;
-  assign debug_retire_redirect_target = retire_debug.redirect_target_pc;
-  assign debug_retire_mem_op = retire_debug.mem_op;
-  assign debug_retire_mem_size = retire_debug.mem_size;
-  assign debug_retire_mem_addr = retire_debug.mem_addr;
-  assign debug_retire_mem_data = retire_debug.mem_data;
-  assign debug_retire_gpr_we = retire_debug.gpr_we;
-  assign debug_retire_gpr_waddr = retire_debug.gpr_waddr;
-  assign debug_retire_gpr_wdata = retire_debug.gpr_wdata;
-  assign debug_retire_mstatus = retire_debug.csr_mstatus;
-  assign debug_retire_mtvec = retire_debug.csr_mtvec;
-  assign debug_retire_mepc = retire_debug.csr_mepc;
-  assign debug_retire_mcause = retire_debug.csr_mcause;
-  assign debug_retire_mtval = retire_debug.csr_mtval;
-  assign debug_perf_cycle_count = performance_debug.cycle_count;
-  assign debug_perf_instret_count = performance_debug.instret_count;
-  assign debug_perf_if_id_fire_count = performance_debug.if_id_fire_count;
-  assign debug_perf_id_ex_fire_count = performance_debug.id_ex_fire_count;
-  assign debug_perf_ex_mem_fire_count = performance_debug.ex_mem_fire_count;
-  assign debug_perf_mem_wb_fire_count = performance_debug.mem_wb_fire_count;
+  assign debug_retire_pc = retire_debug.payload.meta.pc;
+  assign debug_retire_instr = retire_debug.payload.meta.instr;
+  assign debug_retire_instid = retire_debug.payload.meta.instid;
+  assign debug_retire_redirect_valid = retire_debug.payload.redirect.valid;
+  assign debug_retire_redirect_target = retire_debug.payload.redirect.target_pc;
+  assign debug_retire_mem_op = retire_debug.payload.mem.mem_op;
+  assign debug_retire_mem_size = retire_debug.payload.mem.mem_size;
+  assign debug_retire_mem_addr = retire_debug.payload.mem.mem_addr;
+  assign debug_retire_mem_data = retire_debug.payload.mem.mem_data;
+  assign debug_retire_gpr_we = retire_debug.payload.gpr_we;
+  assign debug_retire_gpr_waddr = retire_debug.payload.gpr_waddr;
+  assign debug_retire_gpr_wdata = retire_debug.payload.gpr_wdata;
+  assign debug_retire_mstatus = retire_debug.payload.csr.mstatus;
+  assign debug_retire_mtvec = retire_debug.payload.csr.mtvec;
+  assign debug_retire_mepc = retire_debug.payload.csr.mepc;
+  assign debug_retire_mcause = retire_debug.payload.csr.mcause;
+  assign debug_retire_mtval = retire_debug.payload.csr.mtval;
+  assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
+  assign debug_perf_instret_count = performance_debug.payload.instret_count;
+  assign debug_perf_if_id_fire_count = performance_debug.payload.if_id_fire_count;
+  assign debug_perf_id_ex_fire_count = performance_debug.payload.id_ex_fire_count;
+  assign debug_perf_ex_mem_fire_count = performance_debug.payload.ex_mem_fire_count;
+  assign debug_perf_mem_wb_fire_count = performance_debug.payload.mem_wb_fire_count;
   assign debug_perf_if_id_stall_cycle_count =
-      performance_debug.if_id_stall_cycle_count;
+      performance_debug.payload.if_id_stall_cycle_count;
   assign debug_perf_id_ex_stall_cycle_count =
-      performance_debug.id_ex_stall_cycle_count;
+      performance_debug.payload.id_ex_stall_cycle_count;
   assign debug_perf_ex_mem_stall_cycle_count =
-      performance_debug.ex_mem_stall_cycle_count;
+      performance_debug.payload.ex_mem_stall_cycle_count;
   assign debug_perf_mem_wb_stall_cycle_count =
-      performance_debug.mem_wb_stall_cycle_count;
-  assign debug_perf_if_starve_cycle_count = performance_debug.if_starve_cycle_count;
+      performance_debug.payload.mem_wb_stall_cycle_count;
+  assign debug_perf_if_starve_cycle_count = performance_debug.payload.if_starve_cycle_count;
   assign debug_perf_id_local_stall_cycle_count =
-      performance_debug.id_local_stall_cycle_count;
+      performance_debug.payload.id_local_stall_cycle_count;
   assign debug_perf_ex_local_stall_cycle_count =
-      performance_debug.ex_local_stall_cycle_count;
+      performance_debug.payload.ex_local_stall_cycle_count;
   assign debug_perf_mem_local_stall_cycle_count =
-      performance_debug.mem_local_stall_cycle_count;
+      performance_debug.payload.mem_local_stall_cycle_count;
   assign debug_perf_wb_local_stall_cycle_count =
-      performance_debug.wb_local_stall_cycle_count;
+      performance_debug.payload.wb_local_stall_cycle_count;
 
   assign rst_ni = ~reset;
   assign core_retire_valid = retire_debug.valid;
@@ -191,35 +191,35 @@ module ysyx_25080230
 
   // 主接口逐字段适配，外部从接口保持停用。
   assign io_master_awvalid = master_axi.awvalid;
-  assign io_master_awaddr = master_axi.awaddr;
-  assign io_master_awid = master_axi.awid;
-  assign io_master_awlen = master_axi.awlen;
-  assign io_master_awsize = master_axi.awsize;
-  assign io_master_awburst = master_axi.awburst;
+  assign io_master_awaddr = master_axi.aw_payload.addr;
+  assign io_master_awid = master_axi.aw_payload.id;
+  assign io_master_awlen = master_axi.aw_payload.len;
+  assign io_master_awsize = master_axi.aw_payload.size;
+  assign io_master_awburst = master_axi.aw_payload.burst;
   assign io_master_wvalid = master_axi.wvalid;
-  assign io_master_wdata = master_axi.wdata;
-  assign io_master_wstrb = master_axi.wstrb;
-  assign io_master_wlast = master_axi.wlast;
+  assign io_master_wdata = master_axi.w_payload.data;
+  assign io_master_wstrb = master_axi.w_payload.strb;
+  assign io_master_wlast = master_axi.w_payload.last;
   assign io_master_bready = master_axi.bready;
   assign io_master_arvalid = master_axi.arvalid;
-  assign io_master_araddr = master_axi.araddr;
-  assign io_master_arid = master_axi.arid;
-  assign io_master_arlen = master_axi.arlen;
-  assign io_master_arsize = master_axi.arsize;
-  assign io_master_arburst = master_axi.arburst;
+  assign io_master_araddr = master_axi.ar_payload.addr;
+  assign io_master_arid = master_axi.ar_payload.id;
+  assign io_master_arlen = master_axi.ar_payload.len;
+  assign io_master_arsize = master_axi.ar_payload.size;
+  assign io_master_arburst = master_axi.ar_payload.burst;
   assign io_master_rready = master_axi.rready;
 
   assign master_axi.awready = io_master_awready;
   assign master_axi.wready = io_master_wready;
   assign master_axi.bvalid = io_master_bvalid;
-  assign master_axi.bresp = io_master_bresp;
-  assign master_axi.bid = io_master_bid;
+  assign master_axi.b_payload.resp = io_master_bresp;
+  assign master_axi.b_payload.id = io_master_bid;
   assign master_axi.arready = io_master_arready;
   assign master_axi.rvalid = io_master_rvalid;
-  assign master_axi.rresp = io_master_rresp;
-  assign master_axi.rdata = io_master_rdata;
-  assign master_axi.rlast = io_master_rlast;
-  assign master_axi.rid = io_master_rid;
+  assign master_axi.r_payload.resp = io_master_rresp;
+  assign master_axi.r_payload.data = io_master_rdata;
+  assign master_axi.r_payload.last = io_master_rlast;
+  assign master_axi.r_payload.id = io_master_rid;
 
   assign io_slave_awready = 1'b0;
   assign io_slave_wready = 1'b0;

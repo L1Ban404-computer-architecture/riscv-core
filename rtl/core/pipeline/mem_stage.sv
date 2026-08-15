@@ -69,24 +69,6 @@ module mem_stage
   // 事务转换与数据整理 //
   ////////////////////////
 
-  // EX/MEM 与 MEM/WB 的公共 payload 只差 mem_req；显式构造集中表达
-  // 功能 PC、提交事务和只写调试 payload 的 stage 边界。
-  function automatic mem_wb_payload_t toMemWbBus(
-    pc_t pc,
-    writeback_payload_t wb_req,
-    exception_payload_t exception,
-    commit_ctrl_payload_t commit,
-    retire_debug_payload_t debug
-  );
-    toMemWbBus = '{
-      pc: pc,
-      wb_req: wb_req,
-      exception: exception,
-      commit: commit,
-      debug: debug
-    };
-  endfunction
-
   // 这里是核心访存语义与 CoreBus ABI 的唯一宽度转换边界。两侧枚举目前编码一致，
   // 仍逐项映射以避免未来任一侧扩展时形成未经审查的隐式协议变化。
   function automatic core_bus_size_e toCoreBusSize(input mem_size_e size);
@@ -112,15 +94,15 @@ module mem_stage
 
   // EX/MEM 本身已经满足严格 ready/valid 保持规则，因此 CoreBus 请求可以
   // 直接由它驱动。请求握手和 outstanding 槽写入是同一个原子事件。
-  assign dmem.addr = ex_mem_payload.mem_req.addr;
-  assign dmem.write = ex_mem_payload.mem_req.write;
-  assign dmem.size = toCoreBusSize(ex_mem_payload.mem_req.size);
-  assign dmem.wdata = ex_mem_payload.mem_req.write ? aligned_store_data : '0;
-  assign dmem.wstrb = ex_mem_payload.mem_req.write ? store_byte_en : '0;
+  assign dmem.req_payload.addr = ex_mem_payload.mem_req.addr;
+  assign dmem.req_payload.write = ex_mem_payload.mem_req.write;
+  assign dmem.req_payload.size = toCoreBusSize(ex_mem_payload.mem_req.size);
+  assign dmem.req_payload.wdata = ex_mem_payload.mem_req.write ? aligned_store_data : '0;
+  assign dmem.req_payload.wstrb = ex_mem_payload.mem_req.write ? store_byte_en : '0;
   // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助单槽
   // 同拍 pop/push 发出请求。kill 同周期也必须关闭总线请求及级间交接。
   assign request_blocked = flush_i || side_effect_block_i ||
-      (dmem.rsp_valid && dmem.error);
+      (dmem.rsp_valid && dmem.rsp_payload.error);
   assign dmem_req_valid = ex_mem.valid && memory_instruction && outstanding_ready && !request_blocked;
   assign dmem.req_valid = dmem_req_valid;
   // 单槽的 valid_i 不反向依赖 ready_o；内部的 valid_i && ready_o
@@ -157,14 +139,14 @@ module mem_stage
     .ready_i(dmem_rsp_fire)
   );
 
-  assign mem_pending.valid = outstanding_head_valid && outstanding_head.wb_req.valid;
-  assign mem_pending.rd_addr = outstanding_head.wb_req.rd_addr;
+  assign mem_pending.valid = outstanding_head_valid && outstanding_head.commit_ctx.wb_req.valid;
+  assign mem_pending.payload.rd_addr = outstanding_head.commit_ctx.wb_req.rd_addr;
 
   load_data_unit u_load_data_unit (
     .size_i(outstanding_head.mem_req.size),
     .sign_ext_i(outstanding_head.mem_req.sign_ext),
     .addr_offset_i(outstanding_head.mem_req.addr[1:0]),
-    .rdata_i(dmem.rdata),
+    .rdata_i(dmem.rsp_payload.rdata),
     .load_data_o(loaded_data)
   );
 
@@ -173,45 +155,26 @@ module mem_stage
   //////////////////////////////////////
 
   always_comb begin
-    completed_mem_bus = toMemWbBus(
-      outstanding_head.pc,
-      outstanding_head.wb_req,
-      outstanding_head.exception,
-      outstanding_head.commit,
-      outstanding_head.debug
-    );
-    if (!completed_mem_bus.exception.valid && dmem.error) begin
+    completed_mem_bus = outstanding_head.commit_ctx;
+    if (!completed_mem_bus.exception.valid && dmem.rsp_payload.error) begin
       completed_mem_bus.exception.valid = 1'b1;
       completed_mem_bus.exception.cause = outstanding_head.mem_req.write ?
           EXC_STORE_ACCESS_FAULT : EXC_LOAD_ACCESS_FAULT;
       completed_mem_bus.exception.tval = outstanding_head.mem_req.addr;
     end
-    if (outstanding_head.wb_req.valid && !completed_mem_bus.exception.valid) begin
+    if (outstanding_head.commit_ctx.wb_req.valid && !completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req.data_valid = 1'b1;
       completed_mem_bus.wb_req.wdata = loaded_data;
     end else if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req = '0;
     end
-    completed_mem_bus.debug.mem_data = outstanding_head.mem_req.write ?
+    completed_mem_bus.retire_mem.mem_data = outstanding_head.mem_req.write ?
         outstanding_head.mem_req.wdata : loaded_data;
-    completed_mem_bus.debug.gpr_we =
-        completed_mem_bus.wb_req.valid && completed_mem_bus.wb_req.data_valid;
-    completed_mem_bus.debug.gpr_waddr = completed_mem_bus.wb_req.rd_addr;
-    completed_mem_bus.debug.gpr_wdata = completed_mem_bus.wb_req.wdata;
     if (completed_mem_bus.exception.valid) begin
-      completed_mem_bus.debug.mem_op = RETIRE_MEM_NONE;
-      completed_mem_bus.debug.gpr_we = 1'b0;
-      completed_mem_bus.debug.gpr_waddr = '0;
-      completed_mem_bus.debug.gpr_wdata = '0;
+      completed_mem_bus.retire_mem.mem_op = RETIRE_MEM_NONE;
     end
 
-    bypass_mem_bus = toMemWbBus(
-      ex_mem_payload.pc,
-      ex_mem_payload.wb_req,
-      ex_mem_payload.exception,
-      ex_mem_payload.commit,
-      ex_mem_payload.debug
-    );
+    bypass_mem_bus = ex_mem_payload.commit_ctx;
 
     // outstanding 响应优先；事务槽非空时 ex_mem.ready 会阻止非访存输入。
     if (outstanding_head_valid) begin
@@ -241,11 +204,10 @@ module mem_stage
     .data_o(mem_wb_payload)
   );
 
-  assign mem_wb_forward.valid =
-      mem_wb.valid && mem_wb_payload.wb_req.valid;
-  assign mem_wb_forward.data_valid = mem_wb_payload.wb_req.data_valid;
-  assign mem_wb_forward.rd_addr = mem_wb_payload.wb_req.rd_addr;
-  assign mem_wb_forward.wdata = mem_wb_payload.wb_req.wdata;
+  always_comb begin
+    mem_wb_forward.payload = mem_wb_payload.wb_req;
+    mem_wb_forward.payload.valid = mem_wb.valid && mem_wb_payload.wb_req.valid;
+  end
 
   assign busy_o = outstanding_head_valid;
 
@@ -258,7 +220,7 @@ module mem_stage
     DmemReqStable,
     dmem.req_valid,
     dmem.req_ready,
-    {dmem.addr, dmem.write, dmem.size, dmem.wdata, dmem.wstrb},
+    dmem.req_payload,
     '0,
     clk_i,
     !rst_ni || flush_i,

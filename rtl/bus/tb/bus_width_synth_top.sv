@@ -31,71 +31,42 @@ module bus_width_synth_top #(
   // 空闲接口驱动 //
   //////////////////
 
-  assign upstream.addr = '0;
-  assign upstream.write = 1'b0;
-  assign upstream.size = riscv_bus_pkg::CORE_BUS_SIZE_DWORD;
-  assign upstream.wdata = '0;
-  assign upstream.wstrb = '0;
+  assign upstream.req_payload = '0;
+  assign upstream.req_payload.size = riscv_bus_pkg::CORE_BUS_SIZE_DWORD;
   assign upstream.req_valid = 1'b0;
   assign upstream.rsp_ready = 1'b0;
   assign device.req_ready = 1'b0;
-  assign device.rdata = '0;
-  assign device.error = 1'b0;
+  assign device.rsp_payload = '0;
   assign device.rsp_valid = 1'b0;
   assign fallback.req_ready = 1'b0;
-  assign fallback.rdata = '0;
-  assign fallback.error = 1'b0;
+  assign fallback.rsp_payload = '0;
   assign fallback.rsp_valid = 1'b0;
 
   assign icache_axi.awvalid = 1'b0;
-  assign icache_axi.awaddr = '0;
-  assign icache_axi.awid = '0;
-  assign icache_axi.awlen = '0;
-  assign icache_axi.awsize = '0;
-  assign icache_axi.awburst = '0;
+  assign icache_axi.aw_payload = '0;
   assign icache_axi.wvalid = 1'b0;
-  assign icache_axi.wdata = '0;
-  assign icache_axi.wstrb = '0;
-  assign icache_axi.wlast = 1'b0;
+  assign icache_axi.w_payload = '0;
   assign icache_axi.bready = 1'b0;
   assign icache_axi.arvalid = 1'b0;
-  assign icache_axi.araddr = '0;
-  assign icache_axi.arid = '0;
-  assign icache_axi.arlen = '0;
-  assign icache_axi.arsize = '0;
-  assign icache_axi.arburst = '0;
+  assign icache_axi.ar_payload = '0;
   assign icache_axi.rready = 1'b0;
 
   assign dcache_axi.awvalid = 1'b0;
-  assign dcache_axi.awaddr = '0;
-  assign dcache_axi.awid = '0;
-  assign dcache_axi.awlen = '0;
-  assign dcache_axi.awsize = '0;
-  assign dcache_axi.awburst = '0;
+  assign dcache_axi.aw_payload = '0;
   assign dcache_axi.wvalid = 1'b0;
-  assign dcache_axi.wdata = '0;
-  assign dcache_axi.wstrb = '0;
-  assign dcache_axi.wlast = 1'b0;
+  assign dcache_axi.w_payload = '0;
   assign dcache_axi.bready = 1'b0;
   assign dcache_axi.arvalid = 1'b0;
-  assign dcache_axi.araddr = '0;
-  assign dcache_axi.arid = '0;
-  assign dcache_axi.arlen = '0;
-  assign dcache_axi.arsize = '0;
-  assign dcache_axi.arburst = '0;
+  assign dcache_axi.ar_payload = '0;
   assign dcache_axi.rready = 1'b0;
 
   assign master_axi.awready = 1'b0;
   assign master_axi.wready = 1'b0;
   assign master_axi.bvalid = 1'b0;
-  assign master_axi.bresp = '0;
-  assign master_axi.bid = '0;
+  assign master_axi.b_payload = '0;
   assign master_axi.arready = 1'b0;
   assign master_axi.rvalid = 1'b0;
-  assign master_axi.rresp = '0;
-  assign master_axi.rdata = '0;
-  assign master_axi.rlast = 1'b0;
-  assign master_axi.rid = '0;
+  assign master_axi.r_payload = '0;
 
   //////////////////
   // 被测总线模块 //
@@ -132,13 +103,12 @@ module bus_width_synth_top #(
   // 综合活动汇聚 //
   //////////////////
 
-  assign activity_o = ^{upstream.req_ready, upstream.rdata,
+  assign activity_o = ^{upstream.req_ready, upstream.rsp_payload,
                         device.req_valid, fallback.req_valid,
-                        master_axi.awvalid, master_axi.awaddr,
-                        master_axi.awid, master_axi.wvalid,
-                        master_axi.wdata, master_axi.wstrb,
+                        master_axi.awvalid, master_axi.aw_payload,
+                        master_axi.wvalid, master_axi.w_payload,
                         master_axi.bready, master_axi.arvalid,
-                        master_axi.araddr, master_axi.arid,
+                        master_axi.ar_payload,
                         master_axi.rready, icache_axi.rvalid,
                         dcache_axi.rvalid};
 

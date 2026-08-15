@@ -84,30 +84,26 @@ module cache_axi_memory_model
     axi.awready = 1'b0;
     axi.wready = 1'b0;
     axi.bvalid = 1'b0;
-    axi.bresp = '0;
-    axi.bid = '0;
+    axi.b_payload = '0;
     axi.arready = 1'b0;
     axi.rvalid = 1'b0;
-    axi.rresp = '0;
-    axi.rdata = '0;
-    axi.rlast = 1'b0;
-    axi.rid = '0;
+    axi.r_payload = '0;
     axi.awready = rst_ni && !write_active_q &&
         !write_response_pending_q && !bvalid_q &&
         (!random_backpressure_i || random_bits_i[0]);
     axi.wready = rst_ni && write_active_q &&
         (!random_backpressure_i || random_bits_i[1]);
     axi.bvalid = bvalid_q;
-    axi.bresp = bresp_q;
-    axi.bid = IdWidth'(AxiId);
+    axi.b_payload.resp = bresp_q;
+    axi.b_payload.id = IdWidth'(AxiId);
 
     axi.arready = rst_ni && !read_active_q && !rvalid_q &&
         (!random_backpressure_i || random_bits_i[2]);
     axi.rvalid = rvalid_q;
-    axi.rdata = rdata_q;
-    axi.rresp = rresp_q;
-    axi.rlast = rlast_q;
-    axi.rid = IdWidth'(AxiId);
+    axi.r_payload.data = rdata_q;
+    axi.r_payload.resp = rresp_q;
+    axi.r_payload.last = rlast_q;
+    axi.r_payload.id = IdWidth'(AxiId);
   end
 
   ////////////////////////////
@@ -128,28 +124,29 @@ module cache_axi_memory_model
       writeback_count_o <= 0;
     end else begin
       if (axi.awvalid && axi.awready) begin
-        if (axi.awid != IdWidth'(AxiId) || axi.awsize != 3'd2 ||
-            axi.awburst != AXI4_BURST_INCR)
+        if (axi.aw_payload.id != IdWidth'(AxiId) ||
+            axi.aw_payload.size != 3'd2 ||
+            axi.aw_payload.burst != AXI4_BURST_INCR)
           $fatal(1, "Invalid AXI write address attributes.");
         write_active_q <= 1'b1;
-        write_address_q <= axi.awaddr;
-        write_len_q <= axi.awlen;
+        write_address_q <= axi.aw_payload.addr;
+        write_len_q <= axi.aw_payload.len;
         write_beat_q <= '0;
         write_error_q <= inject_b_error_i;
         aw_count_o <= aw_count_o + 1;
       end
 
       if (axi.wvalid && axi.wready) begin
-        if (axi.wlast != (write_beat_q == write_len_q))
+        if (axi.w_payload.last != (write_beat_q == write_len_q))
           $fatal(1, "AXI WLAST does not match AWLEN.");
         for (int unsigned lane = 0; lane < StrbW; lane++) begin
-          if (axi.wstrb[lane]) begin
+          if (axi.w_payload.strb[lane]) begin
             memory[int'(write_address_q) +
                    int'(write_beat_q) * StrbW + lane] <=
-                axi.wdata[lane * ByteW +: ByteW];
+                axi.w_payload.data[lane * ByteW +: ByteW];
           end
         end
-        if (axi.wlast) begin
+        if (axi.w_payload.last) begin
           write_active_q <= 1'b0;
           write_response_pending_q <= 1'b1;
           bresp_q <= write_error_q ? 2'b10 : AXI4_RESP_OKAY;
@@ -191,12 +188,13 @@ module cache_axi_memory_model
       refill_count_o <= 0;
     end else begin
       if (axi.arvalid && axi.arready) begin
-        if (axi.arid != IdWidth'(AxiId) || axi.arsize != 3'd2 ||
-            axi.arburst != AXI4_BURST_INCR)
+        if (axi.ar_payload.id != IdWidth'(AxiId) ||
+            axi.ar_payload.size != 3'd2 ||
+            axi.ar_payload.burst != AXI4_BURST_INCR)
           $fatal(1, "Invalid AXI read address attributes.");
         read_active_q <= 1'b1;
-        read_address_q <= axi.araddr;
-        read_len_q <= axi.arlen;
+        read_address_q <= axi.ar_payload.addr;
+        read_len_q <= axi.ar_payload.len;
         read_beat_q <= '0;
         read_error_q <= inject_r_error_i;
         ar_count_o <= ar_count_o + 1;

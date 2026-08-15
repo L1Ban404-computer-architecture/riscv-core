@@ -36,6 +36,7 @@ module wb_stage
   csr_write_payload_t csr_write;
   mem_wb_payload_t mem_wb_payload;
   writeback_payload_t wb_req;
+  retire_debug_payload_t debug_payload;
   csr_commit_if csr_commit();
   csr_state_if csr_state();
   word_t current_mtvec;
@@ -47,20 +48,18 @@ module wb_stage
 
   assign mem_wb_payload = mem_wb.payload;
 
-  assign wb.valid = wb_req.valid;
-  assign wb.data_valid = wb_req.data_valid;
-  assign wb.rd_addr = wb_req.rd_addr;
-  assign wb.wdata = wb_req.wdata;
+  assign wb.payload = wb_req;
 
-  assign csr_commit.write_valid = csr_write.valid;
-  assign csr_commit.write_addr = csr_write.addr;
-  assign csr_commit.write_data = csr_write.wdata;
-  assign csr_commit.trap = trap_commit;
-  assign csr_commit.trap_epc = mem_wb_payload.pc;
-  assign csr_commit.trap_is_interrupt = effective_exception.is_interrupt;
-  assign csr_commit.trap_cause = effective_exception.cause;
-  assign csr_commit.trap_tval = effective_exception.tval;
-  assign csr_commit.mret = mret_commit;
+  always_comb begin
+    csr_commit.payload = '0;
+    csr_commit.payload.write = csr_write;
+    csr_commit.payload.trap = trap_commit;
+    csr_commit.payload.trap_epc = mem_wb_payload.meta.pc;
+    csr_commit.payload.trap_is_interrupt = effective_exception.is_interrupt;
+    csr_commit.payload.trap_cause = effective_exception.cause;
+    csr_commit.payload.trap_tval = effective_exception.tval;
+    csr_commit.payload.mret = mret_commit;
+  end
 
   //////////////////////////////////
   // 架构提交、改道与退休快照生成 //
@@ -87,14 +86,14 @@ module wb_stage
 
     // trap 和 MRET 都从 WB 发起全流水 flush；功能目标分别读取提交前 mtvec/mepc。
     redirect.valid = 1'b0;
-    redirect.target_pc = '0;
+    redirect.payload.target_pc = '0;
     flush_o = 1'b0;
     if (trap_commit) begin
       redirect.valid = 1'b1;
-      redirect.target_pc = current_mtvec;
+      redirect.payload.target_pc = current_mtvec;
     end else if (mret_commit) begin
       redirect.valid = 1'b1;
-      redirect.target_pc = current_mepc;
+      redirect.payload.target_pc = current_mepc;
     end
     flush_o = redirect.valid;
 
@@ -123,27 +122,23 @@ module wb_stage
   // 退休调试输出       //
   ////////////////////////
 
-  // valid 为零时其余字段无效，因此不再为 debug_retire 提供默认清零值。
+  // valid 为零时其余字段无效，因此完整 debug payload 只在 WB 最终生成。
+  always_comb begin
+    debug_payload = '0;
+    debug_payload.meta = mem_wb_payload.meta;
+    debug_payload.gpr_we = wb_req.valid && wb_req.data_valid;
+    debug_payload.gpr_waddr = wb_req.rd_addr;
+    debug_payload.gpr_wdata = wb_req.wdata;
+    debug_payload.mem = mem_wb_payload.retire_mem;
+    debug_payload.redirect = mem_wb_payload.redirect;
+    debug_payload.csr = csr_state.payload;
+    if (trap_commit || mret_commit) debug_payload.mem.mem_op = RETIRE_MEM_NONE;
+    debug_payload.redirect.valid = redirect.valid || mem_wb_payload.redirect.valid;
+    debug_payload.redirect.target_pc = redirect.valid ?
+        redirect.payload.target_pc : mem_wb_payload.redirect.target_pc;
+  end
+
   assign debug_retire.valid = wb_fire;
-  assign debug_retire.pc = mem_wb_payload.debug.pc;
-  assign debug_retire.instr = mem_wb_payload.debug.instr;
-  assign debug_retire.instid = mem_wb_payload.debug.instid;
-  assign debug_retire.gpr_we = wb_req.valid && wb_req.data_valid;
-  assign debug_retire.gpr_waddr = wb_req.rd_addr;
-  assign debug_retire.gpr_wdata = wb_req.wdata;
-  assign debug_retire.mem_op = (trap_commit || mret_commit) ?
-      RETIRE_MEM_NONE : mem_wb_payload.debug.mem_op;
-  assign debug_retire.mem_size = mem_wb_payload.debug.mem_size;
-  assign debug_retire.mem_addr = mem_wb_payload.debug.mem_addr;
-  assign debug_retire.mem_data = mem_wb_payload.debug.mem_data;
-  assign debug_retire.redirect_valid =
-      redirect.valid || mem_wb_payload.debug.redirect_valid;
-  assign debug_retire.redirect_target_pc = redirect.valid ?
-      redirect.target_pc : mem_wb_payload.debug.redirect_target_pc;
-  assign debug_retire.csr_mstatus = csr_state.payload.mstatus;
-  assign debug_retire.csr_mtvec = csr_state.payload.mtvec;
-  assign debug_retire.csr_mepc = csr_state.payload.mepc;
-  assign debug_retire.csr_mcause = csr_state.payload.mcause;
-  assign debug_retire.csr_mtval = csr_state.payload.mtval;
+  assign debug_retire.payload = debug_payload;
 
 endmodule

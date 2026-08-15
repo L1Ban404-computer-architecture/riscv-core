@@ -36,28 +36,20 @@ interface pipeline_stream_if #(
 endinterface
 
 // 通用 GPR 写回候选。valid 表示存在写回语义，data_valid 表示数据已经可前递。
-interface writeback_if #(
-  parameter int unsigned DataWidth = riscv_common_pkg::XLen,
-  parameter int unsigned RegAddrWidth = riscv_core_pkg::RegAddrW
-);
-  logic valid;
-  logic data_valid;
-  logic [RegAddrWidth-1:0] rd_addr;
-  logic [DataWidth-1:0] wdata;
-  modport producer (output valid, data_valid, rd_addr, wdata);
-  modport consumer (input valid, data_valid, rd_addr, wdata);
-  modport monitor (input valid, data_valid, rd_addr, wdata);
+interface writeback_if;
+  riscv_core_pkg::writeback_payload_t payload;
+  modport producer (output payload);
+  modport consumer (input payload);
+  modport monitor (input payload);
 endinterface
 
 // MEM 中尚未返回的 load 目标寄存器，用于阻塞不能立即满足的 RAW 相关。
-interface mem_pending_if #(
-  parameter int unsigned RegAddrWidth = riscv_core_pkg::RegAddrW
-);
+interface mem_pending_if;
   logic valid;
-  logic [RegAddrWidth-1:0] rd_addr;
-  modport producer (output valid, rd_addr);
-  modport consumer (input valid, rd_addr);
-  modport monitor (input valid, rd_addr);
+  riscv_core_pkg::mem_pending_payload_t payload;
+  modport producer (output valid, payload);
+  modport consumer (input valid, payload);
+  modport monitor (input valid, payload);
 endinterface
 
 ////////////////////////
@@ -69,40 +61,28 @@ interface csr_read_if #(
   parameter int unsigned DataWidth = riscv_common_pkg::XLen,
   parameter int unsigned CsrAddrWidth = 12
 );
-  logic [CsrAddrWidth-1:0] addr;
-  logic valid;
-  logic [DataWidth-1:0] data;
-  modport requester (output addr, input valid, data);
-  modport responder (input addr, output valid, data);
-  modport monitor (input addr, valid, data);
+  typedef struct packed {
+    logic [CsrAddrWidth-1:0] addr;
+  } req_payload_t;
+
+  typedef struct packed {
+    logic valid;
+    logic [DataWidth-1:0] data;
+  } rsp_payload_t;
+
+  req_payload_t req_payload;
+  rsp_payload_t rsp_payload;
+  modport requester (output req_payload, input rsp_payload);
+  modport responder (input req_payload, output rsp_payload);
+  modport monitor (input req_payload, rsp_payload);
 endinterface
 
 // WB 提交 CSR、trap 或 MRET 的互斥状态更新请求；提交优先级由 CSR 单元实现。
-interface csr_commit_if #(
-  parameter int unsigned DataWidth = riscv_common_pkg::XLen,
-  parameter int unsigned CsrAddrWidth = 12
-);
-  logic write_valid;
-  logic [CsrAddrWidth-1:0] write_addr;
-  logic [DataWidth-1:0] write_data;
-  logic trap;
-  logic [DataWidth-1:0] trap_epc;
-  logic trap_is_interrupt;
-  riscv_core_pkg::exception_cause_e trap_cause;
-  logic [DataWidth-1:0] trap_tval;
-  logic mret;
-  modport producer (
-    output write_valid, write_addr, write_data, trap, trap_epc,
-           trap_is_interrupt, trap_cause, trap_tval, mret
-  );
-  modport consumer (
-    input write_valid, write_addr, write_data, trap, trap_epc,
-          trap_is_interrupt, trap_cause, trap_tval, mret
-  );
-  modport monitor (
-    input write_valid, write_addr, write_data, trap, trap_epc,
-          trap_is_interrupt, trap_cause, trap_tval, mret
-  );
+interface csr_commit_if;
+  riscv_core_pkg::csr_commit_payload_t payload;
+  modport producer (output payload);
+  modport consumer (input payload);
+  modport monitor (input payload);
 endinterface
 
 // 提交后的 CSR 架构状态快照，仅用于退休调试观察，不参与流水控制。
@@ -117,11 +97,15 @@ endinterface
 interface redirect_if #(
   parameter int unsigned AddrWidth = riscv_common_pkg::XLen
 );
+  typedef struct packed {
+    logic [AddrWidth-1:0] target_pc;
+  } payload_t;
+
   logic valid;
-  logic [AddrWidth-1:0] target_pc;
-  modport producer (output valid, target_pc);
-  modport consumer (input valid, target_pc);
-  modport monitor (input valid, target_pc);
+  payload_t payload;
+  modport producer (output valid, payload);
+  modport consumer (input valid, payload);
+  modport monitor (input valid, payload);
 endinterface
 
 ////////////////////////
@@ -130,93 +114,20 @@ endinterface
 
 // 单条退休事件及其架构副作用快照。valid 仅在退休当拍拉高；valid 为零时其余
 // 字段无效，生产者可以将其清零。
-interface retire_debug_if #(
-  parameter int unsigned DataWidth = riscv_common_pkg::XLen,
-  parameter int unsigned InstrWidth = riscv_core_pkg::ILen,
-  parameter int unsigned RegAddrWidth = riscv_core_pkg::RegAddrW,
-  parameter int unsigned InstIdWidth = 64
-);
+interface retire_debug_if;
   logic valid;
-  logic [DataWidth-1:0] pc;
-  logic [InstrWidth-1:0] instr;
-  logic [InstIdWidth-1:0] instid;
-  logic gpr_we;
-  logic [RegAddrWidth-1:0] gpr_waddr;
-  logic [DataWidth-1:0] gpr_wdata;
-  riscv_core_pkg::retire_mem_op_e mem_op;
-  riscv_core_pkg::mem_size_e mem_size;
-  logic [DataWidth-1:0] mem_addr;
-  logic [DataWidth-1:0] mem_data;
-  logic redirect_valid;
-  logic [DataWidth-1:0] redirect_target_pc;
-  logic [DataWidth-1:0] csr_mstatus;
-  logic [DataWidth-1:0] csr_mtvec;
-  logic [DataWidth-1:0] csr_mepc;
-  logic [DataWidth-1:0] csr_mcause;
-  logic [DataWidth-1:0] csr_mtval;
-  modport producer (
-    output valid, pc, instr, instid, gpr_we, gpr_waddr, gpr_wdata,
-           mem_op, mem_size, mem_addr, mem_data, redirect_valid,
-           redirect_target_pc, csr_mstatus, csr_mtvec, csr_mepc,
-           csr_mcause, csr_mtval
-  );
-  modport consumer (
-    input valid, pc, instr, instid, gpr_we, gpr_waddr, gpr_wdata,
-          mem_op, mem_size, mem_addr, mem_data, redirect_valid,
-          redirect_target_pc, csr_mstatus, csr_mtvec, csr_mepc,
-          csr_mcause, csr_mtval
-  );
-  modport monitor (
-    input valid, pc, instr, instid, gpr_we, gpr_waddr, gpr_wdata,
-          mem_op, mem_size, mem_addr, mem_data, redirect_valid,
-          redirect_target_pc, csr_mstatus, csr_mtvec, csr_mepc,
-          csr_mcause, csr_mtval
-  );
+  riscv_core_pkg::retire_debug_payload_t payload;
+  modport producer (output valid, payload);
+  modport consumer (input valid, payload);
+  modport monitor (input valid, payload);
 endinterface
 
 // 实时性能计数快照。所有计数器只供仿真分析，不参与核心功能控制。
-interface performance_debug_if #(
-  parameter int unsigned CounterWidth = 64
-);
-  logic [CounterWidth-1:0] cycle_count;
-  logic [CounterWidth-1:0] instret_count;
-  logic [CounterWidth-1:0] if_id_fire_count;
-  logic [CounterWidth-1:0] id_ex_fire_count;
-  logic [CounterWidth-1:0] ex_mem_fire_count;
-  logic [CounterWidth-1:0] mem_wb_fire_count;
-  logic [CounterWidth-1:0] if_id_stall_cycle_count;
-  logic [CounterWidth-1:0] id_ex_stall_cycle_count;
-  logic [CounterWidth-1:0] ex_mem_stall_cycle_count;
-  logic [CounterWidth-1:0] mem_wb_stall_cycle_count;
-  logic [CounterWidth-1:0] if_starve_cycle_count;
-  logic [CounterWidth-1:0] id_local_stall_cycle_count;
-  logic [CounterWidth-1:0] ex_local_stall_cycle_count;
-  logic [CounterWidth-1:0] mem_local_stall_cycle_count;
-  logic [CounterWidth-1:0] wb_local_stall_cycle_count;
-  modport producer (
-    output cycle_count, instret_count, if_id_fire_count, id_ex_fire_count,
-           ex_mem_fire_count, mem_wb_fire_count, if_id_stall_cycle_count,
-           id_ex_stall_cycle_count, ex_mem_stall_cycle_count,
-           mem_wb_stall_cycle_count, if_starve_cycle_count,
-           id_local_stall_cycle_count, ex_local_stall_cycle_count,
-           mem_local_stall_cycle_count, wb_local_stall_cycle_count
-  );
-  modport consumer (
-    input cycle_count, instret_count, if_id_fire_count, id_ex_fire_count,
-          ex_mem_fire_count, mem_wb_fire_count, if_id_stall_cycle_count,
-          id_ex_stall_cycle_count, ex_mem_stall_cycle_count,
-          mem_wb_stall_cycle_count, if_starve_cycle_count,
-          id_local_stall_cycle_count, ex_local_stall_cycle_count,
-          mem_local_stall_cycle_count, wb_local_stall_cycle_count
-  );
-  modport monitor (
-    input cycle_count, instret_count, if_id_fire_count, id_ex_fire_count,
-          ex_mem_fire_count, mem_wb_fire_count, if_id_stall_cycle_count,
-          id_ex_stall_cycle_count, ex_mem_stall_cycle_count,
-          mem_wb_stall_cycle_count, if_starve_cycle_count,
-          id_local_stall_cycle_count, ex_local_stall_cycle_count,
-          mem_local_stall_cycle_count, wb_local_stall_cycle_count
-  );
+interface performance_debug_if;
+  riscv_core_pkg::performance_debug_payload_t payload;
+  modport producer (output payload);
+  modport consumer (input payload);
+  modport monitor (input payload);
 endinterface
 
 /////////////////////////////

@@ -32,32 +32,26 @@ module icache
   logic unused_axi_write_resp;
 
   assign unused_axi_write_resp = ^{axi.awready, axi.wready,
-                                   axi.bvalid, axi.bresp, axi.bid};
+                                   axi.bvalid, axi.b_payload};
 
   always_comb begin
     axi.awvalid = 1'b0;
-    axi.awaddr = '0;
-    axi.awid = '0;
-    axi.awlen = '0;
-    axi.awsize = '0;
-    axi.awburst = '0;
+    axi.aw_payload = '0;
     axi.wvalid = 1'b0;
-    axi.wdata = '0;
-    axi.wstrb = '0;
-    axi.wlast = 1'b0;
+    axi.w_payload = '0;
     axi.bready = 1'b0;
     axi.arvalid = core_bus.req_valid;
-    axi.araddr = core_bus.addr;
-    axi.arid = IdWidth'(AxiId);
-    axi.arlen = 8'd0;
-    axi.arsize = 3'd2;
-    axi.arburst = AXI4_BURST_INCR;
+    axi.ar_payload.addr = core_bus.req_payload.addr;
+    axi.ar_payload.id = IdWidth'(AxiId);
+    axi.ar_payload.len = 8'd0;
+    axi.ar_payload.size = 3'd2;
+    axi.ar_payload.burst = AXI4_BURST_INCR;
     axi.rready = core_bus.rsp_ready;
 
     core_bus.req_ready = axi.arready;
-    core_bus.rdata = axi.rdata;
-    core_bus.error = (axi.rresp != AXI4_RESP_OKAY) ||
-        !axi.rlast || (axi.rid != IdWidth'(AxiId));
+    core_bus.rsp_payload.rdata = axi.r_payload.data;
+    core_bus.rsp_payload.error = (axi.r_payload.resp != AXI4_RESP_OKAY) ||
+        !axi.r_payload.last || (axi.r_payload.id != IdWidth'(AxiId));
     core_bus.rsp_valid = axi.rvalid;
   end
 
@@ -67,18 +61,20 @@ module icache
 
   `ASSERT(ICacheCoreBusReadOnly,
           core_bus.req_valid |->
-              !core_bus.write && (core_bus.size == CORE_BUS_SIZE_WORD) &&
-              (core_bus.addr[1:0] == 2'b00) &&
-              (core_bus.wdata == '0) && (core_bus.wstrb == '0),
+              !core_bus.req_payload.write &&
+              (core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
+              (core_bus.req_payload.addr[1:0] == 2'b00) &&
+              (core_bus.req_payload.wdata == '0) &&
+              (core_bus.req_payload.wstrb == '0),
           clk_i, !rst_ni, "ICache only accepts aligned word reads.")
 
   `ASSERT_INIT(ICacheCoreBusAddrWidth,
-               $bits(core_bus.addr) == AddrWidth)
+               $bits(core_bus.req_payload.addr) == AddrWidth)
   `ASSERT_INIT(ICacheCoreBusDataWidth,
-               $bits(core_bus.wdata) == DataWidth)
-  `ASSERT_INIT(ICacheAxiAddrWidth, $bits(axi.awaddr) == AddrWidth)
-  `ASSERT_INIT(ICacheAxiDataWidth, $bits(axi.wdata) == DataWidth)
-  `ASSERT_INIT(ICacheAxiIdWidth, $bits(axi.awid) == IdWidth)
+               $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(ICacheAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
+  `ASSERT_INIT(ICacheAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
+  `ASSERT_INIT(ICacheAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
   `ASSERT_INIT(ICacheAxiIdFits, (AxiId >> IdWidth) == 0)
   `ASSERT_INIT(ICacheAddressAndIdWidthsValid,
                AddrWidth > 0 && IdWidth > 0)
