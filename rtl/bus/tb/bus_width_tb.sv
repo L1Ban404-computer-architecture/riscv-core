@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`timescale 1ns/1ps
+`timescale 1ns / 1ps
 
 // 总线参数化自检 Testbench。
 //
@@ -26,12 +26,33 @@ module bus_width_tb;
   // 被测接口与模块 //
   ////////////////////
 
-  core_bus_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth)) upstream();
-  core_bus_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth)) device();
-  core_bus_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth)) fallback();
-  axi4_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth), .IdWidth(IdWidth)) icache_axi();
-  axi4_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth), .IdWidth(IdWidth)) dcache_axi();
-  axi4_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth), .IdWidth(IdWidth)) master_axi();
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) upstream ();
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) device ();
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) fallback ();
+  axi4_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth)
+  ) icache_axi ();
+  axi4_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth)
+  ) dcache_axi ();
+  axi4_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth)
+  ) master_axi ();
 
   corebus_addr_router #(
     .AddrWidth(AddrWidth),
@@ -144,11 +165,11 @@ module bus_width_tb;
     check(device.req_valid && !fallback.req_valid,
           "Router did not select the high-address device.");
     check(!upstream.req_ready, "Router did not propagate device backpressure.");
-    check(device.req_payload.addr == upstream.req_payload.addr &&
-              device.req_payload.wdata == upstream.req_payload.wdata &&
-              device.req_payload.wstrb == 8'hff &&
-              device.req_payload.size == CORE_BUS_SIZE_DWORD,
-          "Router truncated the parameterized CoreBus payload.");
+    check(
+        device.req_payload.addr == upstream.req_payload.addr &&
+            device.req_payload.wdata == upstream.req_payload.wdata &&
+            device.req_payload.wstrb == 8'hff && device.req_payload.size == CORE_BUS_SIZE_DWORD,
+        "Router truncated the parameterized CoreBus payload.");
     device.req_ready = 1'b1;
     @(posedge clk_i);
     @(negedge clk_i);
@@ -159,8 +180,7 @@ module bus_width_tb;
     fallback.rsp_payload.rdata = 64'hdead_dead_dead_dead;
     fallback.rsp_valid = 1'b1;
     #1;
-    check(upstream.rsp_valid &&
-              upstream.rsp_payload.rdata == device.rsp_payload.rdata,
+    check(upstream.rsp_valid && upstream.rsp_payload.rdata == device.rsp_payload.rdata,
           "Router response owner was not retained.");
     check(!device.rsp_ready && !fallback.rsp_ready,
           "Router ignored upstream response backpressure.");
@@ -191,8 +211,7 @@ module bus_width_tb;
     fallback.rsp_valid = 1'b1;
     upstream.rsp_ready = 1'b1;
     #1;
-    check(upstream.rsp_payload.rdata == fallback.rsp_payload.rdata &&
-              fallback.rsp_ready,
+    check(upstream.rsp_payload.rdata == fallback.rsp_payload.rdata && fallback.rsp_ready,
           "Router fallback response failed.");
     @(posedge clk_i);
     @(negedge clk_i);
@@ -215,11 +234,10 @@ module bus_width_tb;
     icache_axi.ar_payload.burst = AXI4_BURST_INCR;
     master_axi.arready = 1'b0;
     #1;
-    check(master_axi.arvalid &&
-              master_axi.ar_payload.addr == dcache_axi.ar_payload.addr &&
-              master_axi.ar_payload.id == IdWidth'(DCacheId) &&
-              !dcache_axi.arready,
-          "AXI mux did not preserve the backpressured DCache AR payload.");
+    check(
+        master_axi.arvalid && master_axi.ar_payload.addr == dcache_axi.ar_payload.addr &&
+            master_axi.ar_payload.id == IdWidth'(DCacheId) && !dcache_axi.arready,
+        "AXI mux did not preserve the backpressured DCache AR payload.");
     @(posedge clk_i);
     @(negedge clk_i);
     master_axi.arready = 1'b1;
@@ -230,11 +248,10 @@ module bus_width_tb;
     @(negedge clk_i);
     dcache_axi.arvalid = 1'b0;
     #1;
-    check(master_axi.arvalid &&
-              master_axi.ar_payload.addr == icache_axi.ar_payload.addr &&
-              master_axi.ar_payload.id == IdWidth'(ICacheId) &&
-              icache_axi.arready,
-          "AXI mux did not issue the pending ICache read.");
+    check(
+        master_axi.arvalid && master_axi.ar_payload.addr == icache_axi.ar_payload.addr &&
+            master_axi.ar_payload.id == IdWidth'(ICacheId) && icache_axi.arready,
+        "AXI mux did not issue the pending ICache read.");
     @(posedge clk_i);
     @(negedge clk_i);
     icache_axi.arvalid = 1'b0;
@@ -247,17 +264,16 @@ module bus_width_tb;
     master_axi.r_payload.last = 1'b1;
     master_axi.r_payload.id = IdWidth'(DCacheId);
     #1;
-    check(master_axi.rready && dcache_axi.rvalid &&
-              dcache_axi.r_payload.data == master_axi.r_payload.data &&
-              !icache_axi.rvalid,
-          "AXI mux DCache response routing failed.");
+    check(
+        master_axi.rready && dcache_axi.rvalid &&
+            dcache_axi.r_payload.data == master_axi.r_payload.data && !icache_axi.rvalid,
+        "AXI mux DCache response routing failed.");
     @(posedge clk_i);
     @(negedge clk_i);
     master_axi.rvalid = 1'b0;
     master_axi.r_payload.data = '0;
     #1;
-    check(dcache_axi.rvalid &&
-              dcache_axi.r_payload.data == 64'h8000_0000_0000_0042,
+    check(dcache_axi.rvalid && dcache_axi.r_payload.data == 64'h8000_0000_0000_0042,
           "AXI mux did not retain a backpressured 64-bit response.");
     dcache_axi.rready = 1'b1;
     @(posedge clk_i);
@@ -270,11 +286,10 @@ module bus_width_tb;
     master_axi.r_payload.last = 1'b1;
     master_axi.r_payload.id = IdWidth'(ICacheId);
     #1;
-    check(icache_axi.rvalid &&
-              icache_axi.r_payload.id == IdWidth'(ICacheId) &&
-              icache_axi.r_payload.data == master_axi.r_payload.data &&
-              !dcache_axi.rvalid,
-          "AXI mux ICache ID routing failed.");
+    check(
+        icache_axi.rvalid && icache_axi.r_payload.id == IdWidth'(ICacheId) &&
+            icache_axi.r_payload.data == master_axi.r_payload.data && !dcache_axi.rvalid,
+        "AXI mux ICache ID routing failed.");
     @(posedge clk_i);
     @(negedge clk_i);
     master_axi.rvalid = 1'b0;
@@ -293,20 +308,18 @@ module bus_width_tb;
     master_axi.awready = 1'b0;
     master_axi.wready = 1'b0;
     #1;
-    check(master_axi.awvalid &&
-              master_axi.aw_payload.addr == dcache_axi.aw_payload.addr &&
-              master_axi.aw_payload.id == IdWidth'(DCacheId) &&
-              !dcache_axi.awready,
-          "AXI mux write-address backpressure failed.");
-    check(master_axi.wvalid &&
-              master_axi.w_payload.data == dcache_axi.w_payload.data &&
-              master_axi.w_payload.strb == 8'hff && !dcache_axi.wready,
-          "AXI mux truncated the 64-bit write payload or strobe.");
+    check(
+        master_axi.awvalid && master_axi.aw_payload.addr == dcache_axi.aw_payload.addr &&
+            master_axi.aw_payload.id == IdWidth'(DCacheId) && !dcache_axi.awready,
+        "AXI mux write-address backpressure failed.");
+    check(
+        master_axi.wvalid && master_axi.w_payload.data == dcache_axi.w_payload.data &&
+            master_axi.w_payload.strb == 8'hff && !dcache_axi.wready,
+        "AXI mux truncated the 64-bit write payload or strobe.");
     master_axi.awready = 1'b1;
     master_axi.wready = 1'b1;
     #1;
-    check(dcache_axi.awready && dcache_axi.wready,
-          "AXI mux write ready propagation failed.");
+    check(dcache_axi.awready && dcache_axi.wready, "AXI mux write ready propagation failed.");
     @(posedge clk_i);
     @(negedge clk_i);
     dcache_axi.awvalid = 1'b0;
@@ -318,9 +331,7 @@ module bus_width_tb;
     master_axi.b_payload.resp = AXI4_RESP_OKAY;
     master_axi.b_payload.id = IdWidth'(DCacheId);
     #1;
-    check(dcache_axi.bvalid &&
-              dcache_axi.b_payload.id == IdWidth'(DCacheId) &&
-              master_axi.bready,
+    check(dcache_axi.bvalid && dcache_axi.b_payload.id == IdWidth'(DCacheId) && master_axi.bready,
           "AXI mux write response routing failed.");
 
     $display("bus_width_tb: PASS (AddrWidth=40 DataWidth=64 IdWidth=6)");

@@ -64,10 +64,8 @@ module forwarding_unit
     rs1_pending = 1'b0;
     rs2_pending = 1'b0;
 
-    rs1_pending = mem_pending.valid &&
-        (mem_pending.payload.rd_addr == rs1_addr_i);
-    rs2_pending = mem_pending.valid &&
-        (mem_pending.payload.rd_addr == rs2_addr_i);
+    rs1_pending = mem_pending.valid && (mem_pending.payload.rd_addr == rs1_addr_i);
+    rs2_pending = mem_pending.valid && (mem_pending.payload.rd_addr == rs2_addr_i);
   end
 
   always_comb begin
@@ -80,14 +78,12 @@ module forwarding_unit
     // 年龄最近的 EX/MEM 写回候选优先于 MEM/WB。匹配但 data_valid
     // 尚未成立时阻塞当前 EX 事务，不能绕过它使用更老的写回值。
     if (rs1_used_i && (rs1_addr_i != ZeroReg)) begin
-      if (ex_wb.payload.valid &&
-          (ex_wb.payload.rd_addr == rs1_addr_i)) begin
+      if (ex_wb.payload.valid && (ex_wb.payload.rd_addr == rs1_addr_i)) begin
         if (ex_wb.payload.data_valid) rs1_value_o = ex_wb.payload.wdata;
         else stall_o = 1'b1;
       end else if (rs1_pending) begin
         stall_o = 1'b1;
-      end else if (mem_wb.payload.valid &&
-                   (mem_wb.payload.rd_addr == rs1_addr_i)) begin
+      end else if (mem_wb.payload.valid && (mem_wb.payload.rd_addr == rs1_addr_i)) begin
         if (mem_wb.payload.data_valid) begin
           rs1_value_o = mem_wb.payload.wdata;
           mem_wb_rs1_forwarded = 1'b1;
@@ -98,14 +94,12 @@ module forwarding_unit
     end
 
     if (rs2_used_i && (rs2_addr_i != ZeroReg)) begin
-      if (ex_wb.payload.valid &&
-          (ex_wb.payload.rd_addr == rs2_addr_i)) begin
+      if (ex_wb.payload.valid && (ex_wb.payload.rd_addr == rs2_addr_i)) begin
         if (ex_wb.payload.data_valid) rs2_value_o = ex_wb.payload.wdata;
         else stall_o = 1'b1;
       end else if (rs2_pending) begin
         stall_o = 1'b1;
-      end else if (mem_wb.payload.valid &&
-                   (mem_wb.payload.rd_addr == rs2_addr_i)) begin
+      end else if (mem_wb.payload.valid && (mem_wb.payload.rd_addr == rs2_addr_i)) begin
         if (mem_wb.payload.data_valid) begin
           rs2_value_o = mem_wb.payload.wdata;
           mem_wb_rs2_forwarded = 1'b1;

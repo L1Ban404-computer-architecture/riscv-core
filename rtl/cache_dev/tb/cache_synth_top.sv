@@ -25,12 +25,12 @@ module cache_synth_top
   core_bus_if #(
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth)
-  ) core_bus();
+  ) core_bus ();
   axi4_if #(
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth),
     .IdWidth(IdWidth)
-  ) axi();
+  ) axi ();
 
   assign core_bus.req_payload = '0;
   assign core_bus.req_payload.size = riscv_bus_pkg::CORE_BUS_SIZE_WORD;
@@ -60,10 +60,8 @@ module cache_synth_top
     .axi
   );
 
-  assign activity_o = ^{core_bus.req_ready, core_bus.rsp_payload,
-                        core_bus.rsp_valid, axi.awvalid, axi.aw_payload,
-                        axi.wvalid, axi.w_payload,
-                        axi.bready, axi.arvalid, axi.ar_payload,
-                        axi.rready};
+  assign activity_o =
+      ^{core_bus.req_ready, core_bus.rsp_payload, core_bus.rsp_valid, axi.awvalid, axi.aw_payload,
+        axi.wvalid, axi.w_payload, axi.bready, axi.arvalid, axi.ar_payload, axi.rready};
 
 endmodule

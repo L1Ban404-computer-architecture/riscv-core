@@ -25,12 +25,9 @@ module cache_array
   localparam int unsigned SetIndexW = (SetCount > 1) ? SetIndexBits : 1,
   localparam int unsigned TagW = BlockAddrW - SetIndexBits,
   localparam int unsigned WordCount = BlockBytes / StrbW,
-  localparam int unsigned WordIndexW =
-      (WordCount > 1) ? $clog2(WordCount) : 1,
-  localparam int unsigned WayIndexW =
-      (WayCount > 1) ? $clog2(WayCount) : 1,
-  localparam int unsigned TxnIdW =
-      (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1,
+  localparam int unsigned WordIndexW = (WordCount > 1) ? $clog2(WordCount) : 1,
+  localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2(WayCount) : 1,
+  localparam int unsigned TxnIdW = (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1,
   localparam int unsigned LineBits = BlockBytes * ByteW
 ) (
   // 全局控制
@@ -45,8 +42,7 @@ module cache_array
   cache_victim_req_if.consumer victim_req,
   cache_victim_rsp_if.producer victim_rsp,
   cache_word_write_if.consumer word_write,
-  cache_line_install_if.consumer line_install,
-  cache_replacement_update_if.consumer replacement_update
+  cache_line_install_if.consumer line_install
 );
 
   //////////////////////////////
@@ -113,20 +109,15 @@ module cache_array
 
   // 未被接收的牺牲行响应会持续占用数据 bank。新操作按“整行安装、单字写入、
   // 牺牲行读取、普通查询”从高到低仲裁，避免同拍多写或读写目标冲突。
-  assign line_install.ready =
-      !victim_rsp_valid_q || victim_rsp.ready;
-  assign word_write.ready =
-      line_install.ready && !line_install.valid;
-  assign victim_req.ready =
-      word_write.ready && !word_write.valid;
-  assign lookup_req.ready =
-      victim_req.ready && !victim_req.valid;
+  assign line_install.ready = !victim_rsp_valid_q || victim_rsp.ready;
+  assign word_write.ready = line_install.ready && !line_install.valid;
+  assign victim_req.ready = word_write.ready && !word_write.valid;
+  assign lookup_req.ready = victim_req.ready && !victim_req.valid;
 
   assign lookup_fire = lookup_req.valid && lookup_req.ready;
   assign victim_fire = victim_req.valid && victim_req.ready;
   assign word_write_fire = word_write.valid && word_write.ready;
-  assign line_install_fire =
-      line_install.valid && line_install.ready;
+  assign line_install_fire = line_install.valid && line_install.ready;
   assign bank_read_set = victim_fire ? victim_req.payload.set : lookup_req.payload.set;
 
   ////////////////////////////
@@ -135,20 +126,15 @@ module cache_array
 
   for (genvar way = 0; way < WayCount; way++) begin : gen_way
     for (genvar bank = 0; bank < WordCount; bank++) begin : gen_word_bank
-      assign bank_read_valid[way][bank] =
-          (lookup_fire &&
-           (lookup_req.payload.word == WordIndexW'(bank))) ||
-          (victim_fire &&
-           (victim_req.payload.way == WayIndexW'(way)));
+      assign bank_read_valid[way][bank] = (lookup_fire &&
+                                           (lookup_req.payload.word == WordIndexW'(bank))) ||
+          (victim_fire && (victim_req.payload.way == WayIndexW'(way)));
       assign bank_write_valid[way][bank] =
-          (line_install_fire &&
-           (line_install.payload.way == WayIndexW'(way))) ||
-          (word_write_fire &&
-           (word_write.payload.way == WayIndexW'(way)) &&
+          (line_install_fire && (line_install.payload.way == WayIndexW'(way))) ||
+          (word_write_fire && (word_write.payload.way == WayIndexW'(way)) &&
            (word_write.payload.word == WordIndexW'(bank)));
       assign bank_write_data[way][bank] = line_install_fire ?
-          line_install.payload.data[bank * XLen +: XLen] :
-          word_write.payload.data;
+          line_install.payload.data[bank*XLen+:XLen] : word_write.payload.data;
 
       cache_data_bank #(
         .SetCount(SetCount)
@@ -159,8 +145,7 @@ module cache_array
         .read_set_i(bank_read_set),
         .read_data_o(bank_read_data[way][bank]),
         .write_valid_i(bank_write_valid[way][bank]),
-        .write_set_i(line_install_fire ? line_install.payload.set :
-                                           word_write.payload.set),
+        .write_set_i(line_install_fire ? line_install.payload.set : word_write.payload.set),
         .write_data_i(bank_write_data[way][bank])
       );
     end
@@ -183,8 +168,7 @@ module cache_array
           end
         end
       end else if (line_install_fire) begin
-        dirty_mem[line_install.payload.way][line_install.payload.set] <=
-            line_install.payload.dirty;
+        dirty_mem[line_install.payload.way][line_install.payload.set] <= line_install.payload.dirty;
       end else if (word_write_fire) begin
         dirty_mem[word_write.payload.way][word_write.payload.set] <= 1'b1;
       end
@@ -205,8 +189,7 @@ module cache_array
 
   always_ff @(posedge clk_i) begin
     if (line_install_fire)
-      tag_mem[line_install.payload.way][line_install.payload.set] <=
-          line_install.payload.tag;
+      tag_mem[line_install.payload.way][line_install.payload.set] <= line_install.payload.tag;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -238,8 +221,7 @@ module cache_array
   always_comb begin
     lookup_hit_vector = '0;
     for (int unsigned way = 0; way < WayCount; way++) begin
-      lookup_hit_vector[way] = lookup_valids_q[way] &&
-          (lookup_tags_q[way] == lookup_req_q.tag);
+      lookup_hit_vector[way] = lookup_valids_q[way] && (lookup_tags_q[way] == lookup_req_q.tag);
     end
   end
 
@@ -263,8 +245,7 @@ module cache_array
     lookup_base_rsp.epoch = lookup_req_q.epoch;
     lookup_base_rsp.hit = lookup_hit;
     lookup_base_rsp.hit_way = lookup_hit_way;
-    lookup_base_rsp.rdata =
-        bank_read_data[lookup_hit_way][lookup_req_q.word];
+    lookup_base_rsp.rdata = bank_read_data[lookup_hit_way][lookup_req_q.word];
     lookup_base_rsp.victim_way = lookup_victim_way;
     lookup_base_rsp.victim_tag = lookup_tags_q[lookup_victim_way];
     lookup_base_rsp.victim_valid = lookup_valids_q[lookup_victim_way];
@@ -310,8 +291,7 @@ module cache_array
   always_comb begin
     victim_rsp.payload = '0;
     for (int unsigned bank = 0; bank < WordCount; bank++) begin
-      victim_rsp.payload.line[bank * XLen +: XLen] =
-          bank_read_data[victim_way_q][bank];
+      victim_rsp.payload.line[bank*XLen+:XLen] = bank_read_data[victim_way_q][bank];
     end
   end
 
@@ -320,8 +300,7 @@ module cache_array
       victim_rsp_valid_q <= 1'b0;
       victim_way_q <= '0;
     end else begin
-      if (victim_rsp_valid_q && victim_rsp.ready)
-        victim_rsp_valid_q <= 1'b0;
+      if (victim_rsp_valid_q && victim_rsp.ready) victim_rsp_valid_q <= 1'b0;
       if (victim_fire) begin
         victim_rsp_valid_q <= 1'b1;
         victim_way_q <= victim_req.payload.way;
@@ -333,6 +312,7 @@ module cache_array
   // 替换策略 //
   //////////////
 
+  // install 提交沿同时记录新安装路，避免为替换状态再引入独立事件通道。
   cache_replacement_policy #(
     .SetCount(SetCount),
     .WayCount(WayCount)
@@ -342,9 +322,9 @@ module cache_array
     .select_set_i(lookup_req_q.set),
     .select_valid_i(lookup_valids_q),
     .victim_way_o(lookup_victim_way),
-    .access_valid_i(replacement_update.valid),
-    .access_set_i(replacement_update.payload.set),
-    .access_way_i(replacement_update.payload.way)
+    .access_valid_i(line_install_fire),
+    .access_set_i(line_install.payload.set),
+    .access_way_i(line_install.payload.way)
   );
 
   ////////////////////
@@ -416,14 +396,10 @@ module cache_array
   // verilog_format: on
 
   if (ReadOnly) begin : gen_read_only_assertions
-    `ASSERT(CacheArrayReadOnlyWordWrite,
-            !word_write.valid,
-            clk_i, !rst_ni,
+    `ASSERT(CacheArrayReadOnlyWordWrite, !word_write.valid, clk_i, !rst_ni,
             "A read-only cache may install refill lines but cannot commit stores.")
-    `ASSERT(CacheArrayReadOnlyDirtyInstall,
-            line_install.valid |-> !line_install.payload.dirty,
-            clk_i, !rst_ni,
-            "A read-only cache must install clean lines.")
+    `ASSERT(CacheArrayReadOnlyDirtyInstall, line_install.valid |-> !line_install.payload.dirty,
+            clk_i, !rst_ni, "A read-only cache must install clean lines.")
   end
 
 endmodule

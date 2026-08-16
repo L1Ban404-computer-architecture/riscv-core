@@ -37,8 +37,8 @@ module wb_stage
   mem_wb_payload_t mem_wb_payload;
   writeback_payload_t wb_req;
   retire_debug_payload_t debug_payload;
-  csr_commit_if csr_commit();
-  csr_state_if csr_state();
+  csr_commit_if csr_commit ();
+  csr_state_if csr_state ();
   word_t current_mtvec;
   word_t current_mepc;
 
@@ -77,8 +77,7 @@ module wb_stage
 
     // 架构提交优先级固定为：trap entry > MRET > 普通 CSR/GPR 写回。
     trap_commit = wb_fire && effective_exception.valid;
-    mret_commit = wb_fire && !trap_commit &&
-        (mem_wb_payload.commit.system_op == SYS_MRET);
+    mret_commit = wb_fire && !trap_commit && (mem_wb_payload.commit.system_op == SYS_MRET);
 
     csr_write = mem_wb_payload.commit.csr_write;
     csr_write.valid = wb_fire && !trap_commit && !mret_commit &&
@@ -134,8 +133,8 @@ module wb_stage
     debug_payload.csr = csr_state.payload;
     if (trap_commit || mret_commit) debug_payload.mem.mem_op = RETIRE_MEM_NONE;
     debug_payload.redirect.valid = redirect.valid || mem_wb_payload.redirect.valid;
-    debug_payload.redirect.target_pc = redirect.valid ?
-        redirect.payload.target_pc : mem_wb_payload.redirect.target_pc;
+    debug_payload.redirect.target_pc = redirect.valid ? redirect.payload.target_pc :
+        mem_wb_payload.redirect.target_pc;
   end
 
   assign debug_retire.valid = wb_fire;

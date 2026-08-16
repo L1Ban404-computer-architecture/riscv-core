@@ -65,14 +65,15 @@ module cache_corebus_scoreboard
         end
         if (!core_bus.rsp_payload.error &&
             (core_bus.rsp_payload.rdata !== expected_rdata_q[head_q])) begin
-          $fatal(1,
-                 "CoreBus data mismatch at response %0d: expected %08x, got %08x.",
-                 head_q, expected_rdata_q[head_q], core_bus.rsp_payload.rdata);
+          $fatal(1, "CoreBus data mismatch at response %0d: expected %08x, got %08x.", head_q,
+                 expected_rdata_q[head_q], core_bus.rsp_payload.rdata);
         end
         head_q <= head_q + 1;
       end
 
-      unique case ({request_fire, response_fire})
+      unique case ({
+        request_fire, response_fire
+      })
         2'b10: pending_o <= pending_o + CountW'(1);
         2'b01: pending_o <= pending_o - CountW'(1);
         default: ;

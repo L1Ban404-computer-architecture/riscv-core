@@ -37,8 +37,7 @@ module corebus_addr_router
   logic request_fire;
   logic response_fire;
 
-  assign request_device = (master_bus.req_payload.addr & DeviceMask) ==
-      (DeviceBase & DeviceMask);
+  assign request_device = (master_bus.req_payload.addr & DeviceMask) == (DeviceBase & DeviceMask);
   assign active_device = busy_q ? owner_device_q : request_device;
 
   ////////////////////
@@ -59,8 +58,7 @@ module corebus_addr_router
     master_bus.rsp_payload = '0;
     master_bus.rsp_valid = 1'b0;
     if (!busy_q) begin
-      master_bus.req_ready = request_device ? device_bus.req_ready :
-          fallback_bus.req_ready;
+      master_bus.req_ready = request_device ? device_bus.req_ready : fallback_bus.req_ready;
     end
 
     // 接受请求的同拍即按当前地址选择响应源，使 CoreBus 仍支持从设备零延迟响应。
@@ -84,16 +82,11 @@ module corebus_addr_router
 
   `ASSERT_INIT(CoreBusRouterAddrWidthValid, AddrWidth > 0)
   `ASSERT_INIT(CoreBusRouterDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 &&
-                   (DataWidth & (DataWidth - 1)) == 0)
-  `ASSERT_INIT(CoreBusRouterMasterAddrWidth,
-               $bits(master_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CoreBusRouterMasterDataWidth,
-               $bits(master_bus.req_payload.wdata) == DataWidth)
-  `ASSERT_INIT(CoreBusRouterDeviceAddrWidth,
-               $bits(device_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CoreBusRouterFallbackDataWidth,
-               $bits(fallback_bus.req_payload.wdata) == DataWidth)
+               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
+  `ASSERT_INIT(CoreBusRouterMasterAddrWidth, $bits(master_bus.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(CoreBusRouterMasterDataWidth, $bits(master_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(CoreBusRouterDeviceAddrWidth, $bits(device_bus.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(CoreBusRouterFallbackDataWidth, $bits(fallback_bus.req_payload.wdata) == DataWidth)
 
   ////////////////////
   // 目标所有权寄存 //

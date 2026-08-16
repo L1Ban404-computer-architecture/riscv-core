@@ -20,21 +20,4 @@ package cache_pkg;
     return (value > 0) && ((value & (value - 1)) == 0);
   endfunction
 
-  // 按 CoreBus byte strobe 合并 store 数据。未置位的 lane 保留 old_word，置位的 lane
-  // 完整取自 new_word；调用方必须保证 new_word 已按目标地址对齐到对应总线 lane。
-  function automatic riscv_common_pkg::word_t cache_merge_store_word(
-    input riscv_common_pkg::word_t old_word,
-    input riscv_common_pkg::word_t new_word,
-    input riscv_common_pkg::byte_en_t strobe
-  );
-    riscv_common_pkg::word_t byte_mask;
-
-    byte_mask = '0;
-    for (int unsigned lane = 0; lane < riscv_common_pkg::StrbW; lane++) begin
-      byte_mask[lane * riscv_common_pkg::ByteW +: riscv_common_pkg::ByteW] =
-          {riscv_common_pkg::ByteW{strobe[lane]}};
-    end
-    return (old_word & ~byte_mask) | (new_word & byte_mask);
-  endfunction
-
 endpackage

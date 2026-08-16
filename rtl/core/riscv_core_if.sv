@@ -22,34 +22,26 @@ interface pipeline_stream_if #(
   logic ready;
   PayloadT payload;
 
-  modport producer (
-    output valid, payload,
-    input ready
-  );
-  modport consumer (
-    input valid, payload,
-    output ready
-  );
-  modport monitor (
-    input valid, ready, payload
-  );
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 // 通用 GPR 写回候选。valid 表示存在写回语义，data_valid 表示数据已经可前递。
 interface writeback_if;
   riscv_core_pkg::writeback_payload_t payload;
-  modport producer (output payload);
-  modport consumer (input payload);
-  modport monitor (input payload);
+  modport producer(output payload);
+  modport consumer(input payload);
+  modport monitor(input payload);
 endinterface
 
 // MEM 中尚未返回的 load 目标寄存器，用于阻塞不能立即满足的 RAW 相关。
 interface mem_pending_if;
   logic valid;
   riscv_core_pkg::mem_pending_payload_t payload;
-  modport producer (output valid, payload);
-  modport consumer (input valid, payload);
-  modport monitor (input valid, payload);
+  modport producer(output valid, payload);
+  modport consumer(input valid, payload);
+  modport monitor(input valid, payload);
 endinterface
 
 ////////////////////////
@@ -61,9 +53,7 @@ interface csr_read_if #(
   parameter int unsigned DataWidth = riscv_common_pkg::XLen,
   parameter int unsigned CsrAddrWidth = 12
 );
-  typedef struct packed {
-    logic [CsrAddrWidth-1:0] addr;
-  } req_payload_t;
+  typedef struct packed {logic [CsrAddrWidth-1:0] addr;} req_payload_t;
 
   typedef struct packed {
     logic valid;
@@ -72,40 +62,38 @@ interface csr_read_if #(
 
   req_payload_t req_payload;
   rsp_payload_t rsp_payload;
-  modport requester (output req_payload, input rsp_payload);
-  modport responder (input req_payload, output rsp_payload);
-  modport monitor (input req_payload, rsp_payload);
+  modport requester(output req_payload, input rsp_payload);
+  modport responder(input req_payload, output rsp_payload);
+  modport monitor(input req_payload, rsp_payload);
 endinterface
 
 // WB 提交 CSR、trap 或 MRET 的互斥状态更新请求；提交优先级由 CSR 单元实现。
 interface csr_commit_if;
   riscv_core_pkg::csr_commit_payload_t payload;
-  modport producer (output payload);
-  modport consumer (input payload);
-  modport monitor (input payload);
+  modport producer(output payload);
+  modport consumer(input payload);
+  modport monitor(input payload);
 endinterface
 
 // 提交后的 CSR 架构状态快照，仅用于退休调试观察，不参与流水控制。
 interface csr_state_if;
   riscv_core_pkg::csr_state_payload_t payload;
-  modport producer (output payload);
-  modport consumer (input payload);
-  modport monitor (input payload);
+  modport producer(output payload);
+  modport consumer(input payload);
+  modport monitor(input payload);
 endinterface
 
 // 控制流改道事件；valid 当拍的 target_pc 是下一条应取指的架构 PC。
 interface redirect_if #(
   parameter int unsigned AddrWidth = riscv_common_pkg::XLen
 );
-  typedef struct packed {
-    logic [AddrWidth-1:0] target_pc;
-  } payload_t;
+  typedef struct packed {logic [AddrWidth-1:0] target_pc;} payload_t;
 
   logic valid;
   payload_t payload;
-  modport producer (output valid, payload);
-  modport consumer (input valid, payload);
-  modport monitor (input valid, payload);
+  modport producer(output valid, payload);
+  modport consumer(input valid, payload);
+  modport monitor(input valid, payload);
 endinterface
 
 ////////////////////////
@@ -117,17 +105,17 @@ endinterface
 interface retire_debug_if;
   logic valid;
   riscv_core_pkg::retire_debug_payload_t payload;
-  modport producer (output valid, payload);
-  modport consumer (input valid, payload);
-  modport monitor (input valid, payload);
+  modport producer(output valid, payload);
+  modport consumer(input valid, payload);
+  modport monitor(input valid, payload);
 endinterface
 
 // 实时性能计数快照。所有计数器只供仿真分析，不参与核心功能控制。
 interface performance_debug_if;
   riscv_core_pkg::performance_debug_payload_t payload;
-  modport producer (output payload);
-  modport consumer (input payload);
-  modport monitor (input payload);
+  modport producer(output payload);
+  modport consumer(input payload);
+  modport monitor(input payload);
 endinterface
 
 /////////////////////////////
@@ -145,34 +133,34 @@ interface if_id_if;
   logic valid;
   logic ready;
   riscv_core_pkg::if_id_payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 interface id_ex_if;
   logic valid;
   logic ready;
   riscv_core_pkg::id_ex_payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 interface ex_mem_if;
   logic valid;
   logic ready;
   riscv_core_pkg::ex_mem_payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 interface mem_wb_if;
   logic valid;
   logic ready;
   riscv_core_pkg::mem_wb_payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface

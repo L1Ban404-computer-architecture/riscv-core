@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`timescale 1ns/1ps
+`timescale 1ns / 1ps
 
 // Cache 自检 Testbench。
 //
@@ -28,8 +28,8 @@ module cache_tb
 
   logic clk_i;
   logic rst_ni;
-  core_bus_if core_bus();
-  axi4_if axi();
+  core_bus_if core_bus ();
+  axi4_if axi ();
 
   logic [7:0] reference_memory[MemoryBytes];
 
@@ -118,14 +118,12 @@ module cache_tb
     if (!rst_ni) begin
       lfsr_q <= 32'h1ace_b00c;
     end else begin
-      lfsr_q <= {lfsr_q[30:0],
-                 lfsr_q[31] ^ lfsr_q[21] ^ lfsr_q[1] ^ lfsr_q[0]};
+      lfsr_q <= {lfsr_q[30:0], lfsr_q[31] ^ lfsr_q[21] ^ lfsr_q[1] ^ lfsr_q[0]};
     end
   end
 
   assign core_bus.rsp_ready = core_rsp_ready;
-  assign core_rsp_ready = rst_ni && !force_core_stall &&
-      (!random_backpressure || lfsr_q[8]);
+  assign core_rsp_ready = rst_ni && !force_core_stall && (!random_backpressure || lfsr_q[8]);
 
   ////////////////////////////
   // 参考存储与地址辅助函数 //
@@ -136,8 +134,7 @@ module cache_tb
 
     result = '0;
     for (int unsigned lane = 0; lane < StrbW; lane++) begin
-      result[lane * ByteW +: ByteW] =
-          reference_memory[int'(address) + lane];
+      result[lane*ByteW+:ByteW] = reference_memory[int'(address)+lane];
     end
     return result;
   endfunction
@@ -146,10 +143,7 @@ module cache_tb
     return address & ~word_t'(StrbW - 1);
   endfunction
 
-  function automatic word_t same_set_address(
-    input word_t base,
-    input int unsigned line_number
-  );
+  function automatic word_t same_set_address(input word_t base, input int unsigned line_number);
     return base + word_t'(line_number * SetCount * BlockBytes);
   endfunction
 
@@ -157,15 +151,9 @@ module cache_tb
   // CoreBus 驱动与等待任务 //
   ////////////////////////////
 
-  task automatic issue_request(
-    input word_t address,
-    input logic write,
-    input core_bus_size_e size,
-    input word_t wdata,
-    input byte_en_t wstrb,
-    input word_t expected_data,
-    input logic expected_fault
-  );
+  task automatic issue_request(input word_t address, input logic write, input core_bus_size_e size,
+                               input word_t wdata, input byte_en_t wstrb,
+                               input word_t expected_data, input logic expected_fault);
     int unsigned timeout;
 
     core_bus.req_payload.addr = address;
@@ -188,20 +176,13 @@ module cache_tb
     core_bus.req_valid = 1'b0;
   endtask
 
-  task automatic issue_load(
-    input word_t address,
-    input logic expected_fault = 1'b0
-  );
-    issue_request(address, 1'b0, CORE_BUS_SIZE_WORD, '0, '0,
-                  reference_word(aligned_word_address(address)),
-                  expected_fault);
+  task automatic issue_load(input word_t address, input logic expected_fault = 1'b0);
+    issue_request(address, 1'b0, CORE_BUS_SIZE_WORD, '0, '0, reference_word(
+                  aligned_word_address(address)), expected_fault);
   endtask
 
-  task automatic issue_store(
-    input word_t address,
-    input core_bus_size_e size,
-    input word_t raw_data
-  );
+  task automatic issue_store(input word_t address, input core_bus_size_e size,
+                             input word_t raw_data);
     word_t aligned_data;
     byte_en_t strobe;
     int unsigned lane;
@@ -219,14 +200,13 @@ module cache_tb
         aligned_data = raw_data << (lane * ByteW);
         strobe = byte_en_t'(4'b0011 << lane);
         reference_memory[int'(address)] = raw_data[7:0];
-        reference_memory[int'(address) + 1] = raw_data[15:8];
+        reference_memory[int'(address)+1] = raw_data[15:8];
       end
       default: begin
         aligned_data = raw_data;
         strobe = '1;
         for (int unsigned byte_lane = 0; byte_lane < StrbW; byte_lane++) begin
-          reference_memory[int'(address) + byte_lane] =
-              raw_data[byte_lane * ByteW +: ByteW];
+          reference_memory[int'(address)+byte_lane] = raw_data[byte_lane*ByteW+:ByteW];
         end
       end
     endcase
@@ -271,8 +251,7 @@ module cache_tb
   endtask
 
   task automatic reset_cache;
-    if (rst_ni && !scoreboard_empty)
-      $fatal(1, "Cannot reset with expected responses outstanding.");
+    if (rst_ni && !scoreboard_empty) $fatal(1, "Cannot reset with expected responses outstanding.");
     rst_ni = 1'b0;
     core_bus.req_valid = 1'b0;
     force_core_stall = 1'b0;
@@ -290,8 +269,8 @@ module cache_tb
     #1ps;
     expected = reference_word(aligned_word_address(address));
     if (backing_inspect_data !== expected) begin
-      $fatal(1, "Backing memory mismatch at %08x: expected %08x, got %08x.",
-             address, expected, backing_inspect_data);
+      $fatal(1, "Backing memory mismatch at %08x: expected %08x, got %08x.", address, expected,
+             backing_inspect_data);
     end
   endtask
 
@@ -308,14 +287,12 @@ module cache_tb
     ar_before = ar_count;
     issue_load(base);
     wait_for_responses();
-    if (ar_count != ar_before + 1)
-      $fatal(1, "Cold load must issue exactly one refill.");
+    if (ar_count != ar_before + 1) $fatal(1, "Cold load must issue exactly one refill.");
 
     ar_before = ar_count;
     issue_load(base);
     wait_for_responses();
-    if (ar_count != ar_before)
-      $fatal(1, "Load hit unexpectedly issued an AXI read.");
+    if (ar_count != ar_before) $fatal(1, "Load hit unexpectedly issued an AXI read.");
 
     if (MaxOutstanding > 1) begin
       issue_load(base);
@@ -378,9 +355,13 @@ module cache_tb
     issue_load(conflict);
     wait_for_responses();
     if (aw_count != aw_before + 1)
-      $fatal(1,
-             "Dirty replacement writeback count mismatch: before=%0d after=%0d address=%08x.",
-             aw_before, aw_count, conflict);
+      $fatal(
+          1,
+          "Dirty replacement writeback count mismatch: before=%0d after=%0d address=%08x.",
+          aw_before,
+          aw_count,
+          conflict
+      );
     check_backing_word(base);
 
     base = 32'h0000_3800;
@@ -488,8 +469,7 @@ module cache_tb
     void'($value$plusargs("seed=%d", random_seed));
 
     for (int unsigned address = 0; address < MemoryBytes; address++) begin
-      reference_memory[address] =
-          8'((address * 17) ^ (address >> 3) ^ 8'h5a);
+      reference_memory[address] = 8'((address * 17) ^ (address >> 3) ^ 8'h5a);
     end
 
     reset_cache();
@@ -503,11 +483,10 @@ module cache_tb
 
     if (ReadOnly && (aw_count != 0 || writeback_count != 0))
       $fatal(1, "Read-only cache emitted an AXI write transaction.");
-    if (!scoreboard_empty)
-      $fatal(1, "Responses remain in the test scoreboard.");
+    if (!scoreboard_empty) $fatal(1, "Responses remain in the test scoreboard.");
 
-    $display("CACHE_TB_PASS ReadOnly=%0d SetCount=%0d WayCount=%0d seed=%0d",
-             ReadOnly, SetCount, WayCount, random_seed);
+    $display("CACHE_TB_PASS ReadOnly=%0d SetCount=%0d WayCount=%0d seed=%0d", ReadOnly, SetCount,
+             WayCount, random_seed);
     $finish;
   end
 

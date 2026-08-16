@@ -13,10 +13,8 @@ module cache_replacement_policy
 #(
   parameter int unsigned SetCount = CacheDefaultSetCount,
   parameter int unsigned WayCount = CacheDefaultWayCount,
-  localparam int unsigned SetIndexW =
-      (SetCount > 1) ? $clog2(SetCount) : 1,
-  localparam int unsigned WayIndexW =
-      (WayCount > 1) ? $clog2(WayCount) : 1
+  localparam int unsigned SetIndexW = (SetCount > 1) ? $clog2(SetCount) : 1,
+  localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2(WayCount) : 1
 ) (
   // 全局控制
   input logic clk_i,
@@ -41,8 +39,8 @@ module cache_replacement_policy
     assign victim_way_o = '0;
 
     logic unused_access;
-    assign unused_access = ^{clk_i, rst_ni, select_set_i, select_valid_i,
-                             access_valid_i, access_set_i, access_way_i};
+    assign unused_access =
+        ^{clk_i, rst_ni, select_set_i, select_valid_i, access_valid_i, access_set_i, access_way_i};
   end else begin : gen_tree_plru
     localparam int unsigned TreeBits = WayCount - 1;
     localparam int unsigned TreeLevels = $clog2(WayCount);
@@ -50,9 +48,7 @@ module cache_replacement_policy
     logic [TreeBits-1:0] plru_q[SetCount];
     logic [WayIndexW-1:0] plru_victim;
 
-    function automatic logic [WayIndexW-1:0] select_plru_way(
-      input logic [TreeBits-1:0] tree
-    );
+    function automatic logic [WayIndexW-1:0] select_plru_way(input logic [TreeBits-1:0] tree);
       int unsigned node;
       logic [WayIndexW-1:0] way;
       logic direction;
@@ -69,9 +65,7 @@ module cache_replacement_policy
     endfunction
 
     function automatic logic [TreeBits-1:0] update_plru_tree(
-      input logic [TreeBits-1:0] tree,
-      input logic [WayIndexW-1:0] accessed_way
-    );
+        input logic [TreeBits-1:0] tree, input logic [WayIndexW-1:0] accessed_way);
       int unsigned node;
       logic direction;
       logic [TreeBits-1:0] updated_tree;
@@ -79,7 +73,7 @@ module cache_replacement_policy
       node = 0;
       updated_tree = tree;
       for (int unsigned level = 0; level < TreeLevels; level++) begin
-        direction = accessed_way[TreeLevels - 1 - level];
+        direction = accessed_way[TreeLevels-1-level];
         updated_tree[node] = !direction;
         node = (node * 2) + 1 + int'(direction);
       end
@@ -105,27 +99,21 @@ module cache_replacement_policy
       if (!rst_ni) begin
         for (int unsigned set = 0; set < SetCount; set++) plru_q[set] <= '0;
       end else if (access_valid_i) begin
-        plru_q[access_set_i] <= update_plru_tree(
-          plru_q[access_set_i], access_way_i
-        );
+        plru_q[access_set_i] <= update_plru_tree(plru_q[access_set_i], access_way_i);
       end
     end
 
-    `ASSERT(CacheReplacementAccessWayValid,
-            access_valid_i |-> (int'(access_way_i) < WayCount),
-            clk_i, !rst_ni,
-            "A PLRU update must identify an implemented cache way.")
+    `ASSERT(CacheReplacementAccessWayValid, access_valid_i |-> (int'(access_way_i) < WayCount),
+            clk_i, !rst_ni, "A PLRU update must identify an implemented cache way.")
   end
 
   //////////////
   // 参数断言 //
   //////////////
 
-  `ASSERT_INIT(CacheReplacementSetCountValid,
-               cache_is_power_of_two(SetCount),
+  `ASSERT_INIT(CacheReplacementSetCountValid, cache_is_power_of_two(SetCount),
                "Tree-PLRU requires a positive power-of-two set count.")
-  `ASSERT_INIT(CacheReplacementWayCountValid,
-               cache_is_power_of_two(WayCount),
+  `ASSERT_INIT(CacheReplacementWayCountValid, cache_is_power_of_two(WayCount),
                "Tree-PLRU requires a positive power-of-two way count.")
 
 endmodule

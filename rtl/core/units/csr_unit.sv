@@ -31,9 +31,9 @@ module csr_unit
 
   // 当前核心只运行于 M-mode。mstatus 仅实现异常进入/返回所需的
   // MIE、MPIE 和 MPP 字段；MPP 固定为唯一支持的 M-mode，其他位读零。
-  localparam word_t MstatusMie  = word_t'(1 << 3);
+  localparam word_t MstatusMie = word_t'(1 << 3);
   localparam word_t MstatusMpie = word_t'(1 << 7);
-  localparam word_t MstatusMpp  = word_t'(3 << 11);
+  localparam word_t MstatusMpp = word_t'(3 << 11);
 
   csr_state_payload_t state_q, state_d;
 
@@ -46,12 +46,12 @@ module csr_unit
     unique case (csr_read.req_payload.addr)
       // ysyx 厂商标识和本核学号标识由硬件常量提供，不占用可写状态。
       CsrMvendorid: csr_read.rsp_payload.data = 32'h7973_7978;
-      CsrMarchid:   csr_read.rsp_payload.data = 32'd25080230;
+      CsrMarchid: csr_read.rsp_payload.data = 32'd25080230;
       CsrMstatus: csr_read.rsp_payload.data = state_q.mstatus;
-      CsrMtvec:   csr_read.rsp_payload.data = state_q.mtvec;
-      CsrMepc:    csr_read.rsp_payload.data = state_q.mepc;
-      CsrMcause:  csr_read.rsp_payload.data = state_q.mcause;
-      CsrMtval:   csr_read.rsp_payload.data = state_q.mtval;
+      CsrMtvec: csr_read.rsp_payload.data = state_q.mtvec;
+      CsrMepc: csr_read.rsp_payload.data = state_q.mepc;
+      CsrMcause: csr_read.rsp_payload.data = state_q.mcause;
+      CsrMtval: csr_read.rsp_payload.data = state_q.mtval;
       default: begin
         csr_read.rsp_payload.valid = 1'b0;
         csr_read.rsp_payload.data = '0;
@@ -71,29 +71,27 @@ module csr_unit
     if (commit.payload.trap) begin
       // IALIGN=32：无论来源是软件写入还是 trap entry，mepc[1:0] 恒为零。
       state_d.mepc = commit.payload.trap_epc & word_t'(~3);
-      state_d.mcause = {commit.payload.trap_is_interrupt,
-                        {(XLen-5) {1'b0}}, commit.payload.trap_cause};
+      state_d.mcause = {
+        commit.payload.trap_is_interrupt, {(XLen - 5) {1'b0}}, commit.payload.trap_cause
+      };
       state_d.mtval = commit.payload.trap_tval;
-      if ((state_q.mstatus & MstatusMie) != '0)
-        state_d.mstatus = state_q.mstatus | MstatusMpie;
+      if ((state_q.mstatus & MstatusMie) != '0) state_d.mstatus = state_q.mstatus | MstatusMpie;
       else state_d.mstatus = state_q.mstatus & ~MstatusMpie;
       state_d.mstatus = (state_d.mstatus & ~MstatusMie) | MstatusMpp;
     end else if (commit.payload.mret) begin
-      if ((state_q.mstatus & MstatusMpie) != '0)
-        state_d.mstatus = state_q.mstatus | MstatusMie;
+      if ((state_q.mstatus & MstatusMpie) != '0) state_d.mstatus = state_q.mstatus | MstatusMie;
       else state_d.mstatus = state_q.mstatus & ~MstatusMie;
       state_d.mstatus = state_d.mstatus | MstatusMpie | MstatusMpp;
     end else if (commit.payload.write.valid) begin
       unique case (commit.payload.write.addr)
         CsrMstatus: begin
-          state_d.mstatus = (commit.payload.write.wdata &
-              (MstatusMie | MstatusMpie)) | MstatusMpp;
+          state_d.mstatus = (commit.payload.write.wdata & (MstatusMie | MstatusMpie)) | MstatusMpp;
         end
-        CsrMtvec:   state_d.mtvec = commit.payload.write.wdata & word_t'(~3);
+        CsrMtvec: state_d.mtvec = commit.payload.write.wdata & word_t'(~3);
         // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
-        CsrMepc:    state_d.mepc = commit.payload.write.wdata & word_t'(~3);
-        CsrMcause:  state_d.mcause = commit.payload.write.wdata;
-        CsrMtval:   state_d.mtval = commit.payload.write.wdata;
+        CsrMepc: state_d.mepc = commit.payload.write.wdata & word_t'(~3);
+        CsrMcause: state_d.mcause = commit.payload.write.wdata;
+        CsrMtval: state_d.mtval = commit.payload.write.wdata;
         default: ;
       endcase
     end
@@ -111,11 +109,7 @@ module csr_unit
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      state_q <= '{mstatus: MstatusMpp,
-                   mtvec: '0,
-                   mepc: '0,
-                   mcause: '0,
-                   mtval: '0};
+      state_q <= '{mstatus: MstatusMpp, mtvec: '0, mepc: '0, mcause: '0, mtval: '0};
     end else begin
       state_q <= state_d;
     end

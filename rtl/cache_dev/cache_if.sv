@@ -26,8 +26,7 @@ interface cache_lookup_req_if #(
   localparam int unsigned TagWidth = AddrWidth - BlockOffsetWidth - SetIndexBits,
   localparam int unsigned WordCount = BlockBytes / (DataWidth / 8),
   localparam int unsigned WordIndexWidth = (WordCount > 1) ? $clog2(WordCount) : 1,
-  localparam int unsigned TxnIdWidth =
-      (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1
+  localparam int unsigned TxnIdWidth = (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1
 );
   typedef struct packed {
     logic [TxnIdWidth-1:0] txn_id;
@@ -41,9 +40,9 @@ interface cache_lookup_req_if #(
   logic ready;
   payload_t payload;
 
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 // 固定延迟的查询结果，包含命中信息、读取数据以及 miss 时建议的牺牲路。
@@ -58,8 +57,7 @@ interface cache_lookup_rsp_if #(
   localparam int unsigned SetIndexBits = $clog2(SetCount),
   localparam int unsigned TagWidth = AddrWidth - BlockOffsetWidth - SetIndexBits,
   localparam int unsigned WayIndexWidth = (WayCount > 1) ? $clog2(WayCount) : 1,
-  localparam int unsigned TxnIdWidth =
-      (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1
+  localparam int unsigned TxnIdWidth = (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1
 );
   typedef struct packed {
     logic [TxnIdWidth-1:0] txn_id;
@@ -76,9 +74,9 @@ interface cache_lookup_rsp_if #(
   logic valid;
   payload_t payload;
 
-  modport producer (output valid, payload);
-  modport consumer (input valid, payload);
-  modport monitor (input valid, payload);
+  modport producer(output valid, payload);
+  modport consumer(input valid, payload);
+  modport monitor(input valid, payload);
 endinterface
 
 //////////////////
@@ -100,9 +98,9 @@ interface cache_victim_req_if #(
   logic valid;
   logic ready;
   payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 // 牺牲行读取响应；valid 与 dirty 决定回填引擎是否需要先执行 AXI 写回。
@@ -111,16 +109,14 @@ interface cache_victim_rsp_if #(
   parameter int unsigned ByteWidth = 8,
   localparam int unsigned LineWidth = BlockBytes * ByteWidth
 );
-  typedef struct packed {
-    logic [LineWidth-1:0] line;
-  } payload_t;
+  typedef struct packed {logic [LineWidth-1:0] line;} payload_t;
 
   logic valid;
   logic ready;
   payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 // 命中 store 的单字节掩码写接口，只更新目标路中被 strobe 选中的 byte lane。
@@ -144,12 +140,12 @@ interface cache_word_write_if #(
   logic valid;
   logic ready;
   payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
-// miss 完成后的整行安装接口，原子更新目标路的数据、标签、valid 和 dirty 状态。
+// miss 完成后的整行安装接口，原子更新目标路的数据、标签、valid、dirty 和替换状态。
 interface cache_line_install_if #(
   parameter int unsigned AddrWidth = 32,
   parameter int unsigned BlockBytes = cache_pkg::CacheDefaultBlockBytes,
@@ -174,28 +170,9 @@ interface cache_line_install_if #(
   logic valid;
   logic ready;
   payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
-endinterface
-
-// 命中或安装完成后的替换状态更新事件，使 Tree-PLRU 记录最近访问的路。
-interface cache_replacement_update_if #(
-  parameter int unsigned SetCount = cache_pkg::CacheDefaultSetCount,
-  parameter int unsigned WayCount = cache_pkg::CacheDefaultWayCount,
-  localparam int unsigned SetIndexWidth = (SetCount > 1) ? $clog2(SetCount) : 1,
-  localparam int unsigned WayIndexWidth = (WayCount > 1) ? $clog2(WayCount) : 1
-);
-  typedef struct packed {
-    logic [SetIndexWidth-1:0] set;
-    logic [WayIndexWidth-1:0] way;
-  } payload_t;
-
-  logic valid;
-  payload_t payload;
-  modport producer (output valid, payload);
-  modport consumer (input valid, payload);
-  modport monitor (input valid, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 ////////////////////
@@ -220,9 +197,9 @@ interface cache_refill_req_if #(
   logic valid;
   logic ready;
   payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface
 
 // 回填引擎的完成响应，返回新缓存行并报告 AXI 访问是否发生错误。
@@ -239,7 +216,7 @@ interface cache_refill_rsp_if #(
   logic valid;
   logic ready;
   payload_t payload;
-  modport producer (output valid, payload, input ready);
-  modport consumer (input valid, payload, output ready);
-  modport monitor (input valid, ready, payload);
+  modport producer(output valid, payload, input ready);
+  modport consumer(input valid, payload, output ready);
+  modport monitor(input valid, ready, payload);
 endinterface

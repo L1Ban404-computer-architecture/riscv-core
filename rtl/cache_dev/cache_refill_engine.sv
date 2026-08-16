@@ -23,8 +23,7 @@ module cache_refill_engine
   localparam int unsigned BlockAddrW = XLen - BlockOffsetW,
   localparam int unsigned LineBits = BlockBytes * ByteW,
   localparam int unsigned LineBeats = BlockBytes / StrbW,
-  localparam int unsigned BeatIndexW =
-      (LineBeats > 1) ? $clog2(LineBeats) : 1
+  localparam int unsigned BeatIndexW = (LineBeats > 1) ? $clog2(LineBeats) : 1
 ) (
   // 全局控制
   input logic clk_i,
@@ -73,9 +72,7 @@ module cache_refill_engine
   // 地址转换与请求属性 //
   ////////////////////////
 
-  function automatic word_t block_byte_address(
-    input logic [BlockAddrW-1:0] block_addr
-  );
+  function automatic word_t block_byte_address(input logic [BlockAddrW-1:0] block_addr);
     word_t address;
 
     address = word_t'(block_addr);
@@ -96,12 +93,10 @@ module cache_refill_engine
   assign ar_fire = axi.arvalid && axi.arready;
   assign r_fire = axi.rvalid && axi.rready;
   assign expected_last = beat_index_q == BeatIndexW'(LineBeats - 1);
-  assign write_response_error =
-      (axi.b_payload.id != IdWidth'(AxiId)) ||
+  assign write_response_error = (axi.b_payload.id != IdWidth'(AxiId)) ||
       (axi.b_payload.resp != AXI4_RESP_OKAY);
   assign read_beat_error = (axi.r_payload.id != IdWidth'(AxiId)) ||
-      (axi.r_payload.resp != AXI4_RESP_OKAY) ||
-      (axi.r_payload.last != expected_last);
+      (axi.r_payload.resp != AXI4_RESP_OKAY) || (axi.r_payload.last != expected_last);
 
   ///////////////////
   // AXI4 通道驱动 //
@@ -133,8 +128,7 @@ module cache_refill_engine
 
       StateWriteData: begin
         axi.wvalid = 1'b1;
-        axi.w_payload.data =
-            line_buffer_q[int'(beat_index_q) * XLen +: XLen];
+        axi.w_payload.data = line_buffer_q[int'(beat_index_q)*XLen+:XLen];
         axi.w_payload.strb = '1;
         axi.w_payload.last = expected_last;
       end
@@ -225,8 +219,7 @@ module cache_refill_engine
 
         StateReadData: begin
           if (r_fire) begin
-            line_buffer_q[int'(beat_index_q) * XLen +: XLen] <=
-                axi.r_payload.data;
+            line_buffer_q[int'(beat_index_q)*XLen+:XLen] <= axi.r_payload.data;
             error_q <= error_q || read_beat_error;
             if (axi.r_payload.last || expected_last) begin
               state_q <= StateResponse;
@@ -286,31 +279,23 @@ module cache_refill_engine
 
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheRefillEngineReadOnlyWriteback,
-            refill_req.valid |-> !refill_req.payload.writeback_valid,
-            clk_i, !rst_ni,
+            refill_req.valid |-> !refill_req.payload.writeback_valid, clk_i, !rst_ni,
             "A read-only cache must never request a dirty writeback.")
-    `ASSERT(CacheRefillEngineReadOnlyAxiWrite,
-            !axi.awvalid && !axi.wvalid && !axi.bready,
-            clk_i, !rst_ni,
-            "A read-only refill engine must never drive AXI writes.")
+    `ASSERT(CacheRefillEngineReadOnlyAxiWrite, !axi.awvalid && !axi.wvalid && !axi.bready, clk_i,
+            !rst_ni, "A read-only refill engine must never drive AXI writes.")
   end
 
   `ASSERT_INIT(CacheRefillAddressWidthSupported, AddrWidth == XLen)
   `ASSERT_INIT(CacheRefillDataWidthSupported, DataWidth == XLen)
-  `ASSERT_INIT(CacheRefillAddressAndIdWidthsValid,
-               AddrWidth > 0 && IdWidth > 0)
+  `ASSERT_INIT(CacheRefillAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
   `ASSERT_INIT(CacheRefillDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 &&
-                   (DataWidth & (DataWidth - 1)) == 0)
-  `ASSERT_INIT(CacheRefillAxiAddrWidth,
-               $bits(axi.aw_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CacheRefillAxiDataWidth,
-               $bits(axi.w_payload.data) == DataWidth)
+               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
+  `ASSERT_INIT(CacheRefillAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
+  `ASSERT_INIT(CacheRefillAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
   `ASSERT_INIT(CacheRefillAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
   `ASSERT_INIT(CacheRefillAxiIdFits, (AxiId >> IdWidth) == 0)
-  `ASSERT_INIT(CacheRefillInterfaceWidths,
-               $bits(refill_req.payload.block_addr) == BlockAddrW &&
-                   $bits(refill_req.payload.writeback_data) == LineBits &&
-                   $bits(refill_rsp.payload.data) == LineBits)
+  `ASSERT_INIT(CacheRefillInterfaceWidths, $bits(refill_req.payload.block_addr)
+               == BlockAddrW && $bits(refill_req.payload.writeback_data) == LineBits && $bits
+               (refill_rsp.payload.data) == LineBits)
 
 endmodule

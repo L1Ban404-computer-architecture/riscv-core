@@ -140,15 +140,15 @@ package riscv_core_pkg;
 
   // 当前核心支持的同步异常 cause，编码与 RISC-V mcause 的低位定义一致。
   typedef enum logic [3:0] {
-    EXC_INST_ADDR_MISALIGNED  = 4'd0,
-    EXC_INST_ACCESS_FAULT     = 4'd1,
-    EXC_ILLEGAL_INSTR         = 4'd2,
-    EXC_BREAKPOINT            = 4'd3,
-    EXC_LOAD_ADDR_MISALIGNED  = 4'd4,
-    EXC_LOAD_ACCESS_FAULT     = 4'd5,
+    EXC_INST_ADDR_MISALIGNED = 4'd0,
+    EXC_INST_ACCESS_FAULT = 4'd1,
+    EXC_ILLEGAL_INSTR = 4'd2,
+    EXC_BREAKPOINT = 4'd3,
+    EXC_LOAD_ADDR_MISALIGNED = 4'd4,
+    EXC_LOAD_ACCESS_FAULT = 4'd5,
     EXC_STORE_ADDR_MISALIGNED = 4'd6,
-    EXC_STORE_ACCESS_FAULT    = 4'd7,
-    EXC_ECALL_M               = 4'd11
+    EXC_STORE_ACCESS_FAULT = 4'd7,
+    EXC_ECALL_M = 4'd11
   } exception_cause_e;
 
   // 已实现的 M-mode CSR 地址；只读机器标识寄存器也由 csr_unit 统一解码。
@@ -288,9 +288,7 @@ package riscv_core_pkg;
   } retire_redirect_payload_t;
 
   // 尚未返回的 load 目标寄存器；valid 属于该组合旁路事件，不重复放入 payload。
-  typedef struct packed {
-    reg_addr_t rd_addr;
-  } mem_pending_payload_t;
+  typedef struct packed {reg_addr_t rd_addr;} mem_pending_payload_t;
 
   // WB 到 CSR 单元的完整架构状态更新请求。
   typedef struct packed {

@@ -38,18 +38,9 @@ interface core_bus_if #(
   logic rsp_valid;
   logic rsp_ready;
 
-  modport master (
-    output req_payload, req_valid, rsp_ready,
-    input req_ready, rsp_payload, rsp_valid
-  );
-  modport slave (
-    input req_payload, req_valid, rsp_ready,
-    output req_ready, rsp_payload, rsp_valid
-  );
-  modport monitor (
-    input req_payload, req_valid, req_ready,
-          rsp_payload, rsp_valid, rsp_ready
-  );
+  modport master(output req_payload, req_valid, rsp_ready, input req_ready, rsp_payload, rsp_valid);
+  modport slave(input req_payload, req_valid, rsp_ready, output req_ready, rsp_payload, rsp_valid);
+  modport monitor(input req_payload, req_valid, req_ready, rsp_payload, rsp_valid, rsp_ready);
 endinterface
 
 /////////////////////
@@ -117,26 +108,17 @@ interface axi4_if #(
   logic rvalid;
   logic rready;
 
-  modport master (
-    output awvalid, aw_payload,
-           wvalid, w_payload, bready,
-           arvalid, ar_payload, rready,
-    input awready, wready, bvalid, b_payload,
-          arready, rvalid, r_payload
+  modport master(
+      output awvalid, aw_payload, wvalid, w_payload, bready, arvalid, ar_payload, rready,
+      input awready, wready, bvalid, b_payload, arready, rvalid, r_payload
   );
-  modport slave (
-    input awvalid, aw_payload,
-          wvalid, w_payload, bready,
-          arvalid, ar_payload, rready,
-    output awready, wready, bvalid, b_payload,
-           arready, rvalid, r_payload
+  modport slave(
+      input awvalid, aw_payload, wvalid, w_payload, bready, arvalid, ar_payload, rready,
+      output awready, wready, bvalid, b_payload, arready, rvalid, r_payload
   );
-  modport monitor (
-    input awvalid, awready, aw_payload,
-          wvalid, wready, w_payload,
-          bvalid, bready, b_payload,
-          arvalid, arready, ar_payload,
-          rvalid, rready, r_payload
+  modport monitor(
+      input awvalid, awready, aw_payload, wvalid, wready, w_payload, bvalid, bready, b_payload,
+          arvalid, arready, ar_payload, rvalid, rready, r_payload
   );
 endinterface
 /* verilator lint_on DECLFILENAME */

@@ -36,8 +36,7 @@ module corebus_clint
 
   assign mtime_addr_hit = (core_bus.req_payload.addr == MtimeAddr) ||
       (core_bus.req_payload.addr == (MtimeAddr + AddrWidth'(4)));
-  assign unused_write_payload = ^{core_bus.req_payload.wdata,
-                                  core_bus.req_payload.wstrb};
+  assign unused_write_payload = ^{core_bus.req_payload.wdata, core_bus.req_payload.wstrb};
 
   assign core_bus.req_ready = !rsp_valid_q;
   assign core_bus.rsp_payload.rdata = rsp_rdata_q;
@@ -62,13 +61,10 @@ module corebus_clint
       if (core_bus.req_valid && core_bus.req_ready) begin
         rsp_valid_q <= 1'b1;
         rsp_error_q <= core_bus.req_payload.write ||
-            (core_bus.req_payload.size != CORE_BUS_SIZE_WORD) ||
-            !mtime_addr_hit;
-        if (!core_bus.req_payload.write &&
-            (core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
+            (core_bus.req_payload.size != CORE_BUS_SIZE_WORD) || !mtime_addr_hit;
+        if (!core_bus.req_payload.write && (core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
             mtime_addr_hit)
-          rsp_rdata_q <= (core_bus.req_payload.addr == MtimeAddr) ? mtime_q[31:0] :
-              mtime_q[63:32];
+          rsp_rdata_q <= (core_bus.req_payload.addr == MtimeAddr) ? mtime_q[31:0] : mtime_q[63:32];
         else rsp_rdata_q <= '0;
       end
     end
@@ -80,9 +76,7 @@ module corebus_clint
 
   `ASSERT_INIT(ClintDataWidthSupported, DataWidth == 32)
   `ASSERT_INIT(ClintAddressWidthValid, AddrWidth > 0)
-  `ASSERT_INIT(ClintCoreBusAddrWidth,
-               $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(ClintCoreBusDataWidth,
-               $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(ClintCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(ClintCoreBusDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
 
 endmodule

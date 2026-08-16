@@ -52,10 +52,10 @@ module ex_stage
   writeback_payload_t wb_req;
   id_ex_payload_t id_ex_payload;
   ex_mem_payload_t ex_mem_payload;
-  writeback_if ex_wb();
+  writeback_if ex_wb ();
   mem_req_payload_t mem_req;
   ex_mem_payload_t executed_ex_mem_bus;
-  redirect_if branch_redirect();
+  redirect_if branch_redirect ();
   exception_payload_t executed_exception;
   commit_ctrl_payload_t commit_ctrl;
   word_t csr_source;
@@ -122,10 +122,9 @@ module ex_stage
   // ALU 与控制流执行 //
   //////////////////////
 
-  assign operand_a = (id_ex_payload.ctrl.op_a_sel == OP_A_PC) ?
-      id_ex_payload.meta.pc : rs1_value;
-  assign
-      operand_b = (id_ex_payload.ctrl.op_b_sel == OP_B_IMM) ? id_ex_payload.exec_data.imm : rs2_value;
+  assign operand_a = (id_ex_payload.ctrl.op_a_sel == OP_A_PC) ? id_ex_payload.meta.pc : rs1_value;
+  assign operand_b = (id_ex_payload.ctrl.op_b_sel == OP_B_IMM) ? id_ex_payload.exec_data.imm :
+      rs2_value;
 
   alu u_alu (
     .alu_op_i(id_ex_payload.ctrl.alu_op),
@@ -151,8 +150,8 @@ module ex_stage
   assign csr_read.req_payload.addr = id_ex_payload.ctrl.csr_addr;
   assign csr_source = id_ex_payload.ctrl.csr_use_imm ? id_ex_payload.exec_data.imm : rs1_value;
   assign csr_write_attempt = (id_ex_payload.ctrl.csr_cmd == CSR_RW) ||
-      (((id_ex_payload.ctrl.csr_cmd == CSR_RS) ||
-        (id_ex_payload.ctrl.csr_cmd == CSR_RC)) && (csr_source != '0));
+      (((id_ex_payload.ctrl.csr_cmd == CSR_RS) || (id_ex_payload.ctrl.csr_cmd == CSR_RC)) &&
+       (csr_source != '0));
 
   always_comb begin
     unique case (id_ex_payload.ctrl.mem_size)
@@ -166,17 +165,17 @@ module ex_stage
     // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex_payload.exception;
     if (!executed_exception.valid && branch_redirect.valid &&
-                 (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
+        (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
       executed_exception.tval = branch_redirect.payload.target_pc;
-    end else if (!executed_exception.valid && (id_ex_payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
+    end else if (!executed_exception.valid && (id_ex_payload.ctrl.mem_cmd != MEM_NONE) &&
+                 data_misaligned) begin
       executed_exception.valid = 1'b1;
       executed_exception.cause = (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ?
           EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
       executed_exception.tval = alu_result;
-    end else if (!executed_exception.valid &&
-                 (id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
+    end else if (!executed_exception.valid && (id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
                  (!csr_read.rsp_payload.valid ||
                   (csr_write_attempt && (id_ex_payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
       executed_exception.valid = 1'b1;
@@ -253,8 +252,8 @@ module ex_stage
     commit_ctrl = '0;
     commit_ctrl.serialize = id_ex_payload.ctrl.serialize || executed_exception.valid;
     commit_ctrl.system_op = id_ex_payload.ctrl.system_op;
-    commit_ctrl.csr_write.valid = (id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
-        csr_write_attempt && !executed_exception.valid;
+    commit_ctrl.csr_write.valid = (id_ex_payload.ctrl.csr_cmd != CSR_NONE) && csr_write_attempt &&
+        !executed_exception.valid;
     commit_ctrl.csr_write.addr = id_ex_payload.ctrl.csr_addr;
     commit_ctrl.csr_write.wdata = csr_new_value;
   end
@@ -278,8 +277,8 @@ module ex_stage
     executed_ex_mem_bus.commit_ctx.wb_req = wb_req;
     executed_ex_mem_bus.commit_ctx.exception = executed_exception;
     executed_ex_mem_bus.commit_ctx.commit = commit_ctrl;
-    executed_ex_mem_bus.commit_ctx.retire_mem.mem_op = !mem_req.valid ? RETIRE_MEM_NONE :
-        (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
+    executed_ex_mem_bus.commit_ctx.retire_mem.mem_op = !mem_req.valid ?
+        RETIRE_MEM_NONE : (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
     executed_ex_mem_bus.commit_ctx.retire_mem.mem_size = mem_req.size;
     executed_ex_mem_bus.commit_ctx.retire_mem.mem_addr = mem_req.addr;
     executed_ex_mem_bus.commit_ctx.retire_mem.mem_data = mem_req.wdata;

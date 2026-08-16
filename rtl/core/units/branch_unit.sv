@@ -38,8 +38,8 @@ module branch_unit
 
     // RISC-V 要求 JALR 目标地址的最低位清零；其他跳转目标直接使用
     // ALU 计算得到的 PC-relative 地址。
-    redirect.payload.target_pc = (branch_op_i == BR_JALR) ?
-        (alu_target_i & word_t'(~1)) : alu_target_i;
+    redirect.payload.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) :
+        alu_target_i;
 
   end
 

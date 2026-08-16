@@ -103,7 +103,8 @@ module mem_stage
   // 同拍 pop/push 发出请求。kill 同周期也必须关闭总线请求及级间交接。
   assign request_blocked = flush_i || side_effect_block_i ||
       (dmem.rsp_valid && dmem.rsp_payload.error);
-  assign dmem_req_valid = ex_mem.valid && memory_instruction && outstanding_ready && !request_blocked;
+  assign
+      dmem_req_valid = ex_mem.valid && memory_instruction && outstanding_ready && !request_blocked;
   assign dmem.req_valid = dmem_req_valid;
   // 单槽的 valid_i 不反向依赖 ready_o；内部的 valid_i && ready_o
   // 仍与 dmem_req_fire 完全等价，同时避免 fall-through 路径形成组合环。
@@ -158,8 +159,8 @@ module mem_stage
     completed_mem_bus = outstanding_head.commit_ctx;
     if (!completed_mem_bus.exception.valid && dmem.rsp_payload.error) begin
       completed_mem_bus.exception.valid = 1'b1;
-      completed_mem_bus.exception.cause = outstanding_head.mem_req.write ?
-          EXC_STORE_ACCESS_FAULT : EXC_LOAD_ACCESS_FAULT;
+      completed_mem_bus.exception.cause = outstanding_head.mem_req.write ? EXC_STORE_ACCESS_FAULT :
+          EXC_LOAD_ACCESS_FAULT;
       completed_mem_bus.exception.tval = outstanding_head.mem_req.addr;
     end
     if (outstanding_head.commit_ctx.wb_req.valid && !completed_mem_bus.exception.valid) begin

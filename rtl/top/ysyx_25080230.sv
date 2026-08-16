@@ -12,130 +12,139 @@ module ysyx_25080230
   import riscv_core_pkg::*;
 (
   // 全局控制
-  input         clock,
-  input         reset,
-  input         io_interrupt,
+  input clock,
+  input reset,
+  input io_interrupt,
 
   // 外部 AXI4 主接口
-  input         io_master_awready,
-  output        io_master_awvalid,
+  input io_master_awready,
+  output io_master_awvalid,
   output [31:0] io_master_awaddr,
-  output [3:0]  io_master_awid,
-  output [7:0]  io_master_awlen,
-  output [2:0]  io_master_awsize,
-  output [1:0]  io_master_awburst,
-  input         io_master_wready,
-  output        io_master_wvalid,
+  output [3:0] io_master_awid,
+  output [7:0] io_master_awlen,
+  output [2:0] io_master_awsize,
+  output [1:0] io_master_awburst,
+  input io_master_wready,
+  output io_master_wvalid,
   output [31:0] io_master_wdata,
-  output [3:0]  io_master_wstrb,
-  output        io_master_wlast,
-  output        io_master_bready,
-  input         io_master_bvalid,
-  input  [1:0]  io_master_bresp,
-  input  [3:0]  io_master_bid,
-  input         io_master_arready,
-  output        io_master_arvalid,
+  output [3:0] io_master_wstrb,
+  output io_master_wlast,
+  output io_master_bready,
+  input io_master_bvalid,
+  input [1:0] io_master_bresp,
+  input [3:0] io_master_bid,
+  input io_master_arready,
+  output io_master_arvalid,
   output [31:0] io_master_araddr,
-  output [3:0]  io_master_arid,
-  output [7:0]  io_master_arlen,
-  output [2:0]  io_master_arsize,
-  output [1:0]  io_master_arburst,
-  output        io_master_rready,
-  input         io_master_rvalid,
-  input  [1:0]  io_master_rresp,
-  input  [31:0] io_master_rdata,
-  input         io_master_rlast,
-  input  [3:0]  io_master_rid,
+  output [3:0] io_master_arid,
+  output [7:0] io_master_arlen,
+  output [2:0] io_master_arsize,
+  output [1:0] io_master_arburst,
+  output io_master_rready,
+  input io_master_rvalid,
+  input [1:0] io_master_rresp,
+  input [31:0] io_master_rdata,
+  input io_master_rlast,
+  input [3:0] io_master_rid,
 
   // 外部 AXI4 从接口
-  output        io_slave_awready,
-  input         io_slave_awvalid,
-  input  [31:0] io_slave_awaddr,
-  input  [3:0]  io_slave_awid,
-  input  [7:0]  io_slave_awlen,
-  input  [2:0]  io_slave_awsize,
-  input  [1:0]  io_slave_awburst,
-  output        io_slave_wready,
-  input         io_slave_wvalid,
-  input  [31:0] io_slave_wdata,
-  input  [3:0]  io_slave_wstrb,
-  input         io_slave_wlast,
-  input         io_slave_bready,
-  output        io_slave_bvalid,
-  output [1:0]  io_slave_bresp,
-  output [3:0]  io_slave_bid,
-  output        io_slave_arready,
-  input         io_slave_arvalid,
-  input  [31:0] io_slave_araddr,
-  input  [3:0]  io_slave_arid,
-  input  [7:0]  io_slave_arlen,
-  input  [2:0]  io_slave_arsize,
-  input  [1:0]  io_slave_arburst,
-  input         io_slave_rready,
-  output        io_slave_rvalid,
-  output [1:0]  io_slave_rresp,
+  output io_slave_awready,
+  input io_slave_awvalid,
+  input [31:0] io_slave_awaddr,
+  input [3:0] io_slave_awid,
+  input [7:0] io_slave_awlen,
+  input [2:0] io_slave_awsize,
+  input [1:0] io_slave_awburst,
+  output io_slave_wready,
+  input io_slave_wvalid,
+  input [31:0] io_slave_wdata,
+  input [3:0] io_slave_wstrb,
+  input io_slave_wlast,
+  input io_slave_bready,
+  output io_slave_bvalid,
+  output [1:0] io_slave_bresp,
+  output [3:0] io_slave_bid,
+  output io_slave_arready,
+  input io_slave_arvalid,
+  input [31:0] io_slave_araddr,
+  input [3:0] io_slave_arid,
+  input [7:0] io_slave_arlen,
+  input [2:0] io_slave_arsize,
+  input [1:0] io_slave_arburst,
+  input io_slave_rready,
+  output io_slave_rvalid,
+  output [1:0] io_slave_rresp,
   output [31:0] io_slave_rdata,
-  output        io_slave_rlast,
-  output [3:0]  io_slave_rid
+  output io_slave_rlast,
+  output [3:0] io_slave_rid
 );
 
   ////////////////////////
   // 内部总线与调试接口 //
   ////////////////////////
 
-  core_bus_if imem_bus();
-  core_bus_if dmem_bus();
-  core_bus_if clint_bus();
-  core_bus_if axi_dmem_bus();
-  axi4_if icache_axi();
-  axi4_if dcache_axi();
-  axi4_if master_axi();
+  core_bus_if imem_bus ();
+  core_bus_if dmem_bus ();
+  core_bus_if clint_bus ();
+  core_bus_if axi_dmem_bus ();
+  axi4_if icache_axi ();
+  axi4_if dcache_axi ();
+  axi4_if master_axi ();
   logic rst_ni;
-  logic core_retire_valid /* verilator public_flat_rd */;
-  retire_debug_if retire_debug();
-  performance_debug_if performance_debug();
+  logic core_retire_valid  /* verilator public_flat_rd */;
+  retire_debug_if retire_debug ();
+  performance_debug_if performance_debug ();
 
-  logic [31:0] debug_retire_pc              /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_instr           /* verilator public_flat_rd */;
-  logic [63:0] debug_retire_instid          /* verilator public_flat_rd */;
-  logic        debug_retire_redirect_valid  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_redirect_target /* verilator public_flat_rd */;
-  logic [1:0]  debug_retire_mem_op          /* verilator public_flat_rd */;
-  logic [1:0]  debug_retire_mem_size        /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mem_addr        /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mem_data        /* verilator public_flat_rd */;
-  logic        debug_retire_gpr_we          /* verilator public_flat_rd */;
-  logic [4:0]  debug_retire_gpr_waddr       /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_gpr_wdata       /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mstatus         /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mtvec           /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mepc            /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mcause          /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mtval           /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_cycle_count       /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_instret_count     /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_pc  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_instr  /* verilator public_flat_rd */;
+  logic [63:0] debug_retire_instid  /* verilator public_flat_rd */;
+  logic debug_retire_redirect_valid  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_redirect_target  /* verilator public_flat_rd */;
+  logic [1:0] debug_retire_mem_op  /* verilator public_flat_rd */;
+  logic [1:0] debug_retire_mem_size  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mem_addr  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mem_data  /* verilator public_flat_rd */;
+  logic debug_retire_gpr_we  /* verilator public_flat_rd */;
+  logic [4:0] debug_retire_gpr_waddr  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_gpr_wdata  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mstatus  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mtvec  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mepc  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mcause  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mtval  /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_cycle_count  /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_instret_count  /* verilator public_flat_rd */;
   logic [63:0] debug_perf_if_id_fire_count  /* verilator public_flat_rd */;
   logic [63:0] debug_perf_id_ex_fire_count  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_ex_mem_fire_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_mem_wb_fire_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_if_id_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_id_ex_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_ex_mem_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_mem_wb_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_if_starve_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_id_local_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_ex_local_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_mem_local_stall_cycle_count
-      /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_wb_local_stall_cycle_count
-      /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_ex_mem_fire_count  /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_mem_wb_fire_count  /* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_if_id_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_id_ex_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_ex_mem_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_mem_wb_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_if_starve_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_id_local_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_ex_local_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_mem_local_stall_cycle_count
+/* verilator public_flat_rd */;
+  logic [63:0]
+      debug_perf_wb_local_stall_cycle_count
+/* verilator public_flat_rd */;
 
   ////////////////////////
   // 退休与性能观测信号 //
@@ -164,23 +173,19 @@ module ysyx_25080230
   assign debug_perf_id_ex_fire_count = performance_debug.payload.id_ex_fire_count;
   assign debug_perf_ex_mem_fire_count = performance_debug.payload.ex_mem_fire_count;
   assign debug_perf_mem_wb_fire_count = performance_debug.payload.mem_wb_fire_count;
-  assign debug_perf_if_id_stall_cycle_count =
-      performance_debug.payload.if_id_stall_cycle_count;
-  assign debug_perf_id_ex_stall_cycle_count =
-      performance_debug.payload.id_ex_stall_cycle_count;
-  assign debug_perf_ex_mem_stall_cycle_count =
-      performance_debug.payload.ex_mem_stall_cycle_count;
-  assign debug_perf_mem_wb_stall_cycle_count =
-      performance_debug.payload.mem_wb_stall_cycle_count;
+  assign debug_perf_if_id_stall_cycle_count = performance_debug.payload.if_id_stall_cycle_count;
+  assign debug_perf_id_ex_stall_cycle_count = performance_debug.payload.id_ex_stall_cycle_count;
+  assign debug_perf_ex_mem_stall_cycle_count = performance_debug.payload.ex_mem_stall_cycle_count;
+  assign debug_perf_mem_wb_stall_cycle_count = performance_debug.payload.mem_wb_stall_cycle_count;
   assign debug_perf_if_starve_cycle_count = performance_debug.payload.if_starve_cycle_count;
-  assign debug_perf_id_local_stall_cycle_count =
-      performance_debug.payload.id_local_stall_cycle_count;
-  assign debug_perf_ex_local_stall_cycle_count =
-      performance_debug.payload.ex_local_stall_cycle_count;
+  assign
+      debug_perf_id_local_stall_cycle_count = performance_debug.payload.id_local_stall_cycle_count;
+  assign
+      debug_perf_ex_local_stall_cycle_count = performance_debug.payload.ex_local_stall_cycle_count;
   assign debug_perf_mem_local_stall_cycle_count =
       performance_debug.payload.mem_local_stall_cycle_count;
-  assign debug_perf_wb_local_stall_cycle_count =
-      performance_debug.payload.wb_local_stall_cycle_count;
+  assign
+      debug_perf_wb_local_stall_cycle_count = performance_debug.payload.wb_local_stall_cycle_count;
 
   assign rst_ni = ~reset;
   assign core_retire_valid = retire_debug.valid;
@@ -234,13 +239,11 @@ module ysyx_25080230
   assign io_slave_rid = 4'b0;
 
   logic unused_inputs;
-  assign unused_inputs = ^{io_interrupt, io_slave_awvalid, io_slave_awaddr,
-                           io_slave_awid, io_slave_awlen, io_slave_awsize,
-                           io_slave_awburst, io_slave_wvalid, io_slave_wdata,
-                           io_slave_wstrb, io_slave_wlast, io_slave_bready,
-                           io_slave_arvalid, io_slave_araddr, io_slave_arid,
-                           io_slave_arlen, io_slave_arsize, io_slave_arburst,
-                           io_slave_rready};
+  assign unused_inputs =
+      ^{io_interrupt, io_slave_awvalid, io_slave_awaddr, io_slave_awid, io_slave_awlen,
+        io_slave_awsize, io_slave_awburst, io_slave_wvalid, io_slave_wdata, io_slave_wstrb,
+        io_slave_wlast, io_slave_bready, io_slave_arvalid, io_slave_araddr, io_slave_arid,
+        io_slave_arlen, io_slave_arsize, io_slave_arburst, io_slave_rready};
 
   ////////////////////////
   // 核心与片上互连实例 //

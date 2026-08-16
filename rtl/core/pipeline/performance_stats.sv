@@ -114,11 +114,11 @@ module performance_stats
         performance_debug_q.mem_wb_fire_count <= performance_debug_q.mem_wb_fire_count + 64'd1;
 
       if (if_id_stall)
-        performance_debug_q.if_id_stall_cycle_count <=
-            performance_debug_q.if_id_stall_cycle_count + 64'd1;
+        performance_debug_q.if_id_stall_cycle_count <= performance_debug_q.if_id_stall_cycle_count +
+            64'd1;
       if (id_ex_stall)
-        performance_debug_q.id_ex_stall_cycle_count <=
-            performance_debug_q.id_ex_stall_cycle_count + 64'd1;
+        performance_debug_q.id_ex_stall_cycle_count <= performance_debug_q.id_ex_stall_cycle_count +
+            64'd1;
       if (ex_mem_stall)
         performance_debug_q.ex_mem_stall_cycle_count <=
             performance_debug_q.ex_mem_stall_cycle_count + 64'd1;
@@ -127,8 +127,8 @@ module performance_stats
             performance_debug_q.mem_wb_stall_cycle_count + 64'd1;
 
       if (if_starve)
-        performance_debug_q.if_starve_cycle_count <=
-            performance_debug_q.if_starve_cycle_count + 64'd1;
+        performance_debug_q.if_starve_cycle_count <= performance_debug_q.if_starve_cycle_count +
+            64'd1;
       if (id_local_stall)
         performance_debug_q.id_local_stall_cycle_count <=
             performance_debug_q.id_local_stall_cycle_count + 64'd1;

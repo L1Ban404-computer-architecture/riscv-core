@@ -13,8 +13,7 @@ module cache_data_bank
   import cache_pkg::*;
 #(
   parameter int unsigned SetCount = CacheDefaultSetCount,
-  localparam int unsigned SetIndexW =
-      (SetCount > 1) ? $clog2(SetCount) : 1
+  localparam int unsigned SetIndexW = (SetCount > 1) ? $clog2(SetCount) : 1
 ) (
   // 全局控制
   input logic clk_i,
@@ -49,9 +48,7 @@ module cache_data_bank
   // 端口互斥断言 //
   //////////////////
 
-  `ASSERT(CacheDataBankReadWriteExclusive,
-          !(read_valid_i && write_valid_i),
-          clk_i, !rst_ni,
+  `ASSERT(CacheDataBankReadWriteExclusive, !(read_valid_i && write_valid_i), clk_i, !rst_ni,
           "Cache array scheduling must not read and write one data bank concurrently.")
 
 endmodule

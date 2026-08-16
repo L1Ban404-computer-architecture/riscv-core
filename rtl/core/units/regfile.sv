@@ -29,8 +29,7 @@ module regfile
   word_t regs_q[31:1];
   logic wb_write;
 
-  assign wb_write = wb.payload.valid && wb.payload.data_valid &&
-      (wb.payload.rd_addr != ZeroReg);
+  assign wb_write = wb.payload.valid && wb.payload.data_valid && (wb.payload.rd_addr != ZeroReg);
 
   always_ff @(posedge clk_i) begin
     if (wb_write) begin

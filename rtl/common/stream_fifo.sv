@@ -58,8 +58,7 @@ module stream_fifo #(
   assign valid_o = stored_valid || (FallThrough && valid_i);
   assign data_o = (FallThrough && !stored_valid) ? data_i : mem_q[read_ptr_q];
   assign pop = valid_o && ready_i;
-  assign ready_o = (count_q < count_t'(Depth)) ||
-      (SameCycleRW && stored_valid && ready_i);
+  assign ready_o = (count_q < count_t'(Depth)) || (SameCycleRW && stored_valid && ready_i);
   assign push = valid_i && ready_o;
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
   assign usage_o = count_q;
@@ -69,8 +68,7 @@ module stream_fifo #(
   ////////////////////////////
 
   always_ff @(posedge clk_i) begin
-    if (rst_ni && !flush_i && push && !bypass_pop)
-      mem_q[write_ptr_q] <= data_i;
+    if (rst_ni && !flush_i && push && !bypass_pop) mem_q[write_ptr_q] <= data_i;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -85,7 +83,9 @@ module stream_fifo #(
     end else begin
       if (pop && stored_valid) read_ptr_q <= next_ptr(read_ptr_q);
       if (push && !bypass_pop) write_ptr_q <= next_ptr(write_ptr_q);
-      unique case ({push && !bypass_pop, pop && stored_valid})
+      unique case ({
+        push && !bypass_pop, pop && stored_valid
+      })
         2'b10: count_q <= count_q + count_t'(1);
         2'b01: count_q <= count_q - count_t'(1);
         default: ;

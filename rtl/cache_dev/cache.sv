@@ -33,8 +33,7 @@ module cache
   localparam int unsigned WordIndexBits = $clog2(WordCount),
   localparam int unsigned WordIndexW = (WordCount > 1) ? WordIndexBits : 1,
   localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2(WayCount) : 1,
-  localparam int unsigned TxnIdW =
-      (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1,
+  localparam int unsigned TxnIdW = (MaxOutstanding > 1) ? $clog2(MaxOutstanding) : 1,
   localparam int unsigned LineBits = BlockBytes * ByteW,
   localparam int unsigned LineBeats = BlockBytes / StrbW
 ) (
@@ -52,33 +51,42 @@ module cache
   //////////////////
 
   cache_lookup_req_if #(
-    .AddrWidth(AddrWidth), .DataWidth(DataWidth), .BlockBytes(BlockBytes),
-    .SetCount(SetCount), .MaxOutstanding(MaxOutstanding)
-  ) lookup_req();
-  cache_lookup_rsp_if #(
-    .AddrWidth(AddrWidth), .DataWidth(DataWidth), .BlockBytes(BlockBytes),
-    .SetCount(SetCount), .WayCount(WayCount),
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .BlockBytes(BlockBytes),
+    .SetCount(SetCount),
     .MaxOutstanding(MaxOutstanding)
-  ) lookup_rsp();
+  ) lookup_req ();
+  cache_lookup_rsp_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .BlockBytes(BlockBytes),
+    .SetCount(SetCount),
+    .WayCount(WayCount),
+    .MaxOutstanding(MaxOutstanding)
+  ) lookup_rsp ();
   cache_victim_req_if #(
-    .SetCount(SetCount), .WayCount(WayCount)
-  ) victim_req();
-  cache_victim_rsp_if #(.BlockBytes(BlockBytes)) victim_rsp();
+    .SetCount(SetCount),
+    .WayCount(WayCount)
+  ) victim_req ();
+  cache_victim_rsp_if #(.BlockBytes(BlockBytes)) victim_rsp ();
   cache_word_write_if #(
-    .DataWidth(DataWidth), .BlockBytes(BlockBytes),
-    .SetCount(SetCount), .WayCount(WayCount)
-  ) word_write();
+    .DataWidth(DataWidth),
+    .BlockBytes(BlockBytes),
+    .SetCount(SetCount),
+    .WayCount(WayCount)
+  ) word_write ();
   cache_line_install_if #(
-    .AddrWidth(AddrWidth), .BlockBytes(BlockBytes),
-    .SetCount(SetCount), .WayCount(WayCount)
-  ) line_install();
-  cache_replacement_update_if #(
-    .SetCount(SetCount), .WayCount(WayCount)
-  ) replacement_update();
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes),
+    .SetCount(SetCount),
+    .WayCount(WayCount)
+  ) line_install ();
   cache_refill_req_if #(
-    .AddrWidth(AddrWidth), .BlockBytes(BlockBytes)
-  ) refill_req();
-  cache_refill_rsp_if #(.BlockBytes(BlockBytes)) refill_rsp();
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) refill_req ();
+  cache_refill_rsp_if #(.BlockBytes(BlockBytes)) refill_rsp ();
 
   ////////////////////////////
   // 控制面、阵列与回填引擎 //
@@ -100,7 +108,6 @@ module cache
     .victim_rsp,
     .word_write,
     .line_install,
-    .replacement_update,
     .refill_req,
     .refill_rsp
   );
@@ -120,8 +127,7 @@ module cache
     .victim_req,
     .victim_rsp,
     .word_write,
-    .line_install,
-    .replacement_update
+    .line_install
   );
 
   cache_refill_engine #(
@@ -143,18 +149,15 @@ module cache
   // 参数与配置断言 //
   ////////////////////
 
-  `ASSERT_INIT(CacheBlockBytesValid,
-               (BlockBytes >= StrbW) && cache_is_power_of_two(BlockBytes),
+  `ASSERT_INIT(CacheBlockBytesValid, (BlockBytes >= StrbW) && cache_is_power_of_two(BlockBytes),
                "Cache line size must be a power of two and at least one AXI beat.")
   `ASSERT_INIT(CacheBlockBeatAligned, (BlockBytes % StrbW) == 0,
                "Cache line size must contain an integer number of AXI beats.")
   `ASSERT_INIT(CacheLineBeatCountValid, (LineBeats > 0) && (LineBeats <= 256),
                "An AXI4 burst may contain between one and 256 beats.")
-  `ASSERT_INIT(CacheSetCountValid,
-               cache_is_power_of_two(SetCount),
+  `ASSERT_INIT(CacheSetCountValid, cache_is_power_of_two(SetCount),
                "Cache set count must be a power of two.")
-  `ASSERT_INIT(CacheWayCountValid,
-               cache_is_power_of_two(WayCount),
+  `ASSERT_INIT(CacheWayCountValid, cache_is_power_of_two(WayCount),
                "Cache way count must be a power of two.")
   `ASSERT_INIT(CacheLookupLatencyValid, LookupLatency > 0,
                "Cache lookup latency must be greater than zero.")
@@ -169,23 +172,18 @@ module cache
                "The word index must fit inside the cache-line offset.")
 
   if (ReadOnly) begin : gen_read_only_assertions
-    `ASSERT(CacheReadOnlyRequest,
-            core_bus.req_valid |-> !core_bus.req_payload.write,
-            clk_i, !rst_ni, "A read-only cache must never receive a write request.")
+    `ASSERT(CacheReadOnlyRequest, core_bus.req_valid |-> !core_bus.req_payload.write, clk_i,
+            !rst_ni, "A read-only cache must never receive a write request.")
   end
 
   `ASSERT_INIT(CacheAddressWidthSupported, AddrWidth == XLen)
   `ASSERT_INIT(CacheDataWidthSupported, DataWidth == XLen)
-  `ASSERT_INIT(CacheAddressAndIdWidthsValid,
-               AddrWidth > 0 && IdWidth > 0)
+  `ASSERT_INIT(CacheAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
   `ASSERT_INIT(CacheDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 &&
-                   (DataWidth & (DataWidth - 1)) == 0)
+               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
   `ASSERT_INIT(CacheAxiIdFits, (AxiId >> IdWidth) == 0)
-  `ASSERT_INIT(CacheCoreBusAddrWidth,
-               $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CacheCoreBusDataWidth,
-               $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(CacheCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(CacheCoreBusDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
   `ASSERT_INIT(CacheAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
 
 endmodule

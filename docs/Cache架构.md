@@ -108,7 +108,7 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 `SetCount`、`WayCount` 和 `MaxOutstanding` 等基础配置推导；派生宽度均为不可覆盖的
 `localparam`。模块参数中不注入 payload 类型，package 也不固定实例几何或使用最大预留
 位宽。array 内部的 lookup 流水仍可使用私有 packed struct 保存状态，但该类型不属于模块
-接口。lookup、victim、word write、line install、replacement update 和 refill 请求/响应
+接口。lookup、victim、word write、line install 和 refill 请求/响应
 均各自提供 producer、consumer 和 monitor modport。
 
 | 通道 | payload | 流控 |
@@ -118,8 +118,7 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 | victim request | `set, way` | ready/valid |
 | victim response | 完整 line | ready/valid |
 | word write | `set, way, word, data` | ready/valid |
-| line install | `set, way, line, tag, dirty` | ready/valid |
-| replacement update | `set, way` | 无背压提交事件 |
+| line install | `set, way, line, tag, dirty` | ready/valid；提交时同步更新 Tree-PLRU |
 | refill request | refill 地址、可选 writeback 描述和完整 line | ready/valid |
 | refill response | 完整 refill line 和 error | ready/valid |
 
@@ -203,12 +202,11 @@ generate 完全移除这些寄存器。
 
 1. CoreBus 握手时分配事务槽并发射 lookup。
 2. 当前 epoch 的 lookup 结果完成 tag 比较和 way 选择。
-3. array 返回命中结果，control 将 word 写入事务槽并发送 replacement commit。
+3. array 返回命中结果，control 将 word 写入事务槽。
 4. 事务到达队首后完成 CoreBus 响应。
 
-PLRU 在事务内部确认命中时更新一次，不等待 CoreBus 响应握手。array 虽然拥有 PLRU，
-但只接受 control 发出的无背压 replacement commit；stale epoch 响应、失败 miss 和仅被
-选择而未安装的 victim 都不会更新替换状态。
+PLRU 在成功 install 的提交沿更新一次；stale epoch 响应、失败 miss 和仅被选择而未安装
+的 victim 都不会更新替换状态。
 
 ### Store hit
 
@@ -252,7 +250,7 @@ refill 成功时：
 
 - load miss 直接安装 clean line，并从 refill line 选择目标 word 完成 owner；
 - store miss 先进行 byte merge，再安装 dirty line 并完成 owner；
-- tag、data、valid、dirty 在同一个 install 提交沿更新；
+- tag、data、valid、dirty 和 Tree-PLRU 在同一个 install 提交沿更新；
 - 年轻事务从保存的队列项按原顺序重新发射。
 
 refill 和 lookup 从不并发，因此不存在部分安装、同地址旁路或不确定 RAM 冲突。

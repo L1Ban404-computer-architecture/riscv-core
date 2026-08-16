@@ -34,17 +34,16 @@ module if_stage
   // 私有类型与内部状态 //
   ////////////////////////
 
-  typedef struct packed {
-    pc_t pc;
-  } fetch_req_t;
+  typedef struct packed {pc_t pc;} fetch_req_t;
 
   typedef struct packed {
     pc_t pc;
     logic [63:0] instid;
   } fetch_req_meta_t;
 
-  localparam int unsigned FetchCountW =
-      (FetchOutstandingDepth > 1) ? $clog2(FetchOutstandingDepth + 1) : 1;
+  localparam int unsigned FetchCountW = (FetchOutstandingDepth > 1) ? $clog2(
+      FetchOutstandingDepth + 1
+  ) : 1;
   typedef logic [FetchCountW-1:0] fetch_count_t;
 
   // pc_q 是下一次准备发出的取指 PC。boot_pc_i 在复位释放后的第一个周期
@@ -123,10 +122,7 @@ module if_stage
   // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
   assign pc_fifo_input_valid = req_hold_valid && imem.req_ready;
   assign imem_req_fire = imem.req_valid && imem.req_ready;
-  assign pc_fifo_input_data = '{
-    pc: req_hold_data.pc,
-    instid: instid_q
-  };
+  assign pc_fifo_input_data = '{pc: req_hold_data.pc, instid: instid_q};
 
   // redirect 可以丢弃尚未向 CoreBus 暴露的预存请求；已经拉高 req_valid 的
   // 请求必须继续保持，直到从设备接受。
@@ -143,12 +139,13 @@ module if_stage
 
   // 计算时钟沿之后真正存入 FIFO 的请求数量。空 FIFO 的零延迟请求/响应
   // 会走 fall-through bypass，不形成存储条目。
-  assign pc_fifo_push_stored = imem_req_fire &&
-      !((pc_fifo_usage == '0) && imem_rsp_fire);
+  assign pc_fifo_push_stored = imem_req_fire && !((pc_fifo_usage == '0) && imem_rsp_fire);
   assign pc_fifo_pop_stored = imem_rsp_fire && (pc_fifo_usage != '0);
   always_comb begin
     pc_fifo_usage_next = pc_fifo_usage;
-    unique case ({pc_fifo_push_stored, pc_fifo_pop_stored})
+    unique case ({
+      pc_fifo_push_stored, pc_fifo_pop_stored
+    })
       2'b10: pc_fifo_usage_next = pc_fifo_usage + fetch_count_t'(1);
       2'b01: pc_fifo_usage_next = pc_fifo_usage - fetch_count_t'(1);
       default: ;
@@ -273,12 +270,9 @@ module if_stage
       boot_pending_q <= boot_pending_d;
       discard_count_q <= discard_count_d;
       if (imem_req_fire) instid_q <= instid_q + 64'd1;
-      if (imem_req_fire)
-        held_request_stale_q <= 1'b0;
-      else if (frontend_flush && imem.req_valid)
-        held_request_stale_q <= 1'b1;
-      else if (req_hold_flush)
-        held_request_stale_q <= 1'b0;
+      if (imem_req_fire) held_request_stale_q <= 1'b0;
+      else if (frontend_flush && imem.req_valid) held_request_stale_q <= 1'b1;
+      else if (req_hold_flush) held_request_stale_q <= 1'b0;
     end
   end
 

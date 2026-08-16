@@ -21,10 +21,8 @@ module cache_axi4_mux
   // 每路最大未完成读事务数
   parameter int unsigned ICacheReadDepth = 2,
   parameter int unsigned DCacheReadDepth = 1,
-  parameter int unsigned ICacheReadCountW =
-      (ICacheReadDepth > 1) ? $clog2(ICacheReadDepth + 1) : 1,
-  parameter int unsigned DCacheReadCountW =
-      (DCacheReadDepth > 1) ? $clog2(DCacheReadDepth + 1) : 1
+  parameter int unsigned ICacheReadCountW = (ICacheReadDepth > 1) ? $clog2(ICacheReadDepth + 1) : 1,
+  parameter int unsigned DCacheReadCountW = (DCacheReadDepth > 1) ? $clog2(DCacheReadDepth + 1) : 1
 ) (
   // 全局控制
   input logic clk_i,
@@ -75,24 +73,20 @@ module cache_axi4_mux
   // 读请求选择与 credit //
   /////////////////////////
 
-  assign icache_ar_credit =
-      icache_read_count_q < ICacheReadCountW'(ICacheReadDepth);
-  assign dcache_ar_credit =
-      dcache_read_count_q < DCacheReadCountW'(DCacheReadDepth);
-  assign select_dcache = ar_locked_q ? ar_owner_dcache_q :
-      (dcache_axi.arvalid && dcache_ar_credit);
+  assign icache_ar_credit = icache_read_count_q < ICacheReadCountW'(ICacheReadDepth);
+  assign dcache_ar_credit = dcache_read_count_q < DCacheReadCountW'(DCacheReadDepth);
+  assign select_dcache = ar_locked_q ? ar_owner_dcache_q : (dcache_axi.arvalid && dcache_ar_credit);
 
   assign master_read_response = '{
-    resp: master_axi.r_payload.resp,
-    data: master_axi.r_payload.data,
-    last: master_axi.r_payload.last,
-    id: master_axi.r_payload.id
-  };
+          resp: master_axi.r_payload.resp,
+          data: master_axi.r_payload.data,
+          last: master_axi.r_payload.last,
+          id: master_axi.r_payload.id
+      };
   assign icache_read_fire = icache_read_valid && icache_axi.rready;
   assign dcache_read_fire = dcache_read_valid && dcache_axi.rready;
 
-  assign unused_icache_write_payload = ^{icache_axi.aw_payload,
-                                        icache_axi.w_payload};
+  assign unused_icache_write_payload = ^{icache_axi.aw_payload, icache_axi.w_payload};
 
   ////////////////////////
   // AXI 通道仲裁与路由 //
@@ -178,8 +172,7 @@ module cache_axi4_mux
     .flush_i(1'b0),
     .usage_o(  /* 未使用 */),
     .data_i(master_read_response),
-    .valid_i(rst_ni && master_axi.rvalid &&
-        (master_axi.r_payload.id == IdWidth'(ICacheAxiId))),
+    .valid_i(rst_ni && master_axi.rvalid && (master_axi.r_payload.id == IdWidth'(ICacheAxiId))),
     .ready_o(icache_read_input_ready),
     .data_o(icache_read_response),
     .valid_o(icache_read_valid),
@@ -197,8 +190,7 @@ module cache_axi4_mux
     .flush_i(1'b0),
     .usage_o(  /* 未使用 */),
     .data_i(master_read_response),
-    .valid_i(rst_ni && master_axi.rvalid &&
-        (master_axi.r_payload.id == IdWidth'(DCacheAxiId))),
+    .valid_i(rst_ni && master_axi.rvalid && (master_axi.r_payload.id == IdWidth'(DCacheAxiId))),
     .ready_o(dcache_read_input_ready),
     .data_o(dcache_read_response),
     .valid_o(dcache_read_valid),
@@ -229,18 +221,18 @@ module cache_axi4_mux
       icache_read_count_q <= '0;
       dcache_read_count_q <= '0;
     end else begin
-      unique case ({icache_ar_fire, icache_read_fire})
-        2'b10: icache_read_count_q <= icache_read_count_q +
-            ICacheReadCountW'(1);
-        2'b01: icache_read_count_q <= icache_read_count_q -
-            ICacheReadCountW'(1);
+      unique case ({
+        icache_ar_fire, icache_read_fire
+      })
+        2'b10: icache_read_count_q <= icache_read_count_q + ICacheReadCountW'(1);
+        2'b01: icache_read_count_q <= icache_read_count_q - ICacheReadCountW'(1);
         default: ;
       endcase
-      unique case ({dcache_ar_fire, dcache_read_fire})
-        2'b10: dcache_read_count_q <= dcache_read_count_q +
-            DCacheReadCountW'(1);
-        2'b01: dcache_read_count_q <= dcache_read_count_q -
-            DCacheReadCountW'(1);
+      unique case ({
+        dcache_ar_fire, dcache_read_fire
+      })
+        2'b10: dcache_read_count_q <= dcache_read_count_q + DCacheReadCountW'(1);
+        2'b01: dcache_read_count_q <= dcache_read_count_q - DCacheReadCountW'(1);
         default: ;
       endcase
     end
@@ -254,51 +246,38 @@ module cache_axi4_mux
                "ICache read response depth must be greater than zero.")
   `ASSERT_INIT(DCacheReadDepthValid, DCacheReadDepth > 0,
                "DCache read response depth must be greater than zero.")
-  `ASSERT(ICacheNeverWrites,
-          !icache_axi.awvalid && !icache_axi.wvalid && !icache_axi.bready,
+  `ASSERT(ICacheNeverWrites, !icache_axi.awvalid && !icache_axi.wvalid && !icache_axi.bready,
           clk_i, !rst_ni, "ICache must not drive AXI write channels.")
-  `ASSERT(CacheReadIdKnown,
-          master_axi.rvalid |->
-              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) ||
-              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)),
-          clk_i, !rst_ni, "AXI read response ID must identify a cache.")
-  `ASSERT(ICacheReadResponseExpected,
-          master_axi.rvalid &&
-              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) |->
-              (icache_read_count_q != '0) || icache_ar_fire,
-          clk_i, !rst_ni, "ICache read response must match an accepted request.")
-  `ASSERT(DCacheReadResponseExpected,
-          master_axi.rvalid &&
-              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)) |->
-              (dcache_read_count_q != '0) || dcache_ar_fire,
-          clk_i, !rst_ni, "DCache read response must match an accepted request.")
+  `ASSERT(
+      CacheReadIdKnown,
+      master_axi.rvalid |-> (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) || (master_axi.r_payload.id == IdWidth'(DCacheAxiId)),
+      clk_i, !rst_ni, "AXI read response ID must identify a cache.")
+  `ASSERT(
+      ICacheReadResponseExpected,
+      master_axi.rvalid && (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) |-> (icache_read_count_q != '0) || icache_ar_fire,
+      clk_i, !rst_ni, "ICache read response must match an accepted request.")
+  `ASSERT(
+      DCacheReadResponseExpected,
+      master_axi.rvalid && (master_axi.r_payload.id == IdWidth'(DCacheAxiId)) |-> (dcache_read_count_q != '0) || dcache_ar_fire,
+      clk_i, !rst_ni, "DCache read response must match an accepted request.")
   `ASSERT(ICacheReadResponseFits,
           master_axi.rvalid &&
-              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) |->
-              icache_read_input_ready,
+              (master_axi.r_payload.id == IdWidth'(ICacheAxiId)) |-> icache_read_input_ready,
           clk_i, !rst_ni, "ICache read response FIFO must have space.")
   `ASSERT(DCacheReadResponseFits,
           master_axi.rvalid &&
-              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)) |->
-              dcache_read_input_ready,
+              (master_axi.r_payload.id == IdWidth'(DCacheAxiId)) |-> dcache_read_input_ready,
           clk_i, !rst_ni, "DCache read response FIFO must have space.")
-  `ASSERT(DCacheWriteId,
-          master_axi.bvalid |->
-              (master_axi.b_payload.id == IdWidth'(DCacheAxiId)),
+  `ASSERT(DCacheWriteId, master_axi.bvalid |-> (master_axi.b_payload.id == IdWidth'(DCacheAxiId)),
           clk_i, !rst_ni, "Only DCache may receive AXI write responses.")
 
-  `ASSERT_INIT(AxiMuxAddressAndIdWidthsValid,
-               AddrWidth > 0 && IdWidth > 0)
+  `ASSERT_INIT(AxiMuxAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
   `ASSERT_INIT(AxiMuxDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 &&
-                   (DataWidth & (DataWidth - 1)) == 0)
+               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
   `ASSERT_INIT(AxiMuxICacheIdFits, (ICacheAxiId >> IdWidth) == 0)
   `ASSERT_INIT(AxiMuxDCacheIdFits, (DCacheAxiId >> IdWidth) == 0)
-  `ASSERT_INIT(AxiMuxAddressWidthMatches,
-               $bits(master_axi.aw_payload.addr) == AddrWidth)
-  `ASSERT_INIT(AxiMuxDataWidthMatches,
-               $bits(master_axi.w_payload.data) == DataWidth)
-  `ASSERT_INIT(AxiMuxIdWidthMatches,
-               $bits(master_axi.aw_payload.id) == IdWidth)
+  `ASSERT_INIT(AxiMuxAddressWidthMatches, $bits(master_axi.aw_payload.addr) == AddrWidth)
+  `ASSERT_INIT(AxiMuxDataWidthMatches, $bits(master_axi.w_payload.data) == DataWidth)
+  `ASSERT_INIT(AxiMuxIdWidthMatches, $bits(master_axi.aw_payload.id) == IdWidth)
 
 endmodule

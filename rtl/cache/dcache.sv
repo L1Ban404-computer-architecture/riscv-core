@@ -48,22 +48,18 @@ module dcache
   logic request_fire;
   logic response_fire;
 
-  assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q &&
-      core_bus.req_valid && !core_bus.req_payload.write;
-  assign write_request = (state_q == StateIdle) && core_bus.req_valid &&
-      core_bus.req_payload.write;
+  assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q && core_bus.req_valid &&
+      !core_bus.req_payload.write;
+  assign write_request = (state_q == StateIdle) && core_bus.req_valid && core_bus.req_payload.write;
 
   assign aw_fire = write_request && !aw_sent_q && axi.awready;
   assign w_fire = write_request && !w_sent_q && axi.wready;
-  assign write_request_complete = write_request && (aw_sent_q || aw_fire) &&
-      (w_sent_q || w_fire);
+  assign write_request_complete = write_request && (aw_sent_q || aw_fire) && (w_sent_q || w_fire);
 
   // 完成条件同时观察当前请求，使零延迟 AXI 从设备能够在请求握手当拍返回
   // CoreBus 响应，不强制额外插入一个周期。
-  assign active_read_response = (state_q == StateReadResponse) ||
-      (read_request && axi.arready);
-  assign active_write_response = (state_q == StateWriteResponse) ||
-      write_request_complete;
+  assign active_read_response = (state_q == StateReadResponse) || (read_request && axi.arready);
+  assign active_write_response = (state_q == StateWriteResponse) || write_request_complete;
 
   ///////////////////////////
   // CoreBus/AXI4 通道适配 //
@@ -93,14 +89,14 @@ module dcache
     core_bus.rsp_payload = '0;
     core_bus.rsp_valid = 1'b0;
     if (state_q == StateIdle) begin
-      core_bus.req_ready = core_bus.req_payload.write ? write_request_complete :
-          (!aw_sent_q && !w_sent_q && axi.arready);
+      core_bus.req_ready = core_bus.req_payload.write ?
+          write_request_complete : (!aw_sent_q && !w_sent_q && axi.arready);
     end
 
     if (active_read_response) begin
       core_bus.rsp_payload.rdata = axi.r_payload.data;
-      core_bus.rsp_payload.error = (axi.r_payload.resp != AXI4_RESP_OKAY) ||
-          !axi.r_payload.last || (axi.r_payload.id != IdWidth'(AxiId));
+      core_bus.rsp_payload.error = (axi.r_payload.resp != AXI4_RESP_OKAY) || !axi.r_payload.last ||
+          (axi.r_payload.id != IdWidth'(AxiId));
       core_bus.rsp_valid = axi.rvalid;
     end else if (active_write_response) begin
       core_bus.rsp_payload.rdata = '0;
@@ -160,22 +156,17 @@ module dcache
   // 协议与参数断言 //
   ////////////////////
 
-  `ASSERT(DCacheSingleBeatResponse,
-          axi.rvalid |-> axi.r_payload.last,
-          clk_i, !rst_ni, "DCache only supports single-beat AXI reads.")
+  `ASSERT(DCacheSingleBeatResponse, axi.rvalid |-> axi.r_payload.last, clk_i, !rst_ni,
+          "DCache only supports single-beat AXI reads.")
 
-  `ASSERT_INIT(DCacheCoreBusAddrWidth,
-               $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(DCacheCoreBusDataWidth,
-               $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(DCacheCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(DCacheCoreBusDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
   `ASSERT_INIT(DCacheAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
   `ASSERT_INIT(DCacheAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
   `ASSERT_INIT(DCacheAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
   `ASSERT_INIT(DCacheAxiIdFits, (AxiId >> IdWidth) == 0)
-  `ASSERT_INIT(DCacheAddressAndIdWidthsValid,
-               AddrWidth > 0 && IdWidth > 0)
+  `ASSERT_INIT(DCacheAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
   `ASSERT_INIT(DCacheDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 &&
-                   (DataWidth & (DataWidth - 1)) == 0)
+               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
 
 endmodule

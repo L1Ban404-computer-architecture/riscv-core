@@ -29,18 +29,18 @@ module riscv_core_impl
   //////////////////
   // 流水级间接口 //
   //////////////////
-  if_id_if if_id();
-  id_ex_if id_ex();
-  ex_mem_if ex_mem();
-  mem_wb_if mem_wb();
+  if_id_if if_id ();
+  id_ex_if id_ex ();
+  ex_mem_if ex_mem ();
+  mem_wb_if mem_wb ();
 
-  redirect_if ex_redirect();
-  redirect_if wb_redirect();
-  redirect_if resolved_redirect();
-  csr_read_if csr_read();
-  writeback_if mem_wb_forward();
-  writeback_if wb();
-  mem_pending_if mem_pending();
+  redirect_if ex_redirect ();
+  redirect_if wb_redirect ();
+  redirect_if resolved_redirect ();
+  csr_read_if csr_read ();
+  writeback_if mem_wb_forward ();
+  writeback_if wb ();
+  mem_pending_if mem_pending ();
 
   logic serialize_block;
   logic serialize_ready;
@@ -57,18 +57,20 @@ module riscv_core_impl
   // 分支只需要刷新前端；WB 的 trap/MRET 同时刷新前端和后端。
   // WB 更老，因此它的目标地址覆盖同周期 EX 产生的分支目标。
   assign resolved_redirect.valid = wb_redirect.valid || ex_redirect.valid;
-  assign resolved_redirect.payload.target_pc = wb_redirect.valid ?
-      wb_redirect.payload.target_pc : ex_redirect.payload.target_pc;
+  assign resolved_redirect.payload.target_pc = wb_redirect.valid ? wb_redirect.payload.target_pc :
+      ex_redirect.payload.target_pc;
   // CSR/SYSTEM 在 ID/EX 至 WB 期间构成串行屏障。它进入 EX 前先等待更老
   // EX/MEM、LSU outstanding 和 MEM/WB 排空，因此 CSR 读取无需专用前递。
-  assign serialize_block =
-      (id_ex.valid && (id_ex.payload.ctrl.serialize ||
-                       id_ex.payload.exception.valid)) ||
-      (ex_mem.valid && (ex_mem.payload.commit_ctx.commit.serialize ||
-                        ex_mem.payload.commit_ctx.exception.valid)) ||
-      (mem_wb.valid && (mem_wb.payload.commit.serialize ||
-                        mem_wb.payload.exception.valid));
+  // 屏障存在期间禁止更年轻指令进入 ID/EX，异常同样需要保持精确顺序。
+  assign serialize_block = (id_ex.valid &&
+                            (id_ex.payload.ctrl.serialize || id_ex.payload.exception.valid)) ||
+      (ex_mem.valid &&
+       (ex_mem.payload.commit_ctx.commit.serialize || ex_mem.payload.commit_ctx.exception.valid)) ||
+      (mem_wb.valid && (mem_wb.payload.commit.serialize || mem_wb.payload.exception.valid));
+  // 仅当所有更老的流水事务、访存 outstanding 和待提交事务都已排空时，
+  // 当前屏障才允许从 ID/EX 进入 EX。
   assign serialize_ready = !ex_mem.valid && !mem_busy && !mem_wb.valid;
+  // WB 中的屏障尚未提交时，禁止更年轻访存发出可能可见的总线副作用。
   assign mem_side_effect_block = mem_wb.valid &&
       (mem_wb.payload.commit.serialize || mem_wb.payload.exception.valid);
 

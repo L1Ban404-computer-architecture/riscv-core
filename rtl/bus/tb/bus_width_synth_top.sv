@@ -20,12 +20,33 @@ module bus_width_synth_top #(
   // 参数化总线实例 //
   ////////////////////
 
-  core_bus_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth)) upstream();
-  core_bus_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth)) device();
-  core_bus_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth)) fallback();
-  axi4_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth), .IdWidth(IdWidth)) icache_axi();
-  axi4_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth), .IdWidth(IdWidth)) dcache_axi();
-  axi4_if #(.AddrWidth(AddrWidth), .DataWidth(DataWidth), .IdWidth(IdWidth)) master_axi();
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) upstream ();
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) device ();
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) fallback ();
+  axi4_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth)
+  ) icache_axi ();
+  axi4_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth)
+  ) dcache_axi ();
+  axi4_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth)
+  ) master_axi ();
 
   //////////////////
   // 空闲接口驱动 //
@@ -103,13 +124,10 @@ module bus_width_synth_top #(
   // 综合活动汇聚 //
   //////////////////
 
-  assign activity_o = ^{upstream.req_ready, upstream.rsp_payload,
-                        device.req_valid, fallback.req_valid,
-                        master_axi.awvalid, master_axi.aw_payload,
-                        master_axi.wvalid, master_axi.w_payload,
-                        master_axi.bready, master_axi.arvalid,
-                        master_axi.ar_payload,
-                        master_axi.rready, icache_axi.rvalid,
-                        dcache_axi.rvalid};
+  assign activity_o =
+      ^{upstream.req_ready, upstream.rsp_payload, device.req_valid, fallback.req_valid,
+        master_axi.awvalid, master_axi.aw_payload, master_axi.wvalid, master_axi.w_payload,
+        master_axi.bready, master_axi.arvalid, master_axi.ar_payload, master_axi.rready,
+        icache_axi.rvalid, dcache_axi.rvalid};
 
 endmodule
