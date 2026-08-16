@@ -92,8 +92,6 @@ module cache_control
   } txn_entry_t;
 
   typedef struct packed {
-    set_index_t set;
-    word_index_t word;
     way_index_t way;
     word_t data;
   } store_hit_t;
@@ -103,18 +101,12 @@ module cache_control
     txn_id_t txn_id;
     word_t wdata;
     byte_en_t wstrb;
-    set_index_t commit_set;
-    word_index_t commit_word;
     way_index_t commit_way;
     word_t commit_data;
   } store_context_t;
 
   typedef struct packed {
     txn_id_t owner;
-    block_addr_t block_addr;
-    set_index_t set;
-    word_index_t word;
-    tag_t tag;
     way_index_t victim_way;
     tag_t victim_tag;
     logic victim_dirty;
@@ -126,6 +118,10 @@ module cache_control
   txn_entry_t txn_d[MaxOutstanding];
   store_context_t store_context;
   miss_context_t miss_context_q;
+  block_addr_t store_block_addr;
+  word_index_t store_word;
+  block_addr_t miss_block_addr;
+  word_index_t miss_word;
 
   txn_id_t head_q;
   txn_id_t tail_q;
@@ -164,6 +160,12 @@ module cache_control
   txn_count_t existing_younger_count;
   txn_count_t miss_younger_count;
   txn_id_t next_miss_owner;
+
+  // 上下文只保存事务 ID；地址和 word 从事务表中选择，避免重复寄存。
+  assign store_block_addr = txn_q[store_context.txn_id].block_addr;
+  assign store_word = txn_q[store_context.txn_id].word;
+  assign miss_block_addr = txn_q[miss_context_q.owner].block_addr;
+  assign miss_word = txn_q[miss_context_q.owner].word;
 
   ////////////////////////
   // 地址与事务辅助函数 //
@@ -337,15 +339,15 @@ module cache_control
   // 因而该握手必须同时满足阵列响应可消费和回填引擎可接收。
   always_comb begin
     victim_req.valid = 1'b0;
-    victim_req.payload.set = miss_context_q.set;
+    victim_req.payload.set = block_set(miss_block_addr);
     victim_req.payload.way = miss_context_q.victim_way;
     victim_rsp.ready = 1'b0;
 
     refill_req.valid = 1'b0;
-    refill_req.payload.block_addr = miss_context_q.block_addr;
+    refill_req.payload.block_addr = miss_block_addr;
     refill_req.payload.writeback_valid = 1'b0;
     refill_req.payload.writeback_block_addr =
-        victim_block_addr(miss_context_q.victim_tag, miss_context_q.set);
+        victim_block_addr(miss_context_q.victim_tag, block_set(miss_block_addr));
     refill_req.payload.writeback_data = victim_rsp.payload.line;
 
     if (state_q == StateVictimRead) begin
@@ -375,21 +377,21 @@ module cache_control
 
     if (state_q == StateStoreCommit) begin
       word_write.valid = 1'b1;
-      word_write.payload.set = store_context.commit_set;
+      word_write.payload.set = block_set(store_block_addr);
       word_write.payload.way = store_context.commit_way;
-      word_write.payload.word = store_context.commit_word;
+      word_write.payload.word = store_word;
       word_write.payload.data = store_context.commit_data;
     end else if (state_q == StateRefillWait) begin
       if (refill_rsp.valid && refill_rsp.payload.error) begin
         refill_rsp.ready = 1'b1;
       end else begin
         line_install.valid = refill_rsp.valid;
-        line_install.payload.set = miss_context_q.set;
+        line_install.payload.set = block_set(miss_block_addr);
         line_install.payload.way = miss_context_q.victim_way;
         line_install.payload.data = miss_context_q.is_store ?
-            merge_store_line(refill_rsp.payload.data, miss_context_q.word, store_context.wdata,
+            merge_store_line(refill_rsp.payload.data, miss_word, store_context.wdata,
                              store_context.wstrb) : refill_rsp.payload.data;
-        line_install.payload.tag = miss_context_q.tag;
+        line_install.payload.tag = block_tag(miss_block_addr);
         line_install.payload.dirty = miss_context_q.is_store;
         refill_rsp.ready = line_install.ready;
       end
@@ -412,13 +414,11 @@ module cache_control
   always_comb begin
     store_hit = '0;
     store_hit_line = '0;
-    store_hit.set = block_set(txn_q[lookup_rsp.payload.txn_id].block_addr);
-    store_hit.word = txn_q[lookup_rsp.payload.txn_id].word;
     store_hit.way = lookup_rsp.payload.hit_way;
-    store_hit_line[int'(store_hit.word)*XLen+:XLen] = lookup_rsp.payload.rdata;
+    store_hit_line[int'(store_word)*XLen+:XLen] = lookup_rsp.payload.rdata;
     store_hit_line =
-        merge_store_line(store_hit_line, store_hit.word, store_context.wdata, store_context.wstrb);
-    store_hit.data = store_hit_line[int'(store_hit.word)*XLen+:XLen];
+        merge_store_line(store_hit_line, store_word, store_context.wdata, store_context.wstrb);
+    store_hit.data = store_hit_line[int'(store_word)*XLen+:XLen];
   end
 
   if (ReadOnly) begin : gen_no_store_context
@@ -444,8 +444,6 @@ module cache_control
           store_context_q.wstrb <= core_bus.req_payload.wstrb;
         end
         if (store_hit_capture) begin
-          store_context_q.commit_set <= store_hit.set;
-          store_context_q.commit_word <= store_hit.word;
           store_context_q.commit_way <= store_hit.way;
           store_context_q.commit_data <= store_hit.data;
         end
@@ -489,7 +487,7 @@ module cache_control
     if (refill_rsp_fire) begin
       txn_d[miss_context_q.owner].state = TxnDone;
       txn_d[miss_context_q.owner].rdata = (refill_rsp.payload.error || miss_context_q.is_store) ?
-          '0 : refill_rsp.payload.data[int'(miss_context_q.word)*XLen+:XLen];
+          '0 : refill_rsp.payload.data[int'(miss_word)*XLen+:XLen];
       txn_d[miss_context_q.owner].error = refill_rsp.payload.error;
     end
 
@@ -548,10 +546,6 @@ module cache_control
       if (lookup_response_miss) begin
         epoch_q <= !epoch_q;
         miss_context_q.owner <= lookup_rsp.payload.txn_id;
-        miss_context_q.block_addr <= txn_q[lookup_rsp.payload.txn_id].block_addr;
-        miss_context_q.set <= block_set(txn_q[lookup_rsp.payload.txn_id].block_addr);
-        miss_context_q.word <= txn_q[lookup_rsp.payload.txn_id].word;
-        miss_context_q.tag <= block_tag(txn_q[lookup_rsp.payload.txn_id].block_addr);
         miss_context_q.victim_way <= lookup_rsp.payload.victim_way;
         miss_context_q.victim_tag <= lookup_rsp.payload.victim_tag;
         miss_context_q.victim_dirty <= lookup_rsp.payload.victim_valid &&
