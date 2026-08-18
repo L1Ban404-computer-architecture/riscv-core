@@ -4,7 +4,7 @@
 // 顺序 Cache 控制面。
 //
 // 管理 CoreBus 请求准入、事务表和响应保序，调度阵列查询、store 提交、牺牲行
-// 读取、AXI 回填、缓存行安装和 miss 后重放。
+// 读取、AXI 行写回/读取、缓存行安装和 miss 后重放。
 // CoreBus 仅由事务表队首完成；任一时刻最多保留一个 store 和一个 miss 上下文；
 // store 必须等待更老查询完成；miss 期间用 epoch 过滤旧响应并重放年轻事务。
 `include "common/assertions.svh"
@@ -37,17 +37,19 @@ module cache_control
   // CoreBus 事务
   core_bus_if.slave core_bus,
 
-  // 阵列事务
-  cache_lookup_req_if.producer lookup_req,
-  cache_lookup_rsp_if.consumer lookup_rsp,
-  cache_victim_req_if.producer victim_req,
-  cache_victim_rsp_if.consumer victim_rsp,
-  cache_word_write_if.producer word_write,
-  cache_line_install_if.producer line_install,
+  // Cache 维护排空状态
+  input logic quiesce_request,
+  output logic quiesce_idle,
 
-  // 回填事务
-  cache_refill_req_if.producer refill_req,
-  cache_refill_rsp_if.consumer refill_rsp
+  // 阵列事务
+  array_lookup_if.requester lookup,
+  array_victim_if.requester victim,
+  array_word_write_if.producer word_write,
+  array_line_install_if.producer line_install,
+
+  // AXI 缓存行事务
+  axi_line_read_if.requester line_read,
+  axi_line_write_if.requester line_write
 );
 
   ////////////////////////////////
@@ -78,6 +80,7 @@ module cache_control
     StateStoreCommit,
     StateMissDrain,
     StateVictimRead,
+    StateWritebackWait,
     StateRefillRequest,
     StateRefillWait,
     StateReplay
@@ -146,8 +149,11 @@ module cache_control
   logic lookup_response_miss;
 
   logic victim_req_fire;
-  logic refill_req_fire;
-  logic refill_rsp_fire;
+  logic line_read_req_fire;
+  logic line_read_rsp_fire;
+  logic line_write_req_fire;
+  logic line_write_rsp_fire;
+  logic miss_complete_fire;
   logic word_write_fire;
   logic store_commit_fire;
 
@@ -247,42 +253,47 @@ module cache_control
   assign core_response_fire = core_bus.rsp_valid && core_bus.rsp_ready;
 
   assign queue_credit = (usage_q < txn_count_t'(MaxOutstanding)) || core_response_fire;
-  assign direct_lookup_allowed = (state_q == StateRun) && !store_context.active && queue_credit &&
-      (!ReadOnly || !core_bus.req_payload.write) &&
+  assign direct_lookup_allowed = (state_q == StateRun) && !quiesce_request &&
+      !store_context.active && queue_credit && (!ReadOnly || !core_bus.req_payload.write) &&
       (!core_bus.req_payload.write || (lookup_inflight_q == '0));
   assign direct_lookup_valid = direct_lookup_allowed && core_bus.req_valid;
   assign replay_lookup_valid = (state_q == StateReplay) && (replay_remaining_q != '0);
 
   always_comb begin
-    lookup_req.valid = 1'b0;
-    lookup_req.payload = '0;
-    lookup_req.payload.epoch = epoch_q;
+    lookup.req_valid = 1'b0;
+    lookup.req_payload = '0;
+    lookup.req_payload.epoch = epoch_q;
 
     if (replay_lookup_valid) begin
-      lookup_req.valid = 1'b1;
-      lookup_req.payload.txn_id = replay_ptr_q;
-      lookup_req.payload.set = block_set(txn_q[replay_ptr_q].block_addr);
-      lookup_req.payload.tag = block_tag(txn_q[replay_ptr_q].block_addr);
-      lookup_req.payload.word = txn_q[replay_ptr_q].word;
+      lookup.req_valid = 1'b1;
+      lookup.req_payload.txn_id = replay_ptr_q;
+      lookup.req_payload.set = block_set(txn_q[replay_ptr_q].block_addr);
+      lookup.req_payload.tag = block_tag(txn_q[replay_ptr_q].block_addr);
+      lookup.req_payload.word = txn_q[replay_ptr_q].word;
     end else if (direct_lookup_valid) begin
-      lookup_req.valid = 1'b1;
-      lookup_req.payload.txn_id = tail_q;
-      lookup_req.payload.set = block_set(core_bus.req_payload.addr[XLen-1:BlockOffsetW]);
-      lookup_req.payload.tag = block_tag(core_bus.req_payload.addr[XLen-1:BlockOffsetW]);
-      lookup_req.payload.word = address_word(core_bus.req_payload.addr);
+      lookup.req_valid = 1'b1;
+      lookup.req_payload.txn_id = tail_q;
+      lookup.req_payload.set = block_set(core_bus.req_payload.addr[XLen-1:BlockOffsetW]);
+      lookup.req_payload.tag = block_tag(core_bus.req_payload.addr[XLen-1:BlockOffsetW]);
+      lookup.req_payload.word = address_word(core_bus.req_payload.addr);
     end
   end
 
-  assign core_bus.req_ready = direct_lookup_allowed && lookup_req.ready;
+  assign core_bus.req_ready = direct_lookup_allowed && lookup.req_ready;
   assign core_request_fire = core_bus.req_valid && core_bus.req_ready;
-  assign lookup_req_fire = lookup_req.valid && lookup_req.ready;
+  assign lookup_req_fire = lookup.req_valid && lookup.req_ready;
 
-  assign lookup_response_current = lookup_rsp.valid && (lookup_rsp.payload.epoch == epoch_q);
+  // 维护扫描只在全部既有 CoreBus 事务完成响应、控制状态恢复运行且 lookup/store
+  // 上下文均为空后获得 array 和 line AXI engine 的所有权。
+  assign quiesce_idle = (state_q == StateRun) && (usage_q == '0) && (lookup_inflight_q == '0) &&
+      !store_context.active;
+
+  assign lookup_response_current = lookup.rsp_valid && (lookup.rsp_payload.epoch == epoch_q);
   assign lookup_response_store = store_context.active &&
-      (store_context.txn_id == lookup_rsp.payload.txn_id);
-  assign lookup_response_miss = lookup_response_current && !lookup_rsp.payload.hit;
+      (store_context.txn_id == lookup.rsp_payload.txn_id);
+  assign lookup_response_miss = lookup_response_current && !lookup.rsp_payload.hit;
 
-  assign next_miss_owner = lookup_rsp.payload.txn_id;
+  assign next_miss_owner = lookup.rsp_payload.txn_id;
   assign existing_younger_count = queue_distance(next_txn_id(next_miss_owner), tail_q);
   assign miss_younger_count = existing_younger_count + txn_count_t'(core_request_fire);
 
@@ -308,15 +319,26 @@ module cache_control
       end
 
       StateVictimRead: begin
-        if (refill_req_fire) state_d = StateRefillWait;
+        if (line_write_req_fire) state_d = StateWritebackWait;
+      end
+
+      StateWritebackWait: begin
+        if (line_write_rsp_fire) begin
+          if (line_write.rsp_payload.error) begin
+            if (replay_remaining_q != '0) state_d = StateReplay;
+            else state_d = StateRun;
+          end else begin
+            state_d = StateRefillRequest;
+          end
+        end
       end
 
       StateRefillRequest: begin
-        if (refill_req_fire) state_d = StateRefillWait;
+        if (line_read_req_fire) state_d = StateRefillWait;
       end
 
       StateRefillWait: begin
-        if (refill_rsp_fire) begin
+        if (line_read_rsp_fire) begin
           if (replay_remaining_q != '0) state_d = StateReplay;
           else state_d = StateRun;
         end
@@ -335,33 +357,37 @@ module cache_control
     end
   end
 
-  // 脏牺牲行从阵列响应直接进入回填请求；控制面不再设置第二份缓存行缓冲区，
-  // 因而该握手必须同时满足阵列响应可消费和回填引擎可接收。
+  // 脏牺牲行从阵列响应直接进入 line-write 请求；控制面不设置第二份缓存行
+  // 缓冲区，因此两个握手必须在同拍发生。写回成功后才单独发起 line-read。
   always_comb begin
-    victim_req.valid = 1'b0;
-    victim_req.payload.set = block_set(miss_block_addr);
-    victim_req.payload.way = miss_context_q.victim_way;
-    victim_rsp.ready = 1'b0;
+    victim.req_valid = 1'b0;
+    victim.req_payload.set = block_set(miss_block_addr);
+    victim.req_payload.way = miss_context_q.victim_way;
+    victim.rsp_ready = 1'b0;
 
-    refill_req.valid = 1'b0;
-    refill_req.payload.block_addr = miss_block_addr;
-    refill_req.payload.writeback_valid = 1'b0;
-    refill_req.payload.writeback_block_addr =
+    line_write.req_valid = 1'b0;
+    line_write.req_payload.block_addr =
         victim_block_addr(miss_context_q.victim_tag, block_set(miss_block_addr));
-    refill_req.payload.writeback_data = victim_rsp.payload.line;
+    line_write.req_payload.line = victim.rsp_payload.line;
+    line_write.rsp_ready = state_q == StateWritebackWait;
+
+    line_read.req_valid = state_q == StateRefillRequest;
+    line_read.req_payload.block_addr = miss_block_addr;
 
     if (state_q == StateVictimRead) begin
-      victim_req.valid = !miss_context_q.victim_req_sent;
-      refill_req.valid = victim_rsp.valid;
-      refill_req.payload.writeback_valid = 1'b1;
-      victim_rsp.ready = refill_req.ready;
-    end else if (state_q == StateRefillRequest) begin
-      refill_req.valid = 1'b1;
+      victim.req_valid = !miss_context_q.victim_req_sent;
+      line_write.req_valid = victim.rsp_valid;
+      victim.rsp_ready = line_write.req_ready;
     end
   end
 
-  assign victim_req_fire = victim_req.valid && victim_req.ready;
-  assign refill_req_fire = refill_req.valid && refill_req.ready;
+  assign victim_req_fire = victim.req_valid && victim.req_ready;
+  assign line_write_req_fire = line_write.req_valid && line_write.req_ready;
+  assign line_write_rsp_fire = line_write.rsp_valid && line_write.rsp_ready;
+  assign line_read_req_fire = line_read.req_valid && line_read.req_ready;
+  assign line_read_rsp_fire = line_read.rsp_valid && line_read.rsp_ready;
+  assign miss_complete_fire = (line_write_rsp_fire && line_write.rsp_payload.error) ||
+      line_read_rsp_fire;
 
   ////////////////////////////
   // Store 提交与缓存行安装 //
@@ -373,7 +399,7 @@ module cache_control
 
     line_install.valid = 1'b0;
     line_install.payload = '0;
-    refill_rsp.ready = 1'b0;
+    line_read.rsp_ready = 1'b0;
 
     if (state_q == StateStoreCommit) begin
       word_write.valid = 1'b1;
@@ -382,29 +408,27 @@ module cache_control
       word_write.payload.word = store_word;
       word_write.payload.data = store_context.commit_data;
     end else if (state_q == StateRefillWait) begin
-      if (refill_rsp.valid && refill_rsp.payload.error) begin
-        refill_rsp.ready = 1'b1;
+      if (line_read.rsp_valid && line_read.rsp_payload.error) begin
+        line_read.rsp_ready = 1'b1;
       end else begin
-        line_install.valid = refill_rsp.valid;
+        line_install.valid = line_read.rsp_valid;
         line_install.payload.set = block_set(miss_block_addr);
         line_install.payload.way = miss_context_q.victim_way;
         line_install.payload.data = miss_context_q.is_store ?
-            merge_store_line(refill_rsp.payload.data, miss_word, store_context.wdata,
-                             store_context.wstrb) : refill_rsp.payload.data;
+            merge_store_line(line_read.rsp_payload.line, miss_word, store_context.wdata,
+                             store_context.wstrb) : line_read.rsp_payload.line;
         line_install.payload.tag = block_tag(miss_block_addr);
         line_install.payload.dirty = miss_context_q.is_store;
-        refill_rsp.ready = line_install.ready;
+        line_read.rsp_ready = line_install.ready;
       end
     end
   end
 
   assign word_write_fire = word_write.valid && word_write.ready;
   assign store_commit_fire = (state_q == StateStoreCommit) && word_write_fire;
-  assign refill_rsp_fire = refill_rsp.valid && refill_rsp.ready;
-
   assign store_capture = core_request_fire && core_bus.req_payload.write;
-  assign store_release = store_commit_fire || (refill_rsp_fire && miss_context_q.is_store);
-  assign store_hit_capture = lookup_response_current && lookup_rsp.payload.hit &&
+  assign store_release = store_commit_fire || (miss_complete_fire && miss_context_q.is_store);
+  assign store_hit_capture = lookup_response_current && lookup.rsp_payload.hit &&
       lookup_response_store;
 
   //////////////////
@@ -414,8 +438,8 @@ module cache_control
   always_comb begin
     store_hit = '0;
     store_hit_line = '0;
-    store_hit.way = lookup_rsp.payload.hit_way;
-    store_hit_line[int'(store_word)*XLen+:XLen] = lookup_rsp.payload.rdata;
+    store_hit.way = lookup.rsp_payload.hit_way;
+    store_hit_line[int'(store_word)*XLen+:XLen] = lookup.rsp_payload.rdata;
     store_hit_line =
         merge_store_line(store_hit_line, store_word, store_context.wdata, store_context.wstrb);
     store_hit.data = store_hit_line[int'(store_word)*XLen+:XLen];
@@ -464,17 +488,17 @@ module cache_control
 
     if (core_response_fire) txn_d[head_q].state = TxnFree;
 
-    if (lookup_rsp.valid) begin
+    if (lookup.rsp_valid) begin
       if (!lookup_response_current) begin
-        txn_d[lookup_rsp.payload.txn_id].state = TxnReplay;
-      end else if (!lookup_rsp.payload.hit) begin
-        txn_d[lookup_rsp.payload.txn_id].state = TxnMiss;
+        txn_d[lookup.rsp_payload.txn_id].state = TxnReplay;
+      end else if (!lookup.rsp_payload.hit) begin
+        txn_d[lookup.rsp_payload.txn_id].state = TxnMiss;
       end else if (lookup_response_store) begin
-        txn_d[lookup_rsp.payload.txn_id].state = TxnStoreCommit;
+        txn_d[lookup.rsp_payload.txn_id].state = TxnStoreCommit;
       end else begin
-        txn_d[lookup_rsp.payload.txn_id].state = TxnDone;
-        txn_d[lookup_rsp.payload.txn_id].rdata = lookup_rsp.payload.rdata;
-        txn_d[lookup_rsp.payload.txn_id].error = 1'b0;
+        txn_d[lookup.rsp_payload.txn_id].state = TxnDone;
+        txn_d[lookup.rsp_payload.txn_id].rdata = lookup.rsp_payload.rdata;
+        txn_d[lookup.rsp_payload.txn_id].error = 1'b0;
       end
     end
 
@@ -484,14 +508,19 @@ module cache_control
       txn_d[store_context.txn_id].error = 1'b0;
     end
 
-    if (refill_rsp_fire) begin
+    if (miss_complete_fire) begin
       txn_d[miss_context_q.owner].state = TxnDone;
-      txn_d[miss_context_q.owner].rdata = (refill_rsp.payload.error || miss_context_q.is_store) ?
-          '0 : refill_rsp.payload.data[int'(miss_word)*XLen+:XLen];
-      txn_d[miss_context_q.owner].error = refill_rsp.payload.error;
+      if (line_write_rsp_fire) begin
+        txn_d[miss_context_q.owner].rdata = '0;
+        txn_d[miss_context_q.owner].error = 1'b1;
+      end else begin
+        txn_d[miss_context_q.owner].rdata = (line_read.rsp_payload.error || miss_context_q.is_store)
+            ? '0 : line_read.rsp_payload.line[int'(miss_word)*XLen+:XLen];
+        txn_d[miss_context_q.owner].error = line_read.rsp_payload.error;
+      end
     end
 
-    if (replay_lookup_valid && lookup_req.ready) txn_d[replay_ptr_q].state = TxnInflight;
+    if (replay_lookup_valid && lookup.req_ready) txn_d[replay_ptr_q].state = TxnInflight;
 
     if (core_request_fire) begin
       txn_d[tail_q].state = TxnInflight;
@@ -536,7 +565,7 @@ module cache_control
       endcase
 
       unique case ({
-        lookup_req_fire, lookup_rsp.valid
+        lookup_req_fire, lookup.rsp_valid
       })
         2'b10: lookup_inflight_q <= lookup_inflight_q + txn_count_t'(1);
         2'b01: lookup_inflight_q <= lookup_inflight_q - txn_count_t'(1);
@@ -545,18 +574,18 @@ module cache_control
 
       if (lookup_response_miss) begin
         epoch_q <= !epoch_q;
-        miss_context_q.owner <= lookup_rsp.payload.txn_id;
-        miss_context_q.victim_way <= lookup_rsp.payload.victim_way;
-        miss_context_q.victim_tag <= lookup_rsp.payload.victim_tag;
-        miss_context_q.victim_dirty <= lookup_rsp.payload.victim_valid &&
-            lookup_rsp.payload.victim_dirty;
+        miss_context_q.owner <= lookup.rsp_payload.txn_id;
+        miss_context_q.victim_way <= lookup.rsp_payload.victim_way;
+        miss_context_q.victim_tag <= lookup.rsp_payload.victim_tag;
+        miss_context_q.victim_dirty <= lookup.rsp_payload.victim_valid &&
+            lookup.rsp_payload.victim_dirty;
         miss_context_q.is_store <= lookup_response_store;
         miss_context_q.victim_req_sent <= 1'b0;
-        replay_ptr_q <= next_txn_id(lookup_rsp.payload.txn_id);
+        replay_ptr_q <= next_txn_id(lookup.rsp_payload.txn_id);
         replay_remaining_q <= miss_younger_count;
       end else begin
         if (victim_req_fire) miss_context_q.victim_req_sent <= 1'b1;
-        if (refill_req_fire) miss_context_q.victim_req_sent <= 1'b0;
+        if (line_write_req_fire) miss_context_q.victim_req_sent <= 1'b0;
 
         if (state_q == StateReplay && lookup_req_fire) begin
           replay_ptr_q <= next_txn_id(replay_ptr_q);
@@ -574,19 +603,20 @@ module cache_control
   `ASSERT_INIT(CacheControlInterfaceWidths,
                $bits(core_bus.req_payload.addr) == XLen &&
                    $bits(core_bus.req_payload.wdata) == XLen &&
-                   $bits(lookup_req.payload.txn_id) == TxnIdW &&
-                   $bits(lookup_req.payload.set) == SetIndexW &&
-                   $bits(lookup_req.payload.tag) == TagW &&
-                   $bits(lookup_req.payload.word) == WordIndexW &&
-                   $bits(lookup_rsp.payload.hit_way) == WayIndexW &&
-                   $bits(victim_req.payload.set) == SetIndexW &&
-                   $bits(victim_req.payload.way) == WayIndexW &&
-                   $bits(victim_rsp.payload.line) == LineBits &&
+                   $bits(lookup.req_payload.txn_id) == TxnIdW &&
+                   $bits(lookup.req_payload.set) == SetIndexW &&
+                   $bits(lookup.req_payload.tag) == TagW &&
+                   $bits(lookup.req_payload.word) == WordIndexW &&
+                   $bits(lookup.rsp_payload.hit_way) == WayIndexW &&
+                   $bits(victim.req_payload.set) == SetIndexW &&
+                   $bits(victim.req_payload.way) == WayIndexW &&
+                   $bits(victim.rsp_payload.line) == LineBits &&
                    $bits(word_write.payload.data) == XLen &&
                    $bits(line_install.payload.data) == LineBits &&
-                   $bits(refill_req.payload.block_addr) == BlockAddrW &&
-                   $bits(refill_req.payload.writeback_data) == LineBits &&
-                   $bits(refill_rsp.payload.data) == LineBits,
+                   $bits(line_read.req_payload.block_addr) == BlockAddrW &&
+                   $bits(line_read.rsp_payload.line) == LineBits &&
+                   $bits(line_write.req_payload.block_addr) == BlockAddrW &&
+                   $bits(line_write.req_payload.line) == LineBits,
                "Cache control geometry must match every connected interface.")
   `ASSERT(CacheCoreResponseStable,
           core_bus.rsp_valid && !core_bus.rsp_ready |=>
@@ -594,13 +624,13 @@ module cache_control
           clk_i, !rst_ni,
           "CoreBus response payload must remain stable while backpressured.")
   `ASSERT(CacheControlLookupRequestStable,
-          lookup_req.valid && !lookup_req.ready |=>
-              $stable({lookup_req.valid, lookup_req.payload}),
+          lookup.req_valid && !lookup.req_ready |=>
+              $stable({lookup.req_valid, lookup.req_payload}),
           clk_i, !rst_ni,
           "Lookup request payload must remain stable while backpressured.")
   `ASSERT(CacheControlVictimRequestStable,
-          victim_req.valid && !victim_req.ready |=>
-              $stable({victim_req.valid, victim_req.payload}),
+          victim.req_valid && !victim.req_ready |=>
+              $stable({victim.req_valid, victim.req_payload}),
           clk_i, !rst_ni,
           "Victim request payload must remain stable while backpressured.")
   `ASSERT(CacheControlWordWriteStable,
@@ -617,11 +647,28 @@ module cache_control
           !(word_write.valid && line_install.valid),
           clk_i, !rst_ni,
           "Word write and line install requests must be exclusive.")
-  `ASSERT(CacheControlRefillRequestStable,
-          refill_req.valid && !refill_req.ready |=>
-              $stable({refill_req.valid, refill_req.payload}),
+  `ASSERT(CacheControlLineReadRequestStable,
+          line_read.req_valid && !line_read.req_ready |=>
+              $stable({line_read.req_valid, line_read.req_payload}),
           clk_i, !rst_ni,
-          "Refill request payload must remain stable while backpressured.")
+          "Line-read request must remain stable while backpressured.")
+  `ASSERT(CacheControlLineWriteRequestStable,
+          line_write.req_valid && !line_write.req_ready |=>
+              $stable({line_write.req_valid, line_write.req_payload}),
+          clk_i, !rst_ni,
+          "Line-write request must remain stable while backpressured.")
+  `ASSERT(CacheControlLineRequestsExclusive,
+          !(line_read.req_valid && line_write.req_valid),
+          clk_i, !rst_ni,
+          "The blocking miss sequence must not request line read and write together.")
+  `ASSERT(CacheControlLineReadResponseExpected,
+          line_read.rsp_valid |-> (state_q == StateRefillWait),
+          clk_i, !rst_ni,
+          "A line-read response is legal only while a refill is outstanding.")
+  `ASSERT(CacheControlLineWriteResponseExpected,
+          line_write.rsp_valid |-> (state_q == StateWritebackWait),
+          clk_i, !rst_ni,
+          "A line-write response is legal only while a victim writeback is outstanding.")
   `ASSERT(CacheTransactionCountValid,
           usage_q <= txn_count_t'(MaxOutstanding),
           clk_i, !rst_ni,
@@ -631,8 +678,8 @@ module cache_control
           clk_i, !rst_ni,
           "Lookup pipeline occupancy must be covered by transaction credits.")
   `ASSERT(CacheLookupResponseExpected,
-          lookup_rsp.valid |->
-              (txn_q[lookup_rsp.payload.txn_id].state == TxnInflight),
+          lookup.rsp_valid |->
+              (txn_q[lookup.rsp_payload.txn_id].state == TxnInflight),
           clk_i, !rst_ni,
           "Every array response must identify an in-flight transaction.")
   `ASSERT(CacheStoreWaitsForOlderLookups,
@@ -640,6 +687,16 @@ module cache_control
               (lookup_inflight_q == '0),
           clk_i, !rst_ni,
           "A store may issue only after all older lookups have resolved.")
+  `ASSERT(CacheControlQuiesceBlocksRequests,
+          quiesce_request |-> !core_request_fire,
+          clk_i, !rst_ni,
+          "A pending maintenance request must block new CoreBus requests.")
+  `ASSERT(CacheControlQuiesceIdleSafe,
+          quiesce_idle |->
+              ((state_q == StateRun) && (usage_q == '0) &&
+               (lookup_inflight_q == '0) && !store_context.active),
+          clk_i, !rst_ni,
+          "The control plane may acknowledge quiesce only after fully draining.")
   `ASSERT(CacheCoreRequestSizeValid,
           core_bus.req_valid |->
               (core_bus.req_payload.size <= CORE_BUS_SIZE_WORD),
@@ -673,7 +730,7 @@ module cache_control
   if (ReadOnly) begin : gen_read_only_assertions
     `ASSERT(CacheControlReadOnlyRequest, core_bus.req_valid |-> !core_bus.req_payload.write, clk_i,
             !rst_ni, "A read-only cache control plane must never receive a write request.")
-    `ASSERT(CacheControlReadOnlyWriteback, !refill_req.payload.writeback_valid, clk_i, !rst_ni,
+    `ASSERT(CacheControlReadOnlyWriteback, !line_write.req_valid, clk_i, !rst_ni,
             "A read-only cache control plane must never request a writeback.")
   end
 

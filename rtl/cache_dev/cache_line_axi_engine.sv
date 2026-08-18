@@ -1,14 +1,14 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 阻塞式 AXI4 写回与回填引擎。
+// 阻塞式缓存行 AXI4 搬运引擎。
 //
-// 可选写回脏牺牲行，随后以 AXI4 burst 读取缺失行，并返回完整缓存行和错误状态。
-// 任一时刻只处理一笔替换；写回与回填复用同一缓存行缓冲区；各 AXI 通道
-// 必须满足反压保持规则；只读配置不得驱动写通道。
+// 对上层分别提供完整缓存行读取和写回事务，但内部只保留一个 AXI 状态机、一个
+// line buffer 和一个 beat counter。任一时刻只处理一笔事务；write 优先级只用于
+// 非法的同拍竞争场景，正常 control/maintenance 调度保证两个请求互斥。
 `include "common/assertions.svh"
 
-module cache_refill_engine
+module cache_line_axi_engine
   import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
   import cache_pkg::*;
@@ -25,19 +25,13 @@ module cache_refill_engine
   localparam int unsigned LineBeats = BlockBytes / StrbW,
   localparam int unsigned BeatIndexW = (LineBeats > 1) ? $clog2(LineBeats) : 1
 ) (
-  // 全局控制
   input logic clk_i,
   input logic rst_ni,
 
-  // 回填事务与 AXI4
-  cache_refill_req_if.consumer refill_req,
-  cache_refill_rsp_if.producer refill_rsp,
+  axi_line_read_if.handler line_read,
+  axi_line_write_if.handler line_write,
   axi4_if.master axi
 );
-
-  ////////////////////////////////
-  // 状态、缓存行缓冲与握手事件 //
-  ////////////////////////////////
 
   typedef enum logic [2:0] {
     StateIdle,
@@ -50,13 +44,14 @@ module cache_refill_engine
   } state_e;
 
   state_e state_q;
-  logic [BlockAddrW-1:0] refill_block_addr_q;
-  logic [BlockAddrW-1:0] writeback_block_addr_q;
+  logic operation_write_q;
+  logic [BlockAddrW-1:0] block_addr_q;
   logic [LineBits-1:0] line_buffer_q;
   logic [BeatIndexW-1:0] beat_index_q;
   logic error_q;
 
-  logic request_fire;
+  logic read_req_fire;
+  logic write_req_fire;
   logic response_fire;
   logic aw_fire;
   logic w_fire;
@@ -66,11 +61,6 @@ module cache_refill_engine
   logic expected_last;
   logic read_beat_error;
   logic write_response_error;
-  logic request_writeback;
-
-  ////////////////////////
-  // 地址转换与请求属性 //
-  ////////////////////////
 
   function automatic word_t block_byte_address(input logic [BlockAddrW-1:0] block_addr);
     word_t address;
@@ -79,14 +69,10 @@ module cache_refill_engine
     return address << BlockOffsetW;
   endfunction
 
-  if (ReadOnly) begin : gen_no_writeback_request
-    assign request_writeback = 1'b0;
-  end else begin : gen_writeback_request
-    assign request_writeback = refill_req.payload.writeback_valid;
-  end
-
-  assign request_fire = refill_req.valid && refill_req.ready;
-  assign response_fire = refill_rsp.valid && refill_rsp.ready;
+  assign read_req_fire = line_read.req_valid && line_read.req_ready;
+  assign write_req_fire = line_write.req_valid && line_write.req_ready;
+  assign response_fire = (line_read.rsp_valid && line_read.rsp_ready) ||
+      (line_write.rsp_valid && line_write.rsp_ready);
   assign aw_fire = axi.awvalid && axi.awready;
   assign w_fire = axi.wvalid && axi.wready;
   assign b_fire = axi.bvalid && axi.bready;
@@ -98,10 +84,6 @@ module cache_refill_engine
   assign read_beat_error = (axi.r_payload.id != IdWidth'(AxiId)) ||
       (axi.r_payload.resp != AXI4_RESP_OKAY) || (axi.r_payload.last != expected_last);
 
-  ///////////////////
-  // AXI4 通道驱动 //
-  ///////////////////
-
   always_comb begin
     axi.awvalid = 1'b0;
     axi.aw_payload = '0;
@@ -111,15 +93,20 @@ module cache_refill_engine
     axi.arvalid = 1'b0;
     axi.ar_payload = '0;
     axi.rready = 1'b0;
-    refill_req.ready = state_q == StateIdle;
-    refill_rsp.valid = state_q == StateResponse;
-    refill_rsp.payload.data = line_buffer_q;
-    refill_rsp.payload.error = error_q;
+
+    // 单状态机不接受并发事务。若两个请求意外同拍出现，write 获得确定优先级。
+    line_write.req_ready = (state_q == StateIdle) && !ReadOnly;
+    line_read.req_ready = (state_q == StateIdle) && (ReadOnly || !line_write.req_valid);
+    line_write.rsp_valid = (state_q == StateResponse) && operation_write_q;
+    line_write.rsp_payload.error = error_q;
+    line_read.rsp_valid = (state_q == StateResponse) && !operation_write_q;
+    line_read.rsp_payload.line = line_buffer_q;
+    line_read.rsp_payload.error = error_q;
 
     unique case (state_q)
       StateWriteAddress: begin
         axi.awvalid = 1'b1;
-        axi.aw_payload.addr = block_byte_address(writeback_block_addr_q);
+        axi.aw_payload.addr = block_byte_address(block_addr_q);
         axi.aw_payload.id = IdWidth'(AxiId);
         axi.aw_payload.len = 8'(LineBeats - 1);
         axi.aw_payload.size = 3'd2;
@@ -133,50 +120,45 @@ module cache_refill_engine
         axi.w_payload.last = expected_last;
       end
 
-      StateWriteResponse: begin
-        axi.bready = 1'b1;
-      end
+      StateWriteResponse: axi.bready = 1'b1;
 
       StateReadAddress: begin
         axi.arvalid = 1'b1;
-        axi.ar_payload.addr = block_byte_address(refill_block_addr_q);
+        axi.ar_payload.addr = block_byte_address(block_addr_q);
         axi.ar_payload.id = IdWidth'(AxiId);
         axi.ar_payload.len = 8'(LineBeats - 1);
         axi.ar_payload.size = 3'd2;
         axi.ar_payload.burst = AXI4_BURST_INCR;
       end
 
-      StateReadData: begin
-        axi.rready = 1'b1;
-      end
+      StateReadData: axi.rready = 1'b1;
 
       default: ;
     endcase
   end
 
-  //////////////////////
-  // 写回与回填状态机 //
-  //////////////////////
-
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       state_q <= StateIdle;
+      operation_write_q <= 1'b0;
       beat_index_q <= '0;
       error_q <= 1'b0;
     end else begin
       unique case (state_q)
         StateIdle: begin
-          if (request_fire) begin
-            refill_block_addr_q <= refill_req.payload.block_addr;
-            writeback_block_addr_q <= refill_req.payload.writeback_block_addr;
+          if (write_req_fire) begin
+            operation_write_q <= 1'b1;
+            block_addr_q <= line_write.req_payload.block_addr;
+            line_buffer_q <= line_write.req_payload.line;
             beat_index_q <= '0;
             error_q <= 1'b0;
-            if (request_writeback) begin
-              line_buffer_q <= refill_req.payload.writeback_data;
-              state_q <= StateWriteAddress;
-            end else begin
-              state_q <= StateReadAddress;
-            end
+            state_q <= StateWriteAddress;
+          end else if (read_req_fire) begin
+            operation_write_q <= 1'b0;
+            block_addr_q <= line_read.req_payload.block_addr;
+            beat_index_q <= '0;
+            error_q <= 1'b0;
+            state_q <= StateReadAddress;
           end
         end
 
@@ -200,13 +182,8 @@ module cache_refill_engine
 
         StateWriteResponse: begin
           if (b_fire) begin
-            beat_index_q <= '0;
-            if (write_response_error) begin
-              error_q <= 1'b1;
-              state_q <= StateResponse;
-            end else begin
-              state_q <= StateReadAddress;
-            end
+            error_q <= write_response_error;
+            state_q <= StateResponse;
           end
         end
 
@@ -242,35 +219,45 @@ module cache_refill_engine
     end
   end
 
-  ////////////////////
-  // 协议与参数断言 //
-  ////////////////////
-
   // verilog_format: off
-  `ASSERT_INIT(CacheRefillLineBeatCountValid,
+  `ASSERT_INIT(CacheLineAxiBeatCountValid,
                (LineBeats > 0) && (LineBeats <= 256),
                "AXI4 bursts contain between one and 256 beats.")
-  `ASSERT(CacheRefillRequestStable,
-          refill_req.valid && !refill_req.ready |=>
-              $stable({refill_req.valid, refill_req.payload}),
+  `ASSERT(CacheLineAxiRequestsExclusive,
+          !(line_read.req_valid && line_write.req_valid),
           clk_i, !rst_ni,
-          "Refill request payload must remain stable while backpressured.")
-  `ASSERT(CacheRefillResponseStable,
-          refill_rsp.valid && !refill_rsp.ready |=>
-              $stable({refill_rsp.valid, refill_rsp.payload}),
+          "Line read and write requests must not compete for the blocking AXI engine.")
+  `ASSERT(CacheLineReadRequestStable,
+          line_read.req_valid && !line_read.req_ready |=>
+              $stable({line_read.req_valid, line_read.req_payload}),
           clk_i, !rst_ni,
-          "Refill response must remain stable while backpressured.")
-  `ASSERT(CacheRefillAwStable,
+          "Line-read request must remain stable while backpressured.")
+  `ASSERT(CacheLineWriteRequestStable,
+          line_write.req_valid && !line_write.req_ready |=>
+              $stable({line_write.req_valid, line_write.req_payload}),
+          clk_i, !rst_ni,
+          "Line-write request must remain stable while backpressured.")
+  `ASSERT(CacheLineReadResponseStable,
+          line_read.rsp_valid && !line_read.rsp_ready |=>
+              $stable({line_read.rsp_valid, line_read.rsp_payload}),
+          clk_i, !rst_ni,
+          "Line-read response must remain stable while backpressured.")
+  `ASSERT(CacheLineWriteResponseStable,
+          line_write.rsp_valid && !line_write.rsp_ready |=>
+              $stable({line_write.rsp_valid, line_write.rsp_payload}),
+          clk_i, !rst_ni,
+          "Line-write response must remain stable while backpressured.")
+  `ASSERT(CacheLineAxiAwStable,
           axi.awvalid && !axi.awready |=>
               $stable({axi.awvalid, axi.aw_payload}),
           clk_i, !rst_ni,
           "AXI write address payload must remain stable while backpressured.")
-  `ASSERT(CacheRefillWStable,
+  `ASSERT(CacheLineAxiWStable,
           axi.wvalid && !axi.wready |=>
               $stable({axi.wvalid, axi.w_payload}),
           clk_i, !rst_ni,
           "AXI write data payload must remain stable while backpressured.")
-  `ASSERT(CacheRefillArStable,
+  `ASSERT(CacheLineAxiArStable,
           axi.arvalid && !axi.arready |=>
               $stable({axi.arvalid, axi.ar_payload}),
           clk_i, !rst_ni,
@@ -278,24 +265,24 @@ module cache_refill_engine
   // verilog_format: on
 
   if (ReadOnly) begin : gen_read_only_assertions
-    `ASSERT(CacheRefillEngineReadOnlyWriteback,
-            refill_req.valid |-> !refill_req.payload.writeback_valid, clk_i, !rst_ni,
-            "A read-only cache must never request a dirty writeback.")
-    `ASSERT(CacheRefillEngineReadOnlyAxiWrite, !axi.awvalid && !axi.wvalid && !axi.bready, clk_i,
-            !rst_ni, "A read-only refill engine must never drive AXI writes.")
+    `ASSERT(CacheLineAxiReadOnlyWriteRequest, !line_write.req_valid, clk_i, !rst_ni,
+            "A read-only cache must never request a line writeback.")
+    `ASSERT(CacheLineAxiReadOnlyAxiWrite, !axi.awvalid && !axi.wvalid && !axi.bready, clk_i,
+            !rst_ni, "A read-only line engine must never drive AXI writes.")
   end
 
-  `ASSERT_INIT(CacheRefillAddressWidthSupported, AddrWidth == XLen)
-  `ASSERT_INIT(CacheRefillDataWidthSupported, DataWidth == XLen)
-  `ASSERT_INIT(CacheRefillAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
-  `ASSERT_INIT(CacheRefillDataWidthValid,
+  `ASSERT_INIT(CacheLineAxiAddressWidthSupported, AddrWidth == XLen)
+  `ASSERT_INIT(CacheLineAxiDataWidthSupported, DataWidth == XLen)
+  `ASSERT_INIT(CacheLineAxiAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
+  `ASSERT_INIT(CacheLineAxiDataWidthValid,
                DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
-  `ASSERT_INIT(CacheRefillAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CacheRefillAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
-  `ASSERT_INIT(CacheRefillAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
-  `ASSERT_INIT(CacheRefillAxiIdFits, (AxiId >> IdWidth) == 0)
-  `ASSERT_INIT(CacheRefillInterfaceWidths, $bits(refill_req.payload.block_addr)
-               == BlockAddrW && $bits(refill_req.payload.writeback_data) == LineBits && $bits
-               (refill_rsp.payload.data) == LineBits)
+  `ASSERT_INIT(CacheLineAxiAwAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
+  `ASSERT_INIT(CacheLineAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
+  `ASSERT_INIT(CacheLineAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
+  `ASSERT_INIT(CacheLineAxiIdFits, (AxiId >> IdWidth) == 0)
+  `ASSERT_INIT(CacheLineAxiInterfaceWidths, $bits(line_read.req_payload.block_addr)
+               == BlockAddrW && $bits(line_read.rsp_payload.line) == LineBits && $bits
+               (line_write.req_payload.block_addr) == BlockAddrW && $bits
+               (line_write.req_payload.line) == LineBits)
 
 endmodule

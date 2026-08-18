@@ -10,7 +10,9 @@ rtl/cache_dev/cache_data_bank.sv
 rtl/cache_dev/cache_replacement_policy.sv
 rtl/cache_dev/cache_array.sv
 rtl/cache_dev/cache_control.sv
-rtl/cache_dev/cache_refill_engine.sv
+rtl/cache_dev/cache_line_axi_engine.sv
+rtl/cache_dev/cache_maintenance.sv
+rtl/cache_dev/cache_line_write_arbiter.sv
 rtl/cache_dev/cache.sv
 rtl/cache_dev/tb/cache_axi_memory_model.sv
 rtl/cache_dev/tb/cache_corebus_scoreboard.sv

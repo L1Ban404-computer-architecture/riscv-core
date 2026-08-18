@@ -4,7 +4,7 @@
 // Cache 阵列数据通路。
 //
 // 保存标签、有效位、脏位和数据，完成并行标签比较、命中数据选择、牺牲路选择、
-// 单字写入、整行安装和牺牲行读取。
+// 单字写入、整行安装、牺牲行读取以及全 cache clean/invalidate 扫描。
 // 原始逐路元数据不得跨出本模块；查询响应延迟固定；同拍阵列操作互斥并按
 // 整行安装 > 单字写入 > 牺牲行读取 > 普通查询的顺序仲裁。
 `include "common/assertions.svh"
@@ -35,14 +35,15 @@ module cache_array
   input logic rst_ni,
 
   // 查询事务
-  cache_lookup_req_if.consumer lookup_req,
-  cache_lookup_rsp_if.producer lookup_rsp,
+  array_lookup_if.handler lookup,
 
   // 阵列维护事务
-  cache_victim_req_if.consumer victim_req,
-  cache_victim_rsp_if.producer victim_rsp,
-  cache_word_write_if.consumer word_write,
-  cache_line_install_if.consumer line_install
+  array_victim_if.handler victim,
+  array_word_write_if.consumer word_write,
+  array_line_install_if.consumer line_install,
+
+  // 全 cache 维护
+  cache_array_maintenance_if.array maintenance
 );
 
   //////////////////////////////
@@ -50,8 +51,16 @@ module cache_array
   //////////////////////////////
 
   typedef logic [TxnIdW-1:0] txn_id_t;
+  typedef logic [BlockAddrW-1:0] block_addr_t;
   typedef logic [WayIndexW-1:0] way_index_t;
   typedef logic [TagW-1:0] tag_t;
+
+  typedef enum logic [1:0] {
+    MaintenanceIdle,
+    MaintenanceScan,
+    MaintenanceLine,
+    MaintenanceDone
+  } maintenance_state_e;
 
   typedef struct packed {
     txn_id_t txn_id;
@@ -76,6 +85,7 @@ module cache_array
   logic [TagW-1:0] tag_mem[WayCount][SetCount];
   logic valid_mem[WayCount][SetCount];
   logic [WayCount-1:0] dirty_read;
+  logic maintenance_dirty_read;
 
   word_t bank_read_data[WayCount][WordCount];
   logic bank_read_valid[WayCount][WordCount];
@@ -87,6 +97,20 @@ module cache_array
   logic victim_fire;
   logic word_write_fire;
   logic line_install_fire;
+
+  maintenance_state_e maintenance_state_q;
+  cache_maintenance_op_e maintenance_op_q;
+  logic [SetIndexW-1:0] maintenance_set_q;
+  logic [WayIndexW-1:0] maintenance_way_q;
+  tag_t maintenance_tag_q;
+  logic maintenance_req_fire;
+  logic maintenance_line_fire;
+  logic maintenance_done_fire;
+  logic maintenance_read_fire;
+  logic maintenance_invalidate_step;
+  logic maintenance_last_entry;
+  logic maintenance_last_set;
+  logic maintenance_entry_dirty;
 
   logic lookup_base_valid_q;
   lookup_req_t lookup_req_q;
@@ -107,18 +131,35 @@ module cache_array
   // 阵列操作仲裁 //
   //////////////////
 
-  // 未被接收的牺牲行响应会持续占用数据 bank。新操作按“整行安装、单字写入、
-  // 牺牲行读取、普通查询”从高到低仲裁，避免同拍多写或读写目标冲突。
-  assign line_install.ready = !victim_rsp_valid_q || victim_rsp.ready;
+  // 未被接收的牺牲行响应会持续占用数据 bank。maintenance 请求阻止普通操作；
+  // 普通路径仍按“整行安装、单字写入、牺牲行读取、普通查询”从高到低仲裁。
+  assign maintenance.req_ready = (maintenance_state_q == MaintenanceIdle) &&
+      (!victim_rsp_valid_q || victim.rsp_ready) && !line_install.valid && !word_write.valid &&
+      !victim.req_valid && !lookup.req_valid;
+  assign line_install.ready = (maintenance_state_q == MaintenanceIdle) && !maintenance.req_valid &&
+      (!victim_rsp_valid_q || victim.rsp_ready);
   assign word_write.ready = line_install.ready && !line_install.valid;
-  assign victim_req.ready = word_write.ready && !word_write.valid;
-  assign lookup_req.ready = victim_req.ready && !victim_req.valid;
+  assign victim.req_ready = word_write.ready && !word_write.valid;
+  assign lookup.req_ready = victim.req_ready && !victim.req_valid;
 
-  assign lookup_fire = lookup_req.valid && lookup_req.ready;
-  assign victim_fire = victim_req.valid && victim_req.ready;
+  assign lookup_fire = lookup.req_valid && lookup.req_ready;
+  assign victim_fire = victim.req_valid && victim.req_ready;
   assign word_write_fire = word_write.valid && word_write.ready;
   assign line_install_fire = line_install.valid && line_install.ready;
-  assign bank_read_set = victim_fire ? victim_req.payload.set : lookup_req.payload.set;
+  assign maintenance_req_fire = maintenance.req_valid && maintenance.req_ready;
+  assign maintenance_line_fire = maintenance.line_valid && maintenance.line_ready;
+  assign maintenance_done_fire = maintenance.done_valid && maintenance.done_ready;
+  assign maintenance_entry_dirty = valid_mem[maintenance_way_q][maintenance_set_q] &&
+      maintenance_dirty_read;
+  assign maintenance_last_entry = (maintenance_set_q == SetIndexW'(SetCount - 1)) &&
+      (maintenance_way_q == WayIndexW'(WayCount - 1));
+  assign maintenance_last_set = maintenance_set_q == SetIndexW'(SetCount - 1);
+  assign maintenance_read_fire = (maintenance_state_q == MaintenanceScan) &&
+      (maintenance_op_q == CACHE_MAINTENANCE_CLEAN_ALL) && maintenance_entry_dirty;
+  assign maintenance_invalidate_step = (maintenance_state_q == MaintenanceScan) &&
+      (maintenance_op_q == CACHE_MAINTENANCE_INVALIDATE_ALL);
+  assign bank_read_set = maintenance_read_fire ?
+      maintenance_set_q : (victim_fire ? victim.req_payload.set : lookup.req_payload.set);
 
   ////////////////////////////
   // 数据、标签与元数据阵列 //
@@ -126,9 +167,10 @@ module cache_array
 
   for (genvar way = 0; way < WayCount; way++) begin : gen_way
     for (genvar bank = 0; bank < WordCount; bank++) begin : gen_word_bank
-      assign bank_read_valid[way][bank] = (lookup_fire &&
-                                           (lookup_req.payload.word == WordIndexW'(bank))) ||
-          (victim_fire && (victim_req.payload.way == WayIndexW'(way)));
+      assign bank_read_valid[way][bank] =
+          (lookup_fire && (lookup.req_payload.word == WordIndexW'(bank))) ||
+          (victim_fire && (victim.req_payload.way == WayIndexW'(way))) ||
+          (maintenance_read_fire && (maintenance_way_q == WayIndexW'(way)));
       assign bank_write_valid[way][bank] =
           (line_install_fire && (line_install.payload.way == WayIndexW'(way))) ||
           (word_write_fire && (word_write.payload.way == WayIndexW'(way)) &&
@@ -153,12 +195,14 @@ module cache_array
 
   if (ReadOnly) begin : gen_no_dirty_array
     assign dirty_read = '0;
+    assign maintenance_dirty_read = 1'b0;
   end else begin : gen_dirty_array
     logic dirty_mem[WayCount][SetCount];
 
     for (genvar way = 0; way < WayCount; way++) begin : gen_dirty_read
-      assign dirty_read[way] = dirty_mem[way][lookup_req.payload.set];
+      assign dirty_read[way] = dirty_mem[way][lookup.req_payload.set];
     end
+    assign maintenance_dirty_read = dirty_mem[maintenance_way_q][maintenance_set_q];
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
@@ -167,10 +211,23 @@ module cache_array
             dirty_mem[way][set] <= 1'b0;
           end
         end
+      end else if (maintenance_invalidate_step) begin
+        for (int unsigned way = 0; way < WayCount; way++) begin
+          dirty_mem[way][maintenance_set_q] <= 1'b0;
+        end
+      end else if (maintenance_line_fire && maintenance.line_success) begin
+        dirty_mem[maintenance_way_q][maintenance_set_q] <= 1'b0;
       end else if (line_install_fire) begin
         dirty_mem[line_install.payload.way][line_install.payload.set] <= line_install.payload.dirty;
       end else if (word_write_fire) begin
         dirty_mem[word_write.payload.way][word_write.payload.set] <= 1'b1;
+      end
+    end
+
+    for (genvar way = 0; way < WayCount; way++) begin : gen_dirty_valid_assertions
+      for (genvar set = 0; set < SetCount; set++) begin : gen_set
+        `ASSERT(CacheArrayDirtyImpliesValid, dirty_mem[way][set] |-> valid_mem[way][set], clk_i,
+                !rst_ni, "A dirty cache line must also be valid.")
       end
     end
   end
@@ -181,6 +238,10 @@ module cache_array
         for (int unsigned set = 0; set < SetCount; set++) begin
           valid_mem[way][set] <= 1'b0;
         end
+      end
+    end else if (maintenance_invalidate_step) begin
+      for (int unsigned way = 0; way < WayCount; way++) begin
+        valid_mem[way][maintenance_set_q] <= 1'b0;
       end
     end else if (line_install_fire) begin
       valid_mem[line_install.payload.way][line_install.payload.set] <= 1'b1;
@@ -205,14 +266,14 @@ module cache_array
   // 标签与数据内容不复位，并始终由 valid 位屏蔽其中的无效值。
   always_ff @(posedge clk_i) begin
     if (lookup_fire) begin
-      lookup_req_q.txn_id <= lookup_req.payload.txn_id;
-      lookup_req_q.epoch <= lookup_req.payload.epoch;
-      lookup_req_q.set <= lookup_req.payload.set;
-      lookup_req_q.tag <= lookup_req.payload.tag;
-      lookup_req_q.word <= lookup_req.payload.word;
+      lookup_req_q.txn_id <= lookup.req_payload.txn_id;
+      lookup_req_q.epoch <= lookup.req_payload.epoch;
+      lookup_req_q.set <= lookup.req_payload.set;
+      lookup_req_q.tag <= lookup.req_payload.tag;
+      lookup_req_q.word <= lookup.req_payload.word;
       for (int unsigned way = 0; way < WayCount; way++) begin
-        lookup_tags_q[way] <= tag_mem[way][lookup_req.payload.set];
-        lookup_valids_q[way] <= valid_mem[way][lookup_req.payload.set];
+        lookup_tags_q[way] <= tag_mem[way][lookup.req_payload.set];
+        lookup_valids_q[way] <= valid_mem[way][lookup.req_payload.set];
         lookup_dirty_q[way] <= dirty_read[way];
       end
     end
@@ -253,7 +314,7 @@ module cache_array
   end
 
   if (LookupLatency == 1) begin : gen_one_cycle_lookup
-    assign lookup_rsp.valid = lookup_base_valid_q;
+    assign lookup.rsp_valid = lookup_base_valid_q;
     assign lookup_rsp_payload = lookup_base_rsp;
   end else begin : gen_pipelined_lookup
     lookup_rsp_t payload_q[LookupLatency-1];
@@ -277,21 +338,21 @@ module cache_array
       end
     end
 
-    assign lookup_rsp.valid = valid_q[LookupLatency-2];
+    assign lookup.rsp_valid = valid_q[LookupLatency-2];
     assign lookup_rsp_payload = payload_q[LookupLatency-2];
   end
 
-  assign lookup_rsp.payload = lookup_rsp_payload;
+  assign lookup.rsp_payload = lookup_rsp_payload;
 
   ////////////////
   // 牺牲行读取 //
   ////////////////
 
-  assign victim_rsp.valid = victim_rsp_valid_q;
+  assign victim.rsp_valid = victim_rsp_valid_q;
   always_comb begin
-    victim_rsp.payload = '0;
+    victim.rsp_payload = '0;
     for (int unsigned bank = 0; bank < WordCount; bank++) begin
-      victim_rsp.payload.line[bank*XLen+:XLen] = bank_read_data[victim_way_q][bank];
+      victim.rsp_payload.line[bank*XLen+:XLen] = bank_read_data[victim_way_q][bank];
     end
   end
 
@@ -300,11 +361,96 @@ module cache_array
       victim_rsp_valid_q <= 1'b0;
       victim_way_q <= '0;
     end else begin
-      if (victim_rsp_valid_q && victim_rsp.ready) victim_rsp_valid_q <= 1'b0;
+      if (victim_rsp_valid_q && victim.rsp_ready) victim_rsp_valid_q <= 1'b0;
       if (victim_fire) begin
         victim_rsp_valid_q <= 1'b1;
-        victim_way_q <= victim_req.payload.way;
+        victim_way_q <= victim.req_payload.way;
       end
+    end
+  end
+
+  ////////////////////////
+  // 全 Cache 维护扫描 //
+  ////////////////////////
+
+  // clean 对 set/way 逐项检查，只在发现有效脏行时占用全部 word bank。line 在
+  // 写回完成前保持当前索引和 bank 输出；失败确认会结束扫描且不清 dirty。
+  assign maintenance.line_valid = maintenance_state_q == MaintenanceLine;
+  assign maintenance.done_valid = maintenance_state_q == MaintenanceDone;
+
+  always_comb begin
+    maintenance.line_payload = '0;
+    maintenance.line_payload.block_addr = block_addr_t'(maintenance_tag_q);
+    maintenance.line_payload.block_addr = maintenance.line_payload.block_addr << SetIndexBits;
+    if (SetCount > 1) maintenance.line_payload.block_addr |= block_addr_t'(maintenance_set_q);
+    for (int unsigned bank = 0; bank < WordCount; bank++) begin
+      maintenance.line_payload.line[bank*XLen+:XLen] = bank_read_data[maintenance_way_q][bank];
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      maintenance_state_q <= MaintenanceIdle;
+      maintenance_op_q <= CACHE_MAINTENANCE_CLEAN_ALL;
+      maintenance_set_q <= '0;
+      maintenance_way_q <= '0;
+      maintenance_tag_q <= '0;
+    end else begin
+      unique case (maintenance_state_q)
+        MaintenanceIdle: begin
+          if (maintenance_req_fire) begin
+            maintenance_op_q <= maintenance.req_payload.op;
+            maintenance_set_q <= '0;
+            maintenance_way_q <= '0;
+            if (ReadOnly && (maintenance.req_payload.op == CACHE_MAINTENANCE_CLEAN_ALL)) begin
+              maintenance_state_q <= MaintenanceDone;
+            end else begin
+              maintenance_state_q <= MaintenanceScan;
+            end
+          end
+        end
+
+        MaintenanceScan: begin
+          if (maintenance_op_q == CACHE_MAINTENANCE_INVALIDATE_ALL) begin
+            if (maintenance_last_set) begin
+              maintenance_state_q <= MaintenanceDone;
+            end else begin
+              maintenance_set_q <= maintenance_set_q + SetIndexW'(1);
+            end
+          end else if (maintenance_entry_dirty) begin
+            maintenance_tag_q <= tag_mem[maintenance_way_q][maintenance_set_q];
+            maintenance_state_q <= MaintenanceLine;
+          end else if (maintenance_last_entry) begin
+            maintenance_state_q <= MaintenanceDone;
+          end else if (maintenance_way_q == WayIndexW'(WayCount - 1)) begin
+            maintenance_way_q <= '0;
+            maintenance_set_q <= maintenance_set_q + SetIndexW'(1);
+          end else begin
+            maintenance_way_q <= maintenance_way_q + WayIndexW'(1);
+          end
+        end
+
+        MaintenanceLine: begin
+          if (maintenance_line_fire) begin
+            if (!maintenance.line_success || maintenance_last_entry) begin
+              maintenance_state_q <= MaintenanceDone;
+            end else if (maintenance_way_q == WayIndexW'(WayCount - 1)) begin
+              maintenance_way_q <= '0;
+              maintenance_set_q <= maintenance_set_q + SetIndexW'(1);
+              maintenance_state_q <= MaintenanceScan;
+            end else begin
+              maintenance_way_q <= maintenance_way_q + WayIndexW'(1);
+              maintenance_state_q <= MaintenanceScan;
+            end
+          end
+        end
+
+        MaintenanceDone: begin
+          if (maintenance_done_fire) maintenance_state_q <= MaintenanceIdle;
+        end
+
+        default: maintenance_state_q <= MaintenanceIdle;
+      endcase
     end
   end
 
@@ -335,24 +481,27 @@ module cache_array
   `ASSERT_INIT(CacheArrayLookupLatencyValid, LookupLatency > 0,
                "Cache lookup latency must be positive.")
   `ASSERT_INIT(CacheArrayInterfaceWidths,
-               $bits(lookup_req.payload.txn_id) == TxnIdW &&
-                   $bits(lookup_req.payload.set) == SetIndexW &&
-                   $bits(lookup_req.payload.tag) == TagW &&
-                   $bits(lookup_req.payload.word) == WordIndexW &&
-                   $bits(lookup_rsp.payload.hit_way) == WayIndexW &&
-                   $bits(lookup_rsp.payload.rdata) == XLen &&
-                   $bits(victim_req.payload.way) == WayIndexW &&
-                   $bits(victim_rsp.payload.line) == LineBits &&
+               $bits(lookup.req_payload.txn_id) == TxnIdW &&
+                   $bits(lookup.req_payload.set) == SetIndexW &&
+                   $bits(lookup.req_payload.tag) == TagW &&
+                   $bits(lookup.req_payload.word) == WordIndexW &&
+                   $bits(lookup.rsp_payload.hit_way) == WayIndexW &&
+                   $bits(lookup.rsp_payload.rdata) == XLen &&
+                   $bits(victim.req_payload.way) == WayIndexW &&
+                   $bits(victim.rsp_payload.line) == LineBits &&
                    $bits(word_write.payload.data) == XLen &&
-                   $bits(line_install.payload.data) == LineBits,
+                   $bits(line_install.payload.data) == LineBits &&
+                   $bits(maintenance.line_payload.block_addr) == BlockAddrW &&
+                   $bits(maintenance.line_payload.line) == LineBits,
                "Cache array geometry must match every connected interface.")
   `ASSERT(CacheArrayLookupResponseFixedLatency,
-          lookup_rsp.valid == $past(lookup_fire, LookupLatency),
+          lookup.rsp_valid == $past(lookup_fire, LookupLatency),
           clk_i, !rst_ni,
           "Every accepted lookup must return after exactly LookupLatency cycles.")
   `ASSERT(CacheArrayOperationsExclusive,
           $onehot0({lookup_fire, victim_fire, word_write_fire,
-                    line_install_fire}),
+                    line_install_fire, maintenance_read_fire,
+                    maintenance_invalidate_step}),
           clk_i, !rst_ni,
           "Lookup, victim read, word write, and line install operations must be exclusive.")
   `ASSERT(CacheArrayWriteRequestsExclusive,
@@ -360,13 +509,13 @@ module cache_array
           clk_i, !rst_ni,
           "Word write and line install requests must be exclusive.")
   `ASSERT(CacheArrayLookupRequestStable,
-          lookup_req.valid && !lookup_req.ready |=>
-              $stable({lookup_req.valid, lookup_req.payload}),
+          lookup.req_valid && !lookup.req_ready |=>
+              $stable({lookup.req_valid, lookup.req_payload}),
           clk_i, !rst_ni,
           "Lookup request payload must remain stable while backpressured.")
   `ASSERT(CacheArrayVictimRequestStable,
-          victim_req.valid && !victim_req.ready |=>
-              $stable({victim_req.valid, victim_req.payload}),
+          victim.req_valid && !victim.req_ready |=>
+              $stable({victim.req_valid, victim.req_payload}),
           clk_i, !rst_ni,
           "Victim request payload must remain stable while backpressured.")
   `ASSERT(CacheArrayWordWriteStable,
@@ -380,10 +529,34 @@ module cache_array
           clk_i, !rst_ni,
           "Line install payload must remain stable while backpressured.")
   `ASSERT(CacheArrayVictimResponseStable,
-          victim_rsp.valid && !victim_rsp.ready |=>
-              $stable({victim_rsp.valid, victim_rsp.payload}),
+          victim.rsp_valid && !victim.rsp_ready |=>
+              $stable({victim.rsp_valid, victim.rsp_payload}),
           clk_i, !rst_ni,
           "Victim line must remain stable while its response is backpressured.")
+  `ASSERT(CacheArrayMaintenanceRequestStable,
+          maintenance.req_valid && !maintenance.req_ready |=>
+              $stable({maintenance.req_valid, maintenance.req_payload}),
+          clk_i, !rst_ni,
+          "A maintenance request must remain stable while backpressured.")
+  `ASSERT(CacheArrayMaintenanceLineStable,
+          maintenance.line_valid && !maintenance.line_ready |=>
+              $stable({maintenance.line_valid, maintenance.line_payload}),
+          clk_i, !rst_ni,
+          "A dirty maintenance line must remain stable until acknowledged.")
+  `ASSERT(CacheArrayMaintenanceDoneStable,
+          maintenance.done_valid && !maintenance.done_ready |=> maintenance.done_valid,
+          clk_i, !rst_ni,
+          "Maintenance completion must remain asserted while backpressured.")
+  `ASSERT(CacheArrayMaintenanceLineSuccessHandshake,
+          maintenance.line_success |->
+              (maintenance.line_valid && maintenance.line_ready),
+          clk_i, !rst_ni,
+          "A maintenance line may commit only on a successful line handshake.")
+  `ASSERT(CacheArrayMaintenanceLineIsCleanOperation,
+          maintenance.line_valid |->
+              (maintenance_op_q == CACHE_MAINTENANCE_CLEAN_ALL),
+          clk_i, !rst_ni,
+          "Invalidate must never emit a dirty-line writeback.")
   `ASSERT(CacheArrayLookupHitUnique,
           lookup_base_valid_q |-> $onehot0(lookup_hit_vector),
           clk_i, !rst_ni,

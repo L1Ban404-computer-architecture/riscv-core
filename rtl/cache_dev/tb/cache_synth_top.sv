@@ -26,6 +26,7 @@ module cache_synth_top
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth)
   ) core_bus ();
+  cache_maintenance_if maintenance ();
   axi4_if #(
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth),
@@ -36,6 +37,9 @@ module cache_synth_top
   assign core_bus.req_payload.size = riscv_bus_pkg::CORE_BUS_SIZE_WORD;
   assign core_bus.req_valid = 1'b0;
   assign core_bus.rsp_ready = 1'b0;
+  assign maintenance.req_payload.op = cache_pkg::CACHE_MAINTENANCE_CLEAN_ALL;
+  assign maintenance.req_valid = 1'b0;
+  assign maintenance.rsp_ready = 1'b0;
 
   assign axi.awready = 1'b0;
   assign axi.wready = 1'b0;
@@ -57,11 +61,13 @@ module cache_synth_top
     .clk_i,
     .rst_ni,
     .core_bus,
+    .maintenance,
     .axi
   );
 
   assign activity_o =
-      ^{core_bus.req_ready, core_bus.rsp_payload, core_bus.rsp_valid, axi.awvalid, axi.aw_payload,
-        axi.wvalid, axi.w_payload, axi.bready, axi.arvalid, axi.ar_payload, axi.rready};
+      ^{core_bus.req_ready, core_bus.rsp_payload, core_bus.rsp_valid, maintenance.req_ready,
+        maintenance.rsp_valid, maintenance.rsp_payload, axi.awvalid, axi.aw_payload, axi.wvalid,
+        axi.w_payload, axi.bready, axi.arvalid, axi.ar_payload, axi.rready};
 
 endmodule

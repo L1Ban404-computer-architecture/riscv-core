@@ -14,7 +14,8 @@ cache 实现 write-back、write-allocate、严格有序 CoreBus 响应和单个�
 当前 SoC 仍使用 `rtl/cache/` 中的占位模块；cache_dev 尚未接入不支持多拍 burst 的
 `cache_axi4_mux`，也不改变公开 SoC 接口。
 
-v1 不实现 hit-under-miss、多 MSHR、cache maintenance、I/D 一致性和 `FENCE.I`。
+v1 不实现 hit-under-miss、多 MSHR、I/D 一致性和 CPU `FENCE.I` 接线；`cache_dev`
+已经提供独立的 clean-all/invalidate-all maintenance 机制，供后续集成使用。
 所有输入地址均视为可缓存，MMIO 必须在 cache 外部完成地址旁路。
 
 ## 顶层参数和地址
@@ -71,7 +72,7 @@ cache_if.sv                 参数化 cache 内部语义 interface
 `WayCount` 或 `MaxOutstanding` 的类型和函数仍在对应参数作用域中定义。
 
 CoreBus 请求和响应应整体传递：请求字段从 `core_bus.req_payload` 读取，响应字段从
-`core_bus.rsp_payload` 读取；AXI mux 和 refill engine 对 AW/W/B/AR/R 分别整体传递
+`core_bus.rsp_payload` 读取；AXI mux 和 line AXI engine 对 AW/W/B/AR/R 分别整体传递
 对应 channel payload。跨协议的 `mem_size_e` 到 `core_bus_size_e` 转换仍只在 MEM
 边界逐项完成，不通过强制类型转换隐藏编码假设。
 
@@ -80,21 +81,25 @@ CoreBus 请求和响应应整体传递：请求字段从 `core_bus.req_payload` 
 ```text
 cache
   ├── cache_control
+  ├── cache_maintenance
   ├── cache_array
   │     ├── cache_replacement_policy
   │     └── cache_data_bank × way × word bank
-  └── cache_refill_engine
+  └── cache_line_axi_engine
 ```
 
 - `cache` 是稳定的集成边界，负责参数推导、内部协议连线和静态约束。
 - `cache_control` 是控制面，拥有 CoreBus 协议、事务表、有序响应、store context、
   epoch、miss 上下文和 replay 调度。
+- `cache_maintenance` 独立管理 CoreBus 排空、array 全局扫描和 line-write 调度，
+  不进入普通 miss/replay 状态机。
 - `cache_array` 是阵列面，拥有 tag、valid、dirty、data、tag compare、hit data mux、
   victim 选择、Tree-PLRU 和固定延迟 lookup 流水。
 - `cache_data_bank` 是深度为 `SetCount` 的 32 位同步 1R1W 存储体。
 - `cache_replacement_policy` 位于阵列边界内，保存每组 Tree-PLRU 状态。
-- `cache_refill_engine` 是 AXI 搬运面，只执行可选 writeback 和 refill，不理解 CPU
-  store、txn 或替换策略。
+- `cache_line_axi_engine` 是 AXI 搬运面，对上层分别提供 line-read 和 line-write，
+  不理解 CPU store、txn 或替换策略。为节约资源，本轮仍使用单个阻塞式状态机，
+  不并发执行读写事务。
 
 transaction table 没有继续拆分。它需要随机完成回写、epoch replay、同周期 pop/push
 以及有序 head/tail 更新，与调度状态机高度耦合；留在 control 中可以避免再引入一层
@@ -103,12 +108,12 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 ## 内部协议
 
 内部每条协议使用独立 interface 连接 `cache_control`、`cache_array` 和
-`cache_refill_engine`。协议的字段集合固定，字段位宽在 interface 内由 `AddrWidth`、
+`cache_line_axi_engine`。协议的字段集合固定，字段位宽在 interface 内由 `AddrWidth`、
 `DataWidth`、`BlockBytes`、
 `SetCount`、`WayCount` 和 `MaxOutstanding` 等基础配置推导；派生宽度均为不可覆盖的
 `localparam`。模块参数中不注入 payload 类型，package 也不固定实例几何或使用最大预留
 位宽。array 内部的 lookup 流水仍可使用私有 packed struct 保存状态，但该类型不属于模块
-接口。lookup、victim、word write、line install 和 refill 请求/响应
+接口。lookup、victim、word write、line install、line-read 和 line-write
 均各自提供 producer、consumer 和 monitor modport。
 
 | 通道 | payload | 流控 |
@@ -119,8 +124,10 @@ transaction table 没有继续拆分。它需要随机完成回写、epoch repla
 | victim response | 完整 line | ready/valid |
 | word write | `set, way, word, data` | ready/valid |
 | line install | `set, way, line, tag, dirty` | ready/valid；提交时同步更新 Tree-PLRU |
-| refill request | refill 地址、可选 writeback 描述和完整 line | ready/valid |
-| refill response | 完整 refill line 和 error | ready/valid |
+| maintenance request/response | clean-all 或 invalidate-all；完成 error | 双向 ready/valid |
+| array maintenance | 扫描请求、dirty line 流和独立 done | ready/valid |
+| line-read | 请求为 block address；响应为完整 line 和 error | 双向 ready/valid |
+| line-write | 请求为 block address 和完整 line；响应为 error | 双向 ready/valid |
 
 `valid` 和 `ready` 不属于 payload。producer 不以 consumer 的 `ready` 组合生成
 `valid`，发生背压时保持 payload 稳定。CoreBus `req_ready` 也不依赖 `req_valid`；
@@ -161,6 +168,22 @@ merged_word = (old_word & ~byte_mask) | (wdata & byte_mask)
 lookup、victim read、word write 和 line install 全局互斥，不依赖 RAM 的
 read-first/write-first 行为。
 data 和 tag payload 不复位，复位只清除 valid、dirty 和控制状态。
+
+### Cache maintenance
+
+顶层 maintenance 请求使用单一枚举区分 clean-all 与 invalidate-all，因而不存在两个
+控制信号同时有效的非法组合。接口只允许一笔请求在途：请求可在 cache 忙时立即接收，
+并从请求 valid 出现的同周期开始停止新的 CoreBus 准入；已有事务继续执行和返回，直到
+事务表完全为空。维护响应完成握手前保持 quiesce，不恢复普通请求。
+
+array 的 clean 按 set、way 升序检查元数据，只为 `valid && dirty` 的条目读取完整
+line。脏行响应在 AXI 写回完成前保持稳定；B 成功后握手并清 dirty，B 失败时握手退出
+但保留失败行 dirty。独立 done 通道覆盖没有脏行的空扫描。此前成功的行保持 clean，
+失败行和未扫描行可由下一次 clean 安全重试。只读实例把 clean 作为成功空操作。
+
+invalidate 每周期清除一个 set 的全部 valid 和 dirty，不读取 data、不写回内存，也不
+修改 PLRU。它明确允许丢弃 dirty 数据；需要保留数据时，调用方必须先 clean、再
+invalidate。
 
 ### Lookup pipeline
 
@@ -242,45 +265,48 @@ RUN
 不生成 PLRU 状态，其他二次幂路数每组保存 `WayCount-1` 位。PLRU 只在有效 load
 hit、已提交 store hit 和成功 install 时更新。
 
-dirty victim 通过 array 的整 line 响应直接进入 refill engine 请求；若 refill engine
+dirty victim 通过 array 的整 line 响应直接进入 line-write 请求；若 AXI engine
 反压，array 保持该响应，不在 control 中复制另一份 line buffer。clean 或 invalid
 victim 跳过此读取。
 
-refill 成功时：
+line-read 成功时：
 
 - load miss 直接安装 clean line，并从 refill line 选择目标 word 完成 owner；
 - store miss 先进行 byte merge，再安装 dirty line 并完成 owner；
 - tag、data、valid、dirty 和 Tree-PLRU 在同一个 install 提交沿更新；
 - 年轻事务从保存的队列项按原顺序重新发射。
 
-refill 和 lookup 从不并发，因此不存在部分安装、同地址旁路或不确定 RAM 冲突。
+line-read/install 和 lookup 从不并发，因此不存在部分安装、同地址旁路或不确定 RAM 冲突。
 
-## AXI writeback/refill
+## AXI line-read/line-write
 
-control 与 refill engine 之间一次只允许一个复合请求：
+control 与 AXI engine 之间使用独立 line-read 和 line-write 事务；maintenance 只产生
+line-write。接口拆分后不再用 valid bit 在一个 payload 中编码读写组合：
 
 ```text
-refill_block_addr
-writeback_valid
-writeback_block_addr
-writeback_line_data
+line-read : block_addr                  -> line, error
+line-write: block_addr, line_data       -> error
 ```
 
-refill engine 锁存请求并复用一个 line buffer 和 beat counter：
+为节约资源，`cache_line_axi_engine` 内部仍只包含一个 line buffer、一个 beat counter
+和一个阻塞式 FSM。空闲时一次只接收一笔 read 或 write，执行路径分别为：
 
 ```text
-optional AW -> W beats -> B -> AR -> R beats -> response
+line-write: AW -> W beats -> B -> write response
+line-read : AR -> R beats -> read response
 ```
 
 - 地址按 line 对齐；
 - `AxLEN=LineBeats-1`、`AxSIZE=2`、`AxBURST=INCR`；
-- dirty miss 在 writeback 成功后才发出 refill AR；
-- refill 逐 beat 覆盖原 writeback buffer；
-- 最终响应包含完整 refill line 和 error。
+- dirty miss 由 control 显式执行 line-write，并在 B 成功后才发起 line-read；
+- maintenance 只连接 line-write 路径，绝不因 clean 发出 AR；
+- control 是当前唯一的 line-read 请求方，因此读路径无需顶层仲裁；
+- control 与 maintenance 的 line-write 在顶层仲裁，并在请求握手时锁存响应 owner；
+- 读写通道虽然分离，但当前不做 AXI 读写并发，以保持错误语义简单并避免复制资源。
 
-BID/BRESP 错误会终止 miss 并跳过 refill。RID/RRESP、beat 数或 RLAST 错误会完成
-错误响应，但不会安装部分 line。任何失败都保留原 victim；即使 writeback 已经成功
-而 refill 失败，原 dirty line 仍可安全重试。
+BID/BRESP 错误会终止 miss 并跳过 line-read。RID/RRESP、beat 数或 RLAST 错误会完成
+错误响应，但不会安装部分 line。任何失败都保留原 victim；即使 line-write 已经成功
+而 line-read 失败，原 dirty line 仍可安全重试。
 
 `ReadOnly=1` 通过 generate 移除 dirty array、store context 和 writeback 请求来源，
 AXI AW/W/B 输出保持为零并由 assertion 保护。
@@ -309,7 +335,8 @@ make cache-dev-test
 ```
 
 测试覆盖 cold miss、hit、连续 load、CoreBus 背压、byte/half/word store、store
-miss、dirty writeback、invalid 优先、Tree-PLRU、年轻 lookup replay、AXI 通道背压、
+miss、dirty writeback、clean/invalidate、维护排空和响应反压、maintenance B 错误
+重试、invalid 优先、Tree-PLRU、年轻 lookup replay、AXI 通道背压、
 writeback/refill 错误、只读实例、direct-mapped 和 4-way 配置。随机序列可通过
 `+seed=<value>` 复现。`cache-dev-test` 还运行 `BlockBytes=4`、`SetCount=1`、
 `WayCount=1`、`MaxOutstanding=1` 的最小边界自检，以及 `LookupLatency=2` 配置。

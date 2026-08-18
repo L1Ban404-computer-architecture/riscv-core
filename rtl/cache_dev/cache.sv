@@ -3,8 +3,8 @@
 
 // 参数化通用 Cache 顶层。
 //
-// 连接顺序控制面、组相联阵列和 AXI4 写回/回填引擎，对外提供稳定的
-// CoreBus 从接口与 AXI4 主接口。
+// 连接顺序控制面、组相联阵列、全局维护控制器和缓存行 AXI4 搬运引擎，对外提供
+// CoreBus 从接口、cache maintenance 接口与 AXI4 主接口。
 // 容量几何均为二次幂；缓存行必须包含整数个 AXI beat；未完成事务容量必须
 // 覆盖查询流水延迟；只读配置禁止接收 store 或发起写回。
 `include "common/assertions.svh"
@@ -43,6 +43,7 @@ module cache
 
   // CoreBus 与 AXI4
   core_bus_if.slave core_bus,
+  cache_maintenance_if.handler maintenance,
   axi4_if.master axi
 );
 
@@ -50,46 +51,57 @@ module cache
   // 内部语义接口 //
   //////////////////
 
-  cache_lookup_req_if #(
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .BlockBytes(BlockBytes),
-    .SetCount(SetCount),
-    .MaxOutstanding(MaxOutstanding)
-  ) lookup_req ();
-  cache_lookup_rsp_if #(
+  array_lookup_if #(
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth),
     .BlockBytes(BlockBytes),
     .SetCount(SetCount),
     .WayCount(WayCount),
     .MaxOutstanding(MaxOutstanding)
-  ) lookup_rsp ();
-  cache_victim_req_if #(
+  ) lookup ();
+  array_victim_if #(
     .SetCount(SetCount),
-    .WayCount(WayCount)
-  ) victim_req ();
-  cache_victim_rsp_if #(.BlockBytes(BlockBytes)) victim_rsp ();
-  cache_word_write_if #(
+    .WayCount(WayCount),
+    .BlockBytes(BlockBytes)
+  ) victim ();
+  array_word_write_if #(
     .DataWidth(DataWidth),
     .BlockBytes(BlockBytes),
     .SetCount(SetCount),
     .WayCount(WayCount)
   ) word_write ();
-  cache_line_install_if #(
+  array_line_install_if #(
     .AddrWidth(AddrWidth),
     .BlockBytes(BlockBytes),
     .SetCount(SetCount),
     .WayCount(WayCount)
   ) line_install ();
-  cache_refill_req_if #(
+  cache_array_maintenance_if #(
     .AddrWidth(AddrWidth),
     .BlockBytes(BlockBytes)
-  ) refill_req ();
-  cache_refill_rsp_if #(.BlockBytes(BlockBytes)) refill_rsp ();
+  ) array_maintenance ();
+  axi_line_read_if #(
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) line_read ();
+  axi_line_write_if #(
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) control_line_write ();
+  axi_line_write_if #(
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) maintenance_line_write ();
+  axi_line_write_if #(
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) engine_line_write ();
+
+  logic quiesce_request;
+  logic quiesce_idle;
 
   ////////////////////////////
-  // 控制面、阵列与回填引擎 //
+  // 控制面、阵列与 AXI 引擎 //
   ////////////////////////////
 
   cache_control #(
@@ -102,14 +114,14 @@ module cache
     .clk_i,
     .rst_ni,
     .core_bus,
-    .lookup_req,
-    .lookup_rsp,
-    .victim_req,
-    .victim_rsp,
+    .quiesce_request,
+    .quiesce_idle,
+    .lookup,
+    .victim,
     .word_write,
     .line_install,
-    .refill_req,
-    .refill_rsp
+    .line_read,
+    .line_write(control_line_write)
   );
 
   cache_array #(
@@ -122,27 +134,50 @@ module cache
   ) u_cache_array (
     .clk_i,
     .rst_ni,
-    .lookup_req,
-    .lookup_rsp,
-    .victim_req,
-    .victim_rsp,
+    .lookup,
+    .victim,
     .word_write,
-    .line_install
+    .line_install,
+    .maintenance(array_maintenance)
   );
 
-  cache_refill_engine #(
+  cache_maintenance #(
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) u_cache_maintenance (
+    .clk_i,
+    .rst_ni,
+    .maintenance,
+    .quiesce_request,
+    .quiesce_idle,
+    .array_maintenance,
+    .line_write(maintenance_line_write)
+  );
+
+  cache_line_axi_engine #(
     .ReadOnly(ReadOnly),
     .BlockBytes(BlockBytes),
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth),
     .IdWidth(IdWidth),
     .AxiId(AxiId)
-  ) u_cache_refill_engine (
+  ) u_cache_line_axi_engine (
     .clk_i,
     .rst_ni,
-    .refill_req,
-    .refill_rsp,
+    .line_read,
+    .line_write(engine_line_write),
     .axi
+  );
+
+  cache_line_write_arbiter #(
+    .AddrWidth(AddrWidth),
+    .BlockBytes(BlockBytes)
+  ) u_cache_line_write_arbiter (
+    .clk_i,
+    .rst_ni,
+    .control_line_write,
+    .maintenance_line_write,
+    .line_write(engine_line_write)
   );
 
   ////////////////////

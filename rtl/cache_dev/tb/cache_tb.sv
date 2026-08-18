@@ -25,16 +25,19 @@ module cache_tb
 
   localparam int unsigned MemoryBytes = 64 * 1024;
   localparam int unsigned ScoreboardDepth = 2048;
+  localparam int unsigned CacheLineCount = SetCount * WayCount;
 
   logic clk_i;
   logic rst_ni;
   core_bus_if core_bus ();
+  cache_maintenance_if maintenance ();
   axi4_if axi ();
 
   logic [7:0] reference_memory[MemoryBytes];
 
   logic random_backpressure;
   logic force_core_stall;
+  logic force_maintenance_stall;
   logic inject_b_error;
   logic inject_r_error;
   logic [31:0] lfsr_q;
@@ -69,6 +72,7 @@ module cache_tb
     .clk_i,
     .rst_ni,
     .core_bus,
+    .maintenance,
     .axi
   );
 
@@ -124,6 +128,7 @@ module cache_tb
 
   assign core_bus.rsp_ready = core_rsp_ready;
   assign core_rsp_ready = rst_ni && !force_core_stall && (!random_backpressure || lfsr_q[8]);
+  assign maintenance.rsp_ready = rst_ni && !force_maintenance_stall;
 
   ////////////////////////////
   // 参考存储与地址辅助函数 //
@@ -214,6 +219,52 @@ module cache_tb
     issue_request(address, 1'b1, size, aligned_data, strobe, '0, 1'b0);
   endtask
 
+  task automatic set_reference_word(input word_t address, input word_t data);
+    word_t aligned_address;
+
+    aligned_address = aligned_word_address(address);
+    for (int unsigned lane = 0; lane < StrbW; lane++) begin
+      reference_memory[int'(aligned_address)+lane] = data[lane*ByteW+:ByteW];
+    end
+  endtask
+
+  task automatic start_maintenance(input cache_maintenance_op_e operation);
+    int unsigned timeout;
+
+    maintenance.req_payload.op = operation;
+    maintenance.req_valid = 1'b1;
+    timeout = 0;
+    do begin
+      @(posedge clk_i);
+      timeout++;
+      if (timeout > 2000) $fatal(1, "Cache maintenance request timed out.");
+    end while (!maintenance.req_ready);
+    @(negedge clk_i);
+    maintenance.req_valid = 1'b0;
+  endtask
+
+  task automatic wait_maintenance_response(input logic expected_error);
+    int unsigned timeout;
+
+    timeout = 0;
+    while (!maintenance.rsp_valid) begin
+      @(posedge clk_i);
+      timeout++;
+      if (timeout > 20000) $fatal(1, "Cache maintenance response timed out.");
+    end
+    if (maintenance.rsp_payload.error !== expected_error)
+      $fatal(1, "Cache maintenance error mismatch: expected %0d, got %0d.", expected_error,
+             maintenance.rsp_payload.error);
+    @(posedge clk_i);
+    @(negedge clk_i);
+  endtask
+
+  task automatic issue_maintenance(input cache_maintenance_op_e operation,
+                                   input logic expected_error = 1'b0);
+    start_maintenance(operation);
+    wait_maintenance_response(expected_error);
+  endtask
+
   task automatic wait_for_responses;
     int unsigned timeout;
 
@@ -254,7 +305,9 @@ module cache_tb
     if (rst_ni && !scoreboard_empty) $fatal(1, "Cannot reset with expected responses outstanding.");
     rst_ni = 1'b0;
     core_bus.req_valid = 1'b0;
+    maintenance.req_valid = 1'b0;
     force_core_stall = 1'b0;
+    force_maintenance_stall = 1'b0;
     repeat (3) @(posedge clk_i);
     @(negedge clk_i);
     rst_ni = 1'b1;
@@ -410,6 +463,209 @@ module cache_tb
     wait_for_responses();
   endtask
 
+  task automatic run_maintenance_basic_tests;
+    word_t base;
+    word_t second;
+    word_t discard_address;
+    word_t discarded_old_data;
+    int unsigned dirty_line_count;
+    int unsigned aw_before;
+    int unsigned ar_before;
+
+    reset_cache();
+    aw_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+    if (aw_count != aw_before) $fatal(1, "Clean of an empty cache issued an AXI write.");
+
+    base = 32'h0000_7000;
+    second = (SetCount > 1) ? base + word_t'(BlockBytes) : same_set_address(base, 1);
+    dirty_line_count = (CacheLineCount > 1) ? 2 : 1;
+    issue_store(base, CORE_BUS_SIZE_WORD, 32'h1357_9bdf);
+    if (dirty_line_count > 1)
+      issue_store(second, CORE_BUS_SIZE_WORD, 32'h2468_ace0);
+    wait_for_responses();
+
+    aw_before = aw_count;
+    ar_before = ar_count;
+    random_backpressure = 1'b1;
+    issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+    random_backpressure = 1'b0;
+    if (aw_count != aw_before + dirty_line_count)
+      $fatal(1, "Clean writeback count mismatch: expected %0d new writes, got %0d.",
+             dirty_line_count, aw_count - aw_before);
+    if (ar_count != ar_before) $fatal(1, "Writeback-only clean issued an AXI read.");
+    check_backing_word(base);
+    if (dirty_line_count > 1) check_backing_word(second);
+
+    aw_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+    if (aw_count != aw_before) $fatal(1, "A second clean rewrote already clean lines.");
+
+    ar_before = ar_count;
+    issue_load(base);
+    if (dirty_line_count > 1) issue_load(second);
+    wait_for_responses();
+    if (ar_count != ar_before) $fatal(1, "Clean unexpectedly invalidated cache lines.");
+
+    aw_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_INVALIDATE_ALL);
+    if (aw_count != aw_before) $fatal(1, "Invalidate unexpectedly wrote back cache lines.");
+    ar_before = ar_count;
+    issue_load(base);
+    if (dirty_line_count > 1) issue_load(second);
+    wait_for_responses();
+    if (ar_count != ar_before + dirty_line_count)
+      $fatal(1, "Invalidated lines did not miss on their next access.");
+
+    // invalidate 明确允许丢弃 dirty；恢复参考模型到原 backing value 后检查重新读取。
+    reset_cache();
+    discard_address = 32'h0000_7800;
+    discarded_old_data = reference_word(discard_address);
+    issue_store(discard_address, CORE_BUS_SIZE_WORD, 32'hdead_beef);
+    wait_for_responses();
+    aw_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_INVALIDATE_ALL);
+    if (aw_count != aw_before) $fatal(1, "Dirty invalidate emitted an AXI writeback.");
+    set_reference_word(discard_address, discarded_old_data);
+    ar_before = ar_count;
+    issue_load(discard_address);
+    wait_for_responses();
+    if (ar_count != ar_before + 1) $fatal(1, "Dirty invalidation did not discard the cache line.");
+  endtask
+
+  task automatic run_maintenance_error_test;
+    word_t base;
+    word_t second;
+    word_t third;
+    int unsigned dirty_line_count;
+    int unsigned aw_before;
+    int unsigned retry_before;
+
+    reset_cache();
+    base = 32'h0000_7a00;
+    second = (SetCount > 1) ? base + word_t'(BlockBytes) : same_set_address(base, 1);
+    third = (SetCount > 1) ? base + word_t'(2 * BlockBytes) : same_set_address(base, 2);
+    dirty_line_count = (CacheLineCount > 2) ? 3 : ((CacheLineCount > 1) ? 2 : 1);
+    issue_store(base, CORE_BUS_SIZE_WORD, 32'h0bad_f00d);
+    if (dirty_line_count > 1)
+      issue_store(second, CORE_BUS_SIZE_WORD, 32'h55aa_33cc);
+    if (dirty_line_count > 2)
+      issue_store(third, CORE_BUS_SIZE_WORD, 32'h1234_5678);
+    wait_for_responses();
+
+    aw_before = aw_count;
+    if (dirty_line_count > 1) begin
+      fork
+        begin
+          while (aw_count < aw_before + 1) @(posedge clk_i);
+          @(negedge clk_i);
+          inject_b_error = 1'b1;
+          while (aw_count < aw_before + 2) @(posedge clk_i);
+          @(negedge clk_i);
+          inject_b_error = 1'b0;
+        end
+        begin
+          issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL, 1'b1);
+        end
+      join
+      if (aw_count != aw_before + 2)
+        $fatal(1, "Clean did not stop at the injected second-line writeback error.");
+    end else begin
+      inject_b_error = 1'b1;
+      issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL, 1'b1);
+      inject_b_error = 1'b0;
+      if (aw_count != aw_before + 1)
+        $fatal(1, "Single-line clean did not report its writeback error.");
+    end
+
+    retry_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+    if (aw_count != retry_before + ((dirty_line_count > 1) ? dirty_line_count - 1 : 1))
+      $fatal(1, "Clean retry did not preserve the failed and unscanned dirty lines.");
+    retry_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+    if (aw_count != retry_before) $fatal(1, "Successful retry left a dirty cache line behind.");
+  endtask
+
+  task automatic run_maintenance_ordering_test;
+    word_t base;
+    int unsigned timeout;
+
+    reset_cache();
+    base = 32'h0000_7c00;
+    force_core_stall = 1'b1;
+    issue_load(base);
+    start_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+
+    timeout = 0;
+    while (!core_bus.rsp_valid) begin
+      @(posedge clk_i);
+      timeout++;
+      if (timeout > 5000) $fatal(1, "Expected pre-maintenance CoreBus response did not arrive.");
+    end
+    if (maintenance.rsp_valid)
+      $fatal(1, "Maintenance completed before an older CoreBus response was accepted.");
+
+    @(negedge clk_i);
+    core_bus.req_payload.addr = base + word_t'(BlockBytes);
+    core_bus.req_payload.write = 1'b0;
+    core_bus.req_payload.size = CORE_BUS_SIZE_WORD;
+    core_bus.req_payload.wdata = '0;
+    core_bus.req_payload.wstrb = '0;
+    core_bus.req_valid = 1'b1;
+    repeat (5) begin
+      @(posedge clk_i);
+      if (core_bus.req_ready) $fatal(1, "Maintenance failed to block a younger CoreBus request.");
+    end
+    @(negedge clk_i);
+    core_bus.req_valid = 1'b0;
+    force_core_stall = 1'b0;
+    wait_for_responses();
+    wait_maintenance_response(1'b0);
+
+    // 即使维护操作本身已结束，响应被反压时仍保持 quiesce。
+    force_maintenance_stall = 1'b1;
+    start_maintenance(CACHE_MAINTENANCE_INVALIDATE_ALL);
+    timeout = 0;
+    while (!maintenance.rsp_valid) begin
+      @(posedge clk_i);
+      timeout++;
+      if (timeout > 5000) $fatal(1, "Backpressured maintenance response did not arrive.");
+    end
+    @(negedge clk_i);
+    core_bus.req_payload.addr = base;
+    core_bus.req_valid = 1'b1;
+    repeat (5) begin
+      @(posedge clk_i);
+      if (core_bus.req_ready)
+        $fatal(1, "CoreBus resumed before the maintenance response handshake.");
+    end
+    @(negedge clk_i);
+    core_bus.req_valid = 1'b0;
+    force_maintenance_stall = 1'b0;
+    wait_maintenance_response(1'b0);
+  endtask
+
+  task automatic run_readonly_maintenance_tests;
+    word_t base;
+    int unsigned aw_before;
+    int unsigned ar_before;
+
+    reset_cache();
+    aw_before = aw_count;
+    issue_maintenance(CACHE_MAINTENANCE_CLEAN_ALL);
+    if (aw_count != aw_before) $fatal(1, "Read-only clean emitted an AXI write.");
+
+    base = 32'h0000_7e00;
+    issue_load(base);
+    wait_for_responses();
+    issue_maintenance(CACHE_MAINTENANCE_INVALIDATE_ALL);
+    ar_before = ar_count;
+    issue_load(base);
+    wait_for_responses();
+    if (ar_count != ar_before + 1) $fatal(1, "Read-only invalidate did not clear valid state.");
+  endtask
+
   task automatic run_random_test;
     int unsigned operation;
     int unsigned size_choice;
@@ -458,11 +714,14 @@ module cache_tb
     core_bus.req_payload = '0;
     core_bus.req_payload.size = CORE_BUS_SIZE_BYTE;
     core_bus.req_valid = 1'b0;
+    maintenance.req_payload.op = CACHE_MAINTENANCE_CLEAN_ALL;
+    maintenance.req_valid = 1'b0;
     expected_request_rdata = '0;
     expected_request_error = 1'b0;
     backing_inspect_address = '0;
     random_backpressure = 1'b0;
     force_core_stall = 1'b0;
+    force_maintenance_stall = 1'b0;
     inject_b_error = 1'b0;
     inject_r_error = 1'b0;
     random_seed = 32'h2508_0230;
@@ -478,7 +737,12 @@ module cache_tb
       run_store_and_replacement_tests();
       run_refill_error_test();
       if (WayCount > 1) run_writeback_error_test();
+      run_maintenance_basic_tests();
+      run_maintenance_error_test();
+    end else begin
+      run_readonly_maintenance_tests();
     end
+    run_maintenance_ordering_test();
     run_random_test();
 
     if (ReadOnly && (aw_count != 0 || writeback_count != 0))

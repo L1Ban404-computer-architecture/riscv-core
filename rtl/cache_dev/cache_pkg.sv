@@ -15,6 +15,13 @@ package cache_pkg;
   localparam int unsigned CacheDefaultMaxOutstanding = 2;
   // verilator lint_on UNUSEDPARAM
 
+  // Cache 维护操作只描述缓存层语义，不对应具体 ISA 指令。clean 写回所有脏行但保留
+  // 缓存内容，invalidate 无条件丢弃所有缓存行。
+  typedef enum logic {
+    CACHE_MAINTENANCE_CLEAN_ALL,
+    CACHE_MAINTENANCE_INVALIDATE_ALL
+  } cache_maintenance_op_e;
+
   // cache 参数合法性检查使用的二次幂判定；零不属于二次幂。
   function automatic bit cache_is_power_of_two(input int unsigned value);
     return (value > 0) && ((value & (value - 1)) == 0);
