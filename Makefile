@@ -11,14 +11,17 @@ VERILATOR_WARNINGS := -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR \
 CACHE_DEV_BUILD_DIR ?= build/cache_dev_tb
 CACHE_DEV_WARNINGS := $(VERILATOR_WARNINGS) -Wno-TIMESCALEMOD
 BUS_WIDTH_BUILD_DIR ?= build/bus_width_tb
+ICACHE_BUILD_DIR ?= build/icache_tb
+ICACHE_WARNINGS := $(CACHE_DEV_WARNINGS) -Wno-WIDTHTRUNC
 
-# 对外目标分为核心检查、总线参数化检查和 cache 开发回归三组。
-.PHONY: lint verilator yosys-slang-core yosys-slang-cache \
+# 对外目标分为核心检查、总线参数化检查、通用 cache 与超小型 I-cache 回归。
+.PHONY: lint verilator yosys-slang-core yosys-slang-cache yosys-slang-icache \
 	yosys-slang-bus-width yosys-slang check bus-width-lint bus-width-test \
 	cache-dev-lint cache-dev-test \
 	cache-dev-test-default cache-dev-test-readonly \
 	cache-dev-test-minimum cache-dev-test-direct cache-dev-test-four-way \
-cache-dev-test-latency
+	cache-dev-test-latency icache-lint icache-test \
+	icache-test-default icache-test-burst icache-test-fixed icache-test-plru
 
 # 核心 RTL 的静态检查、C++ 模型构建与聚合回归入口。
 lint:
@@ -46,6 +49,49 @@ bus-width-test:
 		-f rtl/bus/bus_width_tb.f
 	$(BUS_WIDTH_BUILD_DIR)/bus_width_tb
 
+# 超小型 I-cache 保持独立编译，避免与 rtl/cache/ 下的旧同名模块同时载入。
+icache-lint:
+	$(VERILATOR) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
+		-f rtl/icache/icache.f
+	$(VERILATOR) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
+		-GBlockBytes=16 -GSetCount=1 -GWayCount=1 \
+		-f rtl/icache/icache.f
+	$(VERILATOR) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
+		-GReplacementPolicy=0 -f rtl/icache/icache.f
+	$(VERILATOR) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
+		-GWayCount=4 -GReplacementPolicy=2 -f rtl/icache/icache.f
+
+icache-test: icache-test-default icache-test-burst icache-test-fixed icache-test-plru
+
+icache-test-default:
+	mkdir -p $(ICACHE_BUILD_DIR)/default
+	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
+		--Mdir $(ICACHE_BUILD_DIR)/default -o icache_tb \
+		-f rtl/icache/icache_tb.f
+	$(ICACHE_BUILD_DIR)/default/icache_tb
+
+icache-test-burst:
+	mkdir -p $(ICACHE_BUILD_DIR)/burst
+	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
+		--Mdir $(ICACHE_BUILD_DIR)/burst -o icache_tb \
+		-GBlockBytes=16 -GSetCount=1 -GWayCount=1 \
+		-f rtl/icache/icache_tb.f
+	$(ICACHE_BUILD_DIR)/burst/icache_tb
+
+icache-test-fixed:
+	mkdir -p $(ICACHE_BUILD_DIR)/fixed
+	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
+		--Mdir $(ICACHE_BUILD_DIR)/fixed -o icache_tb \
+		-GReplacementPolicy=0 -f rtl/icache/icache_tb.f
+	$(ICACHE_BUILD_DIR)/fixed/icache_tb
+
+icache-test-plru:
+	mkdir -p $(ICACHE_BUILD_DIR)/plru
+	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
+		--Mdir $(ICACHE_BUILD_DIR)/plru -o icache_tb \
+		-GWayCount=4 -GReplacementPolicy=2 -f rtl/icache/icache_tb.f
+	$(ICACHE_BUILD_DIR)/plru/icache_tb
+
 # 通过 slang 前端分别展开核心、cache 和总线基础设施，覆盖综合语义检查。
 yosys-slang-core:
 	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/riscv_core.f'
@@ -53,10 +99,13 @@ yosys-slang-core:
 yosys-slang-cache:
 	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/cache_dev.f'
 
+yosys-slang-icache:
+	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/icache.f'
+
 yosys-slang-bus-width:
 	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/bus_width.f'
 
-yosys-slang: yosys-slang-core yosys-slang-cache yosys-slang-bus-width
+yosys-slang: yosys-slang-core yosys-slang-cache yosys-slang-icache yosys-slang-bus-width
 
 # cache lint 覆盖只读、最小几何、四路组相联及多周期查询等关键参数组合。
 cache-dev-lint:
