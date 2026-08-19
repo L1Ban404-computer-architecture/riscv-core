@@ -14,7 +14,8 @@ CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
 interface 形成 Harvard 边界。流水、控制、CSR、调试、I-cache 内部协议及 AXI4 也使用
 带 modport 的参数化 interface。公开顶层 `rtl/top/ysyx_25080230.sv` 在数据侧内接
 CLINT（`mtime` 位于 `0x0200_bff8`），其余数据请求通过 CoreBus AXI4 适配器、取指请求
-通过 I-cache 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的调试 ABI。
+通过 I-cache 和临时 burst splitter 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的
+调试 ABI。
 
 流水级之间统一使用 ready/valid 事务协议。IF 管理取指请求、旧路径响应丢弃和
 IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、分支、CSR 组合读取

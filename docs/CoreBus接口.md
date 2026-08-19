@@ -72,6 +72,8 @@ lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表�
 - `corebus_addr_router` 在数据侧适配器前按地址选择内部设备或外部存储路径。
 - `icache` 处理阻塞式指令查询和 burst refill；`mem_axi4` 将数据侧 CoreBus
   事务转换为单拍 AXI4 事务。
+- `axi4_burst_splitter` 将 I-cache 的一笔 burst refill 临时转换为多个单拍 AXI4
+  读请求，逐拍直通 R 数据，避免外部 endpoint 需要实现突发缓存。
 - `axi4_fixed_priority_arb` 汇聚两路 AXI4 请求，数据侧 AR 固定优先，并按 AXI ID
   直接返回读响应。
 

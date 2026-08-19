@@ -13,8 +13,8 @@
 ## 顶层总线路径
 
 ```text
-CoreBus imem -> icache -> AXI4 fixed-priority arbiter -> external AXI4
-CoreBus dmem -> CLINT or mem_axi4 --^
+CoreBus imem -> icache -> burst splitter -> AXI4 fixed-priority arbiter -> external AXI4
+CoreBus dmem -> CLINT or mem_axi4 -------------------------------^
 ```
 
 数据侧不是 D-cache。非 CLINT 数据访问由 `mem_axi4` 直接转换为一笔 AXI4 读或写，
@@ -23,6 +23,10 @@ CoreBus dmem -> CLINT or mem_axi4 --^
 `axi4_fixed_priority_arb` 在 AR 冲突时固定选择数据侧，AR 被反压时只锁存一位授权来源。
 数据侧独占 AW/W/B 通道；R 通道按固定 ID 直接分发给 I-cache 或数据侧适配器。因此仲裁器
 不设置响应 FIFO、credit 计数或额外的读数据寄存器。
+
+`axi4_burst_splitter` 只为当前外部单拍 endpoint 提供临时兼容：保存一笔突发的起始地址、
+ID、SIZE、LEN 和 beat 计数，逐拍发出 `ARLEN=0` 的 INCR 读请求，R 数据直通并在原突发
+末拍恢复 `RLAST`。它不处理写通道、不保存响应数据，也不允许多个子请求同时在途。
 
 ## 边界与限制
 
