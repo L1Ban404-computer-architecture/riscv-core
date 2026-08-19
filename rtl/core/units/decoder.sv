@@ -32,6 +32,7 @@ module decoder
     decode_o.ctrl.csr_use_imm = 1'b0;
     decode_o.ctrl.csr_addr = '0;
     decode_o.ctrl.serialize = 1'b0;
+    decode_o.ctrl.fence_i = 1'b0;
     decode_o.ctrl.op_a_sel = OP_A_RS1;
     decode_o.ctrl.op_b_sel = OP_B_RS2;
     decode_o.ctrl.branch_op = BR_NONE;
@@ -257,10 +258,18 @@ module decoder
       end
 
       // FENCE 在本核的严格顺序数据通路上按保守全栅栏实现，不需要额外动作。
-      // RV32I 要求忽略 rs1/rd 及保留的 fm/pred/succ 配置；FENCE.I 属于
-      // 单独的 Zifencei 扩展，仍作为非法指令处理。
+      // FENCE.I 属于 Zifencei：其保留的 imm/rs1/rd 字段必须忽略；经串行化
+      // 后由 WB 在精确提交点触发 I-cache 失效和前端重取指。
       OPC_MISC_MEM: begin
-        if (funct3 == 3'b000) decode_o.illegal = 1'b0;
+        unique case (funct3)
+          3'b000: decode_o.illegal = 1'b0;
+          3'b001: begin
+            decode_o.ctrl.serialize = 1'b1;
+            decode_o.ctrl.fence_i = 1'b1;
+            decode_o.illegal = 1'b0;
+          end
+          default: ;
+        endcase
       end
 
       OPC_SYSTEM: begin

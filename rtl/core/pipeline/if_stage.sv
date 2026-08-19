@@ -5,18 +5,21 @@
 
 // 指令取指级。
 //
-// 连续生成取指地址，发起 CoreBus 读请求，将有序响应与请求元数据配对，
-// 并通过返回队列向 ID 提交完整取指事务。
-// 已向 CoreBus 声明 valid 的请求不可撤销；改道时必须清除未发请求和已返回
-// 指令，并准确丢弃仍在总线途中的旧路径响应。
+// 当前 I-cache 最多接受一笔未完成请求，因此 IF 使用单笔 pending 元数据寄存器，
+// 而非可支持多 outstanding 的 PC FIFO。命中请求和响应仍可同拍握手：响应写入
+// 非 fall-through 指令 FIFO 后，于下一周期对 ID 有效。该寄存器边界切断
+// ID/I-cache ready 到请求 valid 的组合回路。
+//
+// 已向 CoreBus 声明 valid 的请求不可撤销。redirect 会立即清空已返回指令、
+// 更新 PC，并将已发出或已展示的旧路径请求标记为 stale；旧响应返回后握手并丢弃。
 module if_stage
   import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 #(
-  // 未完成取指请求数
+  // 保留参数接口兼容性；当前阻塞式 I-cache 要求该值固定为 1。
   parameter int unsigned FetchOutstandingDepth = 1,
-  // 已返回指令队列深度
+  // 已返回指令队列深度。
   parameter int unsigned IfIdQueueDepth = 2
 ) (
   // 全局控制
@@ -39,25 +42,17 @@ module if_stage
   typedef struct packed {
     pc_t pc;
     logic [63:0] instid;
-  } fetch_req_meta_t;
+  } fetch_meta_t;
 
-  localparam int unsigned FetchCountW = (FetchOutstandingDepth > 1) ? $clog2(
-      FetchOutstandingDepth + 1
-  ) : 1;
-  typedef logic [FetchCountW-1:0] fetch_count_t;
-
-  // pc_q 是下一次准备发出的取指 PC。boot_pc_i 在复位释放后的第一个周期
-  // 被采样，后续 PC 只由顺序取指或 redirect 更新。
+  // pc_q 是下一次分配给 u_req_hold 的取指 PC。boot_pc_i 在复位释放后的第一个
+  // 周期被采样；后续 PC 只由顺序分配或 redirect 更新。
   pc_t pc_q;
   pc_t pc_d;
   logic boot_pending_q;
-  logic boot_pending_d;
   logic frontend_flush;
 
-  // 请求 holding register 使用本地 fall_through_register。redirect 只
-  // 阻止新请求进入 holding register；如果请求已经在时钟沿被接收端采样
-  // 为 valid 且尚未 ready，fall-through register 会锁住它，满足
-  // CoreBus valid 不能撤销的同步约束。
+  // 请求 holding register 在空闲时组合旁路，在 I-cache 反压时保持请求和 payload。
+  // request_outstanding_q 仅在请求已经握手、但响应尚未握手的期间置位。
   fetch_req_t fetch_req_data;
   fetch_req_t req_hold_data;
   logic req_hold_ready;
@@ -66,47 +61,33 @@ module if_stage
   logic fetch_req_valid;
   logic fetch_req_fire;
   logic imem_req_fire;
-  logic held_request_stale_q;
-
-  // PC FIFO 记录已经完成请求握手、但尚未收到响应的请求 PC。CoreBus 响应
-  // 严格有序，因此 redirect 只需记录队首有多少响应应被丢弃，无需有限宽度 epoch。
-  // instid 在请求握手时一并写入，保证响应最终生成的 debug payload 与请求对应。
-  fetch_req_meta_t pc_fifo_data;
-  fetch_req_meta_t pc_fifo_input_data;
-  logic pc_fifo_ready;
-  logic pc_fifo_valid;
-  logic pc_fifo_input_valid;
-  fetch_count_t pc_fifo_usage;
-  fetch_count_t pc_fifo_usage_next;
-  fetch_count_t discard_count_q;
-  fetch_count_t discard_count_d;
-  logic pc_fifo_push_stored;
-  logic pc_fifo_pop_stored;
-  logic returned_fetch_stale;
-
-  // fetch FIFO 同样使用 stream_fifo，保存已经配对完成的 {pc, instr, instid}。
-  // 它直接驱动 IF -> ID valid/ready 通道，ID stage 只消费完整 fetch 事务。
-  // 这里关闭满队列同周期 pop/push，切断 ID ready 到 CoreBus 响应 ready 的
-  // 组合路径；队列满载交接时允许产生一个周期的响应背压。
-  if_id_payload_t fetch_fifo_data;
-  if_id_payload_t if_id_payload;
-  logic fetch_fifo_ready;
-  logic fetch_fifo_valid;
-  logic fetch_fifo_ready_i;
-
   logic imem_rsp_fire;
-  logic fetch_fifo_push;
-  logic returned_fetch_kept;
+  logic request_outstanding_q;
+
+  // pending_meta_q 对应唯一一笔已被 I-cache 接收、正在等待响应的请求。
+  // held_request_stale_q 对应已经展示给 CoreBus、但 redirect 后尚未握手的
+  // u_req_hold 请求；pending_stale_q 对应已经握手的旧路径请求。
+  fetch_meta_t pending_meta_q;
+  fetch_meta_t response_meta;
+  logic pending_stale_q;
+  logic held_request_stale_q;
+  logic response_stale;
+
+  // 已完成响应先进入非 fall-through FIFO，再驱动 IF/ID。这样命中路径为一拍，
+  // 同时 rsp_ready 不会由组合 if_id.valid 反向影响请求 valid。
+  if_id_payload_t inst_fifo_data;
+  if_id_payload_t if_id_payload;
+  logic inst_fifo_ready;
+  logic inst_fifo_valid;
+  logic inst_fifo_push;
+  logic inst_fifo_ready_i;
   logic [63:0] instid_q;
 
   ////////////////////////
   // 取指请求与响应配对 //
   ////////////////////////
 
-  // 请求生成端只决定是否把一个新 PC 分配给 holding register。
-  // redirect 不能直接拉低已经锁存的 req_valid，否则会破坏 CoreBus 保持规则。
-  // holding register 可以在 PC FIFO 满时提前保存下一条顺序请求。真正的
-  // CoreBus valid 仍由 pc_fifo_ready 门控，确保请求握手和元数据入队原子发生。
+  // redirect 只禁止向 u_req_hold 分配新 PC，已经锁存并对外展示的请求仍须保持。
   assign frontend_flush = redirect.valid;
   assign fetch_req_valid = !boot_pending_q && !frontend_flush;
   assign fetch_req_data = '{pc: pc_q};
@@ -117,60 +98,34 @@ module if_stage
   assign imem.req_payload.size = CORE_BUS_SIZE_WORD;
   assign imem.req_payload.wdata = '0;
   assign imem.req_payload.wstrb = '0;
-  assign imem.req_valid = req_hold_valid && pc_fifo_ready;
-  // valid_i 不依赖 pc_fifo_ready；stream_fifo 内部再与 ready_o 相与得到的
-  // push 事件与 imem_req_fire 完全一致，从而避免满载交接路径形成组合环。
-  assign pc_fifo_input_valid = req_hold_valid && imem.req_ready;
+  // 不依赖响应 FIFO ready；这是切断 I-cache hit 路径组合环的关键。
+  assign imem.req_valid = req_hold_valid && !request_outstanding_q;
   assign imem_req_fire = imem.req_valid && imem.req_ready;
-  assign pc_fifo_input_data = '{pc: req_hold_data.pc, instid: instid_q};
 
-  // redirect 可以丢弃尚未向 CoreBus 暴露的预存请求；已经拉高 req_valid 的
-  // 请求必须继续保持，直到从设备接受。
+  // 在无 outstanding 的同拍 hit 情形，响应元数据来自当前 holding request；否则
+  // 使用已经锁存的 pending 元数据。instid 在请求握手沿后递增，因此本拍仍是当前 ID。
+  assign response_meta = request_outstanding_q ? pending_meta_q :
+      '{pc: req_hold_data.pc, instid: instid_q};
+  assign response_stale = frontend_flush ||
+      (request_outstanding_q ? pending_stale_q : held_request_stale_q);
+  // stale 响应无需占用 FIFO，即使 FIFO 满也必须能被接收并丢弃。
+  assign imem.rsp_ready = response_stale || inst_fifo_ready;
+  assign imem_rsp_fire = imem.rsp_valid && imem.rsp_ready;
+  assign inst_fifo_push = imem_rsp_fire && !response_stale;
+
+  // redirect 可直接取消尚未向 CoreBus 展示的预存请求；已经 req_valid 的请求不能
+  // 撤销，会由 held_request_stale_q 标记并在后续响应返回时丢弃。
   assign req_hold_flush = frontend_flush && !imem.req_valid;
 
-  // discard_count_q 覆盖 FIFO 中已经接受的旧路径请求；held_request_stale_q
-  // 覆盖 redirect 时已经锁存、但尚未完成请求握手的请求。
-  assign returned_fetch_stale = (discard_count_q != '0) ||
-      ((pc_fifo_usage == '0) && held_request_stale_q);
-  assign returned_fetch_kept = !returned_fetch_stale && !frontend_flush;
-  assign imem.rsp_ready = pc_fifo_valid && (!returned_fetch_kept || fetch_fifo_ready);
-  assign imem_rsp_fire = imem.rsp_valid && imem.rsp_ready;
-  assign fetch_fifo_push = imem_rsp_fire && returned_fetch_kept;
-
-  // 计算时钟沿之后真正存入 FIFO 的请求数量。空 FIFO 的零延迟请求/响应
-  // 会走 fall-through bypass，不形成存储条目。
-  assign pc_fifo_push_stored = imem_req_fire && !((pc_fifo_usage == '0) && imem_rsp_fire);
-  assign pc_fifo_pop_stored = imem_rsp_fire && (pc_fifo_usage != '0);
   always_comb begin
-    pc_fifo_usage_next = pc_fifo_usage;
-    unique case ({
-      pc_fifo_push_stored, pc_fifo_pop_stored
-    })
-      2'b10: pc_fifo_usage_next = pc_fifo_usage + fetch_count_t'(1);
-      2'b01: pc_fifo_usage_next = pc_fifo_usage - fetch_count_t'(1);
-      default: ;
-    endcase
-
-    discard_count_d = discard_count_q;
-    if ((discard_count_q != '0) && pc_fifo_pop_stored)
-      discard_count_d = discard_count_q - fetch_count_t'(1);
-    if (held_request_stale_q && pc_fifo_push_stored)
-      discard_count_d = discard_count_d + fetch_count_t'(1);
-
-    // redirect 使时钟沿后仍在队列中的全部请求失效。重复 redirect 只是重新
-    // 覆盖当前队列用量，不会出现 epoch 翻转回旧值的问题。
-    if (frontend_flush) discard_count_d = pc_fifo_usage_next;
-  end
-
-  always_comb begin
-    fetch_fifo_data = '0;
-    fetch_fifo_data.meta.pc = pc_fifo_data.pc;
-    fetch_fifo_data.meta.instr = instr_t'(imem.rsp_payload.rdata);
-    fetch_fifo_data.meta.instid = pc_fifo_data.instid;
-    fetch_fifo_data.exception.valid = imem.rsp_payload.error;
-    fetch_fifo_data.exception.cause = imem.rsp_payload.error ? EXC_INST_ACCESS_FAULT :
+    inst_fifo_data = '0;
+    inst_fifo_data.meta.pc = response_meta.pc;
+    inst_fifo_data.meta.instr = instr_t'(imem.rsp_payload.rdata);
+    inst_fifo_data.meta.instid = response_meta.instid;
+    inst_fifo_data.exception.valid = imem.rsp_payload.error;
+    inst_fifo_data.exception.cause = imem.rsp_payload.error ? EXC_INST_ACCESS_FAULT :
         exception_cause_e'('0);
-    fetch_fifo_data.exception.tval = imem.rsp_payload.error ? pc_fifo_data.pc : '0;
+    inst_fifo_data.exception.tval = imem.rsp_payload.error ? response_meta.pc : '0;
   end
 
   ////////////////////
@@ -178,15 +133,13 @@ module if_stage
   ////////////////////
 
   assign if_id.payload = if_id_payload;
+  assign if_id.valid = !frontend_flush && inst_fifo_valid;
+  assign inst_fifo_ready_i = !frontend_flush && if_id.ready;
 
-  assign if_id.valid = !frontend_flush && fetch_fifo_valid;
-  assign fetch_fifo_ready_i = !frontend_flush && if_id.ready;
+  ///////////////////////////////////
+  // 请求保持与已返回指令缓冲队列 //
+  ///////////////////////////////////
 
-  ////////////////////////////////////
-  // 请求保持、元数据与返回指令队列 //
-  ////////////////////////////////////
-
-  // 返回队列在前端冲刷周期同步清空，组合输出同时屏蔽旧路径事务。
   fall_through_register #(
     .T(fetch_req_t)
   ) u_req_hold (
@@ -197,53 +150,36 @@ module if_stage
     .ready_o(req_hold_ready),
     .data_i(fetch_req_data),
     .valid_o(req_hold_valid),
-    .ready_i(imem.req_ready && pc_fifo_ready),
+    // outstanding 时不允许本地 holding request 再被 I-cache 接收。
+    .ready_i(imem.req_ready && !request_outstanding_q),
     .data_o(req_hold_data)
-  );
-
-  stream_fifo #(
-    .Depth(FetchOutstandingDepth),
-    .FallThrough(1'b1),
-    .SameCycleRW(1'b1),
-    .T(fetch_req_meta_t)
-  ) u_pc_fifo (
-    .clk_i,
-    .rst_ni,
-    .flush_i(1'b0),
-    .usage_o(pc_fifo_usage),
-    .data_i(pc_fifo_input_data),
-    .valid_i(pc_fifo_input_valid),
-    .ready_o(pc_fifo_ready),
-    .data_o(pc_fifo_data),
-    .valid_o(pc_fifo_valid),
-    .ready_i(imem_rsp_fire)
   );
 
   stream_fifo #(
     .Depth(IfIdQueueDepth),
     .FallThrough(1'b0),
-    .SameCycleRW(1'b0),
+    .SameCycleRW(1'b1),
     .T(if_id_payload_t)
-  ) u_fetch_fifo (
+  ) u_inst_fifo (
     .clk_i,
     .rst_ni,
     .flush_i(frontend_flush),
     .usage_o(  /* 未使用 */),
-    .data_i(fetch_fifo_data),
-    .valid_i(fetch_fifo_push),
-    .ready_o(fetch_fifo_ready),
+    .data_i(inst_fifo_data),
+    .valid_i(inst_fifo_push),
+    .ready_o(inst_fifo_ready),
     .data_o(if_id_payload),
-    .valid_o(fetch_fifo_valid),
-    .ready_i(fetch_fifo_ready_i)
+    .valid_o(inst_fifo_valid),
+    .ready_i(inst_fifo_ready_i)
   );
 
-  /////////////////////////////
-  // PC 与旧路径响应状态更新 //
-  /////////////////////////////
+  //////////////////////////////////////
+  // PC、请求元数据与 stale 状态更新 //
+  //////////////////////////////////////
 
   always_comb begin
-    // redirect 优先于顺序取指。fetch FIFO 由 flush_i 清空；已经发出的
-    // CoreBus 读请求留在 PC FIFO 中，后续返回时按待丢弃响应计数清除旧路径。
+    // redirect 优先于顺序分配；即使旧请求尚待响应，目标 PC 也可立即保存，待旧
+    // 事务排空后由 u_req_hold 重新向 I-cache 发出。
     if (redirect.valid) begin
       pc_d = redirect.payload.target_pc;
     end else if (boot_pending_q) begin
@@ -255,21 +191,37 @@ module if_stage
     end
   end
 
-  // boot_pending_q 只用于复位释放后的第一个正常周期同步采样 boot_pc_i。
-  // reset 后它为 1，下一拍无条件清 0。
-  assign boot_pending_d = 1'b0;
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       pc_q <= '0;
       boot_pending_q <= 1'b1;
-      discard_count_q <= '0;
+      request_outstanding_q <= 1'b0;
+      pending_meta_q <= '0;
+      pending_stale_q <= 1'b0;
       held_request_stale_q <= 1'b0;
       instid_q <= 64'd1;
     end else begin
       pc_q <= pc_d;
-      boot_pending_q <= boot_pending_d;
-      discard_count_q <= discard_count_d;
+      boot_pending_q <= 1'b0;
+
       if (imem_req_fire) instid_q <= instid_q + 64'd1;
+
+      // 只有“请求已握手且响应尚未同拍返回”才形成 pending 事务。I-cache hit 的
+      // 同拍 request/response 不占用该寄存器。
+      if (imem_req_fire && !imem_rsp_fire) begin
+        request_outstanding_q <= 1'b1;
+        pending_meta_q.pc <= req_hold_data.pc;
+        pending_meta_q.instid <= instid_q;
+        pending_stale_q <= frontend_flush || held_request_stale_q;
+      end else if (imem_rsp_fire && request_outstanding_q) begin
+        request_outstanding_q <= 1'b0;
+        pending_stale_q <= 1'b0;
+      end else if (frontend_flush && request_outstanding_q) begin
+        pending_stale_q <= 1'b1;
+      end
+
+      // 已经展示的 request 在 redirect 后必须保留到握手；尚未展示的 request
+      // 则由 req_hold_flush 直接清除。
       if (imem_req_fire) held_request_stale_q <= 1'b0;
       else if (frontend_flush && imem.req_valid) held_request_stale_q <= 1'b1;
       else if (req_hold_flush) held_request_stale_q <= 1'b0;
@@ -300,8 +252,18 @@ module if_stage
     "CoreBus request valid must remain asserted until ready."
   )
 
+  `ASSERT(
+    NoSecondImemRequestWhileOutstanding,
+    request_outstanding_q |-> !imem.req_valid,
+    clk_i,
+    !rst_ni,
+    "IF supports exactly one accepted instruction request awaiting a response."
+  )
+
   `ASSERT(BootPcAligned, boot_pending_q |-> (boot_pc_i[1:0] == 2'b00), clk_i, !rst_ni,
           "boot_pc_i must satisfy RV32I IALIGN=32.")
+  `ASSERT_INIT(FetchOutstandingDepthIsOne, FetchOutstandingDepth == 1,
+               "The connected I-cache supports at most one outstanding request.")
   // verilog_format: on
 
 endmodule

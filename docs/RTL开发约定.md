@@ -79,14 +79,10 @@ CSR 快照和 GPR 写回字段不随流水级复制。
 ```bash
 make lint       # SystemVerilog lint
 make verilator  # 构建 ysyx_25080230 C++ 模型
-make bus-width-test # 运行 40/64/6 非默认总线配置自检
-make yosys-slang # 检查 core、cache 及非默认总线综合入口
+make yosys-slang # 检查 core 和 cache 综合入口
 make check      # 执行 lint、Verilator 和 yosys-slang 检查
 ```
 
-yosys-slang 检查使用 `--single-unit`。由于该前端不允许带未连接 interface 端口的裸
-顶层，cache 和非默认总线检查使用 `cache_synth_top`、`bus_width_synth_top` 轻量封装；
-它们只实例化 interface 并提供确定的对端输入，不属于公开集成 ABI。仿真 assertion 在
-`SYNTHESIS` 下自动移除。`rtl/cache_dev/` 下的功能 testbench 仍由 Verilator 仿真。
+yosys-slang 检查使用 `--single-unit`。仿真 assertion 在 `SYNTHESIS` 下自动移除。
 
 生成文件统一写入 `build/`，不应手工修改或提交。

@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// RV32I/Zicsr 指令字段、执行操作、异常原因及核心公共类型。
+// RV32I/Zicsr/Zifencei 指令字段、执行操作、异常原因及核心公共类型。
 // 流水、调试和性能 payload 类型也由本 package 统一拥有。
 package riscv_core_pkg;
 
@@ -201,6 +201,8 @@ package riscv_core_pkg;
     csr_addr_t csr_addr;
     system_op_e system_op;
     logic serialize;
+    // FENCE.I 需要在精确提交点失效 I-cache 并重取后续指令。
+    logic fence_i;
   } execute_ctrl_payload_t;
 
   // decoder 的组合结果；字段布局直接复用 ID/EX payload 的子结构，避免在 ID
@@ -257,6 +259,7 @@ package riscv_core_pkg;
   // 随指令送往 WB 的串行化和 SYSTEM/CSR 提交控制。
   typedef struct packed {
     logic serialize;
+    logic fence_i;
     system_op_e system_op;
     csr_write_payload_t csr_write;
   } commit_ctrl_payload_t;

@@ -1,7 +1,7 @@
 # riscv-core：RV32I 五级流水线 RTL
 
 本项目以可综合 RTL 子集实现单发射、顺序执行/退休的 RV32I 核心，并包含最小
-M-mode 精确同步异常与 Zicsr 支持。仓库提供 Verilator lint 和模型构建；尚未建立
+M-mode 精确同步异常、Zicsr 与 Zifencei 支持。仓库提供 Verilator lint 和模型构建；尚未建立
 面向具体工艺的综合、STA、CDC/RDC 与门级签核流程。
 
 ```text
@@ -23,7 +23,7 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 
 ## 实现范围
 
-- RV32I 整数、分支跳转、load/store 和 FENCE；
+- RV32I 整数、分支跳转、load/store、FENCE 与 Zifencei FENCE.I；
 - ECALL、EBREAK、MRET 和六条 Zicsr 指令；
 - `mstatus/mtvec/mepc/mcause/mtval` 及精确同步异常；
 - 只读 64 位 CLINT `mtime`，每周期递增；
@@ -31,13 +31,16 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 - 无存储阵列的 I/D cache 占位模块，提供低延迟 CoreBus 到 AXI4 转换；
 - 暂不支持中断、其他特权级、M/C/F/A 扩展、MMU、真实缓存或分支预测。
 
+`riscv_core_impl` 在 FENCE.I 精确退休当拍输出单周期 `icache_invalidate_o`，并从
+`PC+4` 重取指以清除已预取的旧指令。该信号为未来 I-cache 的失效请求；当前公开
+SoC 顶层及占位 I-cache 尚未接入它。
+
 ## 构建
 
 ```bash
 make lint       # Verilator 静态检查（包含 RTL 仿真 assertion）
 make verilator  # 构建 ysyx_25080230 C++ 模型
-make bus-width-test # 40-bit 地址 / 64-bit 数据 / 6-bit AXI ID 自检
-make yosys-slang # 默认核心、cache 和非默认总线 elaboration/synthesis
+make yosys-slang # 默认核心和 cache elaboration/synthesis
 make check      # lint + verilator + yosys-slang
 ```
 

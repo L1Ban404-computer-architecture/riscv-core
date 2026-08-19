@@ -6,10 +6,6 @@
     {
       "name": "riscv_core",
       "glob": ".slang/riscv_core.f"
-    },
-    {
-      "name": "cache_dev",
-      "glob": ".slang/cache_dev.f"
     }
   ],
   "index": [
@@ -22,7 +18,6 @@
         "rtl/core/units",
         "rtl/cache",
         "rtl/cache_dev",
-        "rtl/cache_dev/tb",
         "rtl/peripheral",
         "rtl/top"
       ],

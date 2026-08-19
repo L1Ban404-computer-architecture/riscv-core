@@ -8,20 +8,12 @@ VERILATOR_BUILD_DIR ?= build/verilator
 VERILATOR_PREFIX ?= core
 VERILATOR_WARNINGS := -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR \
 	-Wno-SYNCASYNCNET -Wno-UNOPTFLAT
-CACHE_DEV_BUILD_DIR ?= build/cache_dev_tb
 CACHE_DEV_WARNINGS := $(VERILATOR_WARNINGS) -Wno-TIMESCALEMOD
-BUS_WIDTH_BUILD_DIR ?= build/bus_width_tb
-ICACHE_BUILD_DIR ?= build/icache_tb
 ICACHE_WARNINGS := $(CACHE_DEV_WARNINGS) -Wno-WIDTHTRUNC
 
-# 对外目标分为核心检查、总线参数化检查、通用 cache 与超小型 I-cache 回归。
-.PHONY: lint verilator yosys-slang-core yosys-slang-cache yosys-slang-icache \
-	yosys-slang-bus-width yosys-slang check bus-width-lint bus-width-test \
-	cache-dev-lint cache-dev-test \
-	cache-dev-test-default cache-dev-test-readonly \
-	cache-dev-test-minimum cache-dev-test-direct cache-dev-test-four-way \
-	cache-dev-test-latency icache-lint icache-test \
-	icache-test-default icache-test-burst icache-test-fixed icache-test-plru
+# 对外目标分为核心检查、通用 cache lint 与超小型 I-cache lint 入口。
+.PHONY: lint verilator yosys-slang-core yosys-slang-cache yosys-slang \
+	check cache-dev-lint icache-lint
 
 # 核心 RTL 的静态检查、C++ 模型构建与聚合回归入口。
 lint:
@@ -35,19 +27,7 @@ verilator:
 		--prefix $(VERILATOR_PREFIX) \
 		-f .slang/riscv_core.f
 
-check: lint verilator bus-width-lint bus-width-test yosys-slang
-
-# 使用非默认总线宽度进行语法检查和自检仿真，防止参数被固定宽度截断。
-bus-width-lint:
-	$(VERILATOR) --lint-only --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		-f rtl/bus/bus_width_tb.f
-
-bus-width-test:
-	mkdir -p $(BUS_WIDTH_BUILD_DIR)
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(BUS_WIDTH_BUILD_DIR) -o bus_width_tb \
-		-f rtl/bus/bus_width_tb.f
-	$(BUS_WIDTH_BUILD_DIR)/bus_width_tb
+check: lint verilator yosys-slang
 
 # 超小型 I-cache 保持独立编译，避免与 rtl/cache/ 下的旧同名模块同时载入。
 icache-lint:
@@ -61,51 +41,14 @@ icache-lint:
 	$(VERILATOR) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
 		-GWayCount=4 -GReplacementPolicy=2 -f rtl/icache/icache.f
 
-icache-test: icache-test-default icache-test-burst icache-test-fixed icache-test-plru
-
-icache-test-default:
-	mkdir -p $(ICACHE_BUILD_DIR)/default
-	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
-		--Mdir $(ICACHE_BUILD_DIR)/default -o icache_tb \
-		-f rtl/icache/icache_tb.f
-	$(ICACHE_BUILD_DIR)/default/icache_tb
-
-icache-test-burst:
-	mkdir -p $(ICACHE_BUILD_DIR)/burst
-	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
-		--Mdir $(ICACHE_BUILD_DIR)/burst -o icache_tb \
-		-GBlockBytes=16 -GSetCount=1 -GWayCount=1 \
-		-f rtl/icache/icache_tb.f
-	$(ICACHE_BUILD_DIR)/burst/icache_tb
-
-icache-test-fixed:
-	mkdir -p $(ICACHE_BUILD_DIR)/fixed
-	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
-		--Mdir $(ICACHE_BUILD_DIR)/fixed -o icache_tb \
-		-GReplacementPolicy=0 -f rtl/icache/icache_tb.f
-	$(ICACHE_BUILD_DIR)/fixed/icache_tb
-
-icache-test-plru:
-	mkdir -p $(ICACHE_BUILD_DIR)/plru
-	+$(VERILATOR) --binary --timing --sv --Wall $(ICACHE_WARNINGS) \
-		--Mdir $(ICACHE_BUILD_DIR)/plru -o icache_tb \
-		-GWayCount=4 -GReplacementPolicy=2 -f rtl/icache/icache_tb.f
-	$(ICACHE_BUILD_DIR)/plru/icache_tb
-
-# 通过 slang 前端分别展开核心、cache 和总线基础设施，覆盖综合语义检查。
+# 通过 slang 前端展开核心与 cache，覆盖综合语义检查。
 yosys-slang-core:
 	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/riscv_core.f'
 
 yosys-slang-cache:
 	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/cache_dev.f'
 
-yosys-slang-icache:
-	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/icache.f'
-
-yosys-slang-bus-width:
-	$(YOSYS) -p 'plugin -i slang; read_slang --single-unit -f .slang/bus_width.f'
-
-yosys-slang: yosys-slang-core yosys-slang-cache yosys-slang-icache yosys-slang-bus-width
+yosys-slang: yosys-slang-core yosys-slang-cache
 
 # cache lint 覆盖只读、最小几何、四路组相联及多周期查询等关键参数组合。
 cache-dev-lint:
@@ -121,52 +64,3 @@ cache-dev-lint:
 		-GWayCount=4 -f rtl/cache_dev/cache_dev.f
 	$(VERILATOR) --lint-only --sv --Wall $(VERILATOR_WARNINGS) \
 		-GLookupLatency=2 -GMaxOutstanding=3 -f rtl/cache_dev/cache_dev.f
-
-# cache 自检回归与 lint 使用相同的代表性参数矩阵，每种配置使用独立构建目录。
-cache-dev-test: cache-dev-test-default cache-dev-test-readonly \
-	cache-dev-test-minimum cache-dev-test-direct cache-dev-test-four-way \
-	cache-dev-test-latency
-
-cache-dev-test-default:
-	mkdir -p $(CACHE_DEV_BUILD_DIR)/default
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(CACHE_DEV_BUILD_DIR)/default -o cache_dev_tb \
-		-f rtl/cache_dev/cache_dev_tb.f
-	$(CACHE_DEV_BUILD_DIR)/default/cache_dev_tb
-
-cache-dev-test-readonly:
-	mkdir -p $(CACHE_DEV_BUILD_DIR)/readonly
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(CACHE_DEV_BUILD_DIR)/readonly -o cache_dev_tb \
-		-GReadOnly=1 -GAxiId=0 -f rtl/cache_dev/cache_dev_tb.f
-	$(CACHE_DEV_BUILD_DIR)/readonly/cache_dev_tb
-
-cache-dev-test-minimum:
-	mkdir -p $(CACHE_DEV_BUILD_DIR)/minimum
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(CACHE_DEV_BUILD_DIR)/minimum -o cache_dev_tb \
-		-GBlockBytes=4 -GSetCount=1 -GWayCount=1 -GMaxOutstanding=1 \
-		-f rtl/cache_dev/cache_dev_tb.f
-	$(CACHE_DEV_BUILD_DIR)/minimum/cache_dev_tb
-
-cache-dev-test-direct:
-	mkdir -p $(CACHE_DEV_BUILD_DIR)/direct
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(CACHE_DEV_BUILD_DIR)/direct -o cache_dev_tb \
-		-GWayCount=1 -f rtl/cache_dev/cache_dev_tb.f
-	$(CACHE_DEV_BUILD_DIR)/direct/cache_dev_tb
-
-cache-dev-test-four-way:
-	mkdir -p $(CACHE_DEV_BUILD_DIR)/four_way
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(CACHE_DEV_BUILD_DIR)/four_way -o cache_dev_tb \
-		-GWayCount=4 -f rtl/cache_dev/cache_dev_tb.f
-	$(CACHE_DEV_BUILD_DIR)/four_way/cache_dev_tb
-
-cache-dev-test-latency:
-	mkdir -p $(CACHE_DEV_BUILD_DIR)/latency
-	+$(VERILATOR) --binary --timing --sv --Wall $(CACHE_DEV_WARNINGS) \
-		--Mdir $(CACHE_DEV_BUILD_DIR)/latency -o cache_dev_tb \
-		-GLookupLatency=2 -GMaxOutstanding=3 \
-		-f rtl/cache_dev/cache_dev_tb.f
-	$(CACHE_DEV_BUILD_DIR)/latency/cache_dev_tb

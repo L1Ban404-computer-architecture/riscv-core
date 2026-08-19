@@ -251,6 +251,7 @@ module ex_stage
     // RS/RC 的零源操作数按规范只读，不形成 CSR 写请求。
     commit_ctrl = '0;
     commit_ctrl.serialize = id_ex_payload.ctrl.serialize || executed_exception.valid;
+    commit_ctrl.fence_i = id_ex_payload.ctrl.fence_i && !executed_exception.valid;
     commit_ctrl.system_op = id_ex_payload.ctrl.system_op;
     commit_ctrl.csr_write.valid = (id_ex_payload.ctrl.csr_cmd != CSR_NONE) && csr_write_attempt &&
         !executed_exception.valid;

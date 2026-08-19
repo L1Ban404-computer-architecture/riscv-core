@@ -255,6 +255,7 @@ module ysyx_25080230
     .boot_pc_i(32'h3000_0000),
     .imem(imem_bus),
     .dmem(dmem_bus),
+    .icache_invalidate_o(),
     .debug_retire(retire_debug),
     .performance(performance_debug)
   );

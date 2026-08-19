@@ -21,6 +21,9 @@ module riscv_core_impl
   core_bus_if.master imem,
   core_bus_if.master dmem,
 
+  // 由提交的 FENCE.I 产生的单周期 I-cache 失效请求；本层只导出，不接入 cache。
+  output logic icache_invalidate_o,
+
   // 调试与性能观测
   retire_debug_if.producer debug_retire,
   performance_debug_if.producer performance
@@ -133,6 +136,7 @@ module riscv_core_impl
     .csr_read,
     .redirect(wb_redirect),
     .flush_o(backend_flush),
+    .icache_invalidate_o,
     .wb,
     .debug_retire
   );

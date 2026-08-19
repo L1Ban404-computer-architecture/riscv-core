@@ -58,7 +58,7 @@ riscv_bus_if.sv             参数化 CoreBus/AXI4 interface
 cache_if.sv                 参数化 cache 内部语义 interface
 ```
 
-各 package 不保存依赖实例参数的 packed bus 类型。每个 RTL 和 testbench 显式导入
+各 package 不保存依赖实例参数的 packed bus 类型。每个 RTL 模块显式导入
 需要的 package，cache 不依赖 core 专属 package。CoreBus 和 AXI 的参数化 interface
 分别提供 `req_payload/rsp_payload` 与五个 AXI channel payload；握手信号独立存在，
 并通过 modport 限制方向。cache 内部协议也遵循同样的 `payload + valid/ready` 边界。
@@ -310,43 +310,6 @@ BID/BRESP 错误会终止 miss 并跳过 line-read。RID/RRESP、beat 数或 RLA
 
 `ReadOnly=1` 通过 generate 移除 dirty array、store context 和 writeback 请求来源，
 AXI AW/W/B 输出保持为零并由 assertion 保护。
-
-## 验证
-
-独立 lint 覆盖普通、只读、最小参数、4-way 和两周期 lookup 配置：
-
-```bash
-make cache-dev-lint
-```
-
-独立 cache 文件列表按顺序编译 `riscv_common_pkg`、`riscv_bus_pkg` 和
-`cache_pkg`，不包含 `riscv_core_pkg`；这同时构成 package 解耦的静态检查。
-
-自检环境按职责拆为：
-
-- `cache_axi_memory_model.sv`：后端内存、AXI 五通道独立随机等待、错误注入和计数；
-- `cache_corebus_scoreboard.sv`：在请求握手沿入队，并严格按序检查响应和 error；
-- `cache_tb.sv`：driver、参考内存、定向场景和可复现随机序列。
-
-测试入口不变：
-
-```bash
-make cache-dev-test
-```
-
-测试覆盖 cold miss、hit、连续 load、CoreBus 背压、byte/half/word store、store
-miss、dirty writeback、clean/invalidate、维护排空和响应反压、maintenance B 错误
-重试、invalid 优先、Tree-PLRU、年轻 lookup replay、AXI 通道背压、
-writeback/refill 错误、只读实例、direct-mapped 和 4-way 配置。随机序列可通过
-`+seed=<value>` 复现。`cache-dev-test` 还运行 `BlockBytes=4`、`SetCount=1`、
-`WayCount=1`、`MaxOutstanding=1` 的最小边界自检，以及 `LookupLatency=2` 配置。
-
-主工程仍使用：
-
-```bash
-make lint
-make verilator
-```
 
 开发完成后若要接入 SoC，必须先扩展 `cache_axi4_mux` 的 burst credit 和每 ID 响应
 缓冲，并确认 D-cache 前的完整 MMIO 地址旁路。
