@@ -19,7 +19,7 @@ module icache
   parameter int unsigned DataWidth = 32,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = ICACHE_AXI_ID,
-  parameter int unsigned BlockBytes = 4,
+  parameter int unsigned BlockBytes = 8,
   parameter int unsigned SetCount = 2,
   parameter int unsigned WayCount = 2,
   parameter icache_replacement_policy_e ReplacementPolicy = ICACHE_REPLACEMENT_ROUND_ROBIN,

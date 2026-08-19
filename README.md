@@ -36,6 +36,26 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 `PC+4` 重取指以清除已预取的旧指令。公开 SoC 顶层将该信号连接到 I-cache 的失效请求；
 I-cache 在排空当前事务后清除全部有效位。
 
+仿真专用顶层 `rtl/top/riscv_core_sim.sv` 与 `ysyx_25080230` 并列，直接将核心的
+imem/dmem CoreBus 连接到同文件内的 `mem_sim` 模块，通过 `IsDmem` 参数分别选择
+`dpi_imem_read_sim` 或 `dpi_dmem_access_sim`。具体内存内容和地址映射由仿真环境提供。
+退休调试和性能接口已展开为顶层标量端口。对应的检查和 Verilator 生成入口为
+`make sim-lint`、`make sim-parameter-lint` 与 `make sim-verilator`。
+
+`riscv_core_sim` 提供四个仿真参数：`ImemResponseLatency`、`ImemMaxOutstanding`、
+`DmemResponseLatency` 和 `DmemMaxOutstanding`，默认值分别为 `1、1、1、1`。
+存储器模块内部按请求接受顺序缓存 DPI-C 返回值；响应延迟从请求握手开始计时，响应
+背压不会改变已到期响应的数据。`ResponseLatency=0` 支持空队列旁路，`MaxOutstanding`
+必须大于零。两个 DPI-C 函数均通过输出参数返回访问错误：
+
+```systemverilog
+void dpi_imem_read_sim(addr, rdata, error)
+void dpi_dmem_access_sim(addr, write, wdata, wstrb, rdata, error)
+```
+
+错误信号会随响应进入 `CoreBus.rsp_payload.error`；数据写请求按 `wstrb` 调用 DPI-C，
+写响应的数据固定为零。
+
 ## 构建
 
 ```bash

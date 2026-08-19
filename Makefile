@@ -9,9 +9,10 @@ VERILATOR_PREFIX ?= core
 VERILATOR_WARNINGS := -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR \
 	-Wno-SYNCASYNCNET -Wno-UNOPTFLAT
 ICACHE_WARNINGS := $(VERILATOR_WARNINGS) -Wno-TIMESCALEMOD -Wno-WIDTHTRUNC
+SIM_WARNINGS := $(VERILATOR_WARNINGS) -Wno-UNUSEDPARAM
 
 # 对外目标分为顶层检查和 I-cache 参数化 lint 入口。
-.PHONY: lint verilator yosys-slang-core yosys-slang check icache-lint
+.PHONY: lint verilator sim-lint sim-parameter-lint sim-verilator yosys-slang-core yosys-slang check icache-lint
 
 # 核心 RTL 的静态检查、C++ 模型构建与聚合回归入口。
 lint:
@@ -24,6 +25,24 @@ verilator:
 		--top-module ysyx_25080230 \
 		--prefix $(VERILATOR_PREFIX) \
 		-f .slang/riscv_core.f
+
+# 仿真专用核心顶层。DPI-C 函数由上层仿真环境提供实现。
+sim-lint: sim-parameter-lint
+	$(VERILATOR) --lint-only --sv --Wall $(SIM_WARNINGS) \
+		-f .slang/riscv_core_sim.f
+
+sim-parameter-lint:
+	$(VERILATOR) --lint-only --sv --Wall $(SIM_WARNINGS) \
+		-GImemResponseLatency=0 -GImemMaxOutstanding=2 \
+		-GDmemResponseLatency=3 -GDmemMaxOutstanding=4 \
+		-f .slang/riscv_core_sim.f
+
+sim-verilator:
+	$(VERILATOR) --cc --sv $(VERILATOR_WARNINGS) \
+		--Mdir build/verilator-sim \
+		--top-module riscv_core_sim \
+		--prefix core_sim \
+		-f .slang/riscv_core_sim.f
 
 check: lint verilator yosys-slang
 

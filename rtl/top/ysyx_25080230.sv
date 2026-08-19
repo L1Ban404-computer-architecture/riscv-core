@@ -3,7 +3,7 @@
 
 // ysyx SoC 集成顶层。
 //
-// 连接 RV32 核心、I-cache、AXI4 突发拆分器、CoreBus AXI4 适配器、AXI4 仲裁器和片内 CLINT，
+// 连接 RV32 核心、I-cache、CoreBus AXI4 适配器、AXI4 仲裁器和片内 CLINT，
 // 并将参数化内部接口
 // 适配为评测平台规定的固定引脚。
 // 外部 AXI4 主接口固定为 32 位地址/数据和 4 位 ID；外部从接口当前停用；
@@ -89,7 +89,6 @@ module ysyx_25080230
   core_bus_if clint_bus ();
   core_bus_if axi_dmem_bus ();
   axi4_if if_axi ();
-  axi4_if if_single_axi ();
   axi4_if mem_axi ();
   axi4_if core_axi ();
   logic rst_ni;
@@ -290,13 +289,6 @@ module ysyx_25080230
     .axi(if_axi)
   );
 
-  axi4_burst_splitter u_if_axi_burst_splitter (
-    .clk_i(clock),
-    .rst_ni,
-    .burst_axi(if_axi),
-    .single_axi(if_single_axi)
-  );
-
   mem_axi4 u_mem_axi4 (
     .clk_i(clock),
     .rst_ni,
@@ -307,7 +299,7 @@ module ysyx_25080230
   axi4_fixed_priority_arb u_axi4_fixed_priority_arb (
     .clk_i(clock),
     .rst_ni,
-    .if_axi(if_single_axi),
+    .if_axi,
     .mem_axi,
     .core_axi
   );
