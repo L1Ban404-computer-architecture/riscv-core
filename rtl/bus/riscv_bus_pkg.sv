@@ -13,9 +13,10 @@ package riscv_bus_pkg;
     CORE_BUS_SIZE_DWORD = 2'd3
   } core_bus_size_e;
 
-  // I/D cache 使用固定且互异的 AXI ID，汇聚器据此把读响应送回原请求端。
+  // I-cache 与数据侧 CoreBus 适配器使用固定且互异的 AXI ID，仲裁器据此将
+  // 读响应直接送回请求端。
   localparam int unsigned ICACHE_AXI_ID = 0;
-  localparam int unsigned DCACHE_AXI_ID = 1;
+  localparam int unsigned MEM_AXI_ID = 1;
 
   // 当前 RTL 实际使用的 AXI 响应和 burst 编码。
   localparam logic [1:0] AXI4_RESP_OKAY = 2'b00;

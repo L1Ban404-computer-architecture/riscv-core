@@ -6,9 +6,8 @@
 rtl/top/             公开 SoC 顶层
 rtl/core/pipeline/   五级流水模块
 rtl/core/units/      译码、ALU、CSR 等组合或局部单元
-rtl/cache/           I/D cache 边界与实现
-rtl/cache_dev/       参数化 cache 独立开发区及 cache 域 package
-rtl/bus/             公共总线 package、CoreBus 路由和 AXI4 汇聚
+rtl/icache/          阻塞式 I-cache 及其内部协议
+rtl/bus/             公共总线 package、CoreBus 路由/适配和 AXI4 仲裁
 rtl/peripheral/      核心本地外设
 rtl/common/          ready/valid 基础单元和公共 assertion 宏
 .slang/              SystemVerilog 文件列表
@@ -18,7 +17,7 @@ rtl/common/          ready/valid 基础单元和公共 assertion 宏
 SoC ABI。跨子系统共享的字宽和标量类型由
 `rtl/common/riscv_common_pkg.sv` 唯一定义；`rtl/bus/riscv_bus_pkg.sv` 只拥有
 CoreBus/AXI4 协议枚举和常量，`rtl/core/riscv_core_pkg.sv` 与
-`rtl/cache_dev/cache_pkg.sv` 只聚合各自领域声明。common 声明不通过领域 package
+`rtl/icache/icache_pkg.sv` 只聚合各自领域声明。common 声明不通过领域 package
 间接重导出；为了兼容 yosys-slang，直接使用 `XLen`、`ByteW`、`StrbW`、`word_t`
 或 `byte_en_t` 的模块必须显式导入 `riscv_common_pkg`，package 内部则使用
 `riscv_common_pkg::` 限定名。module header import 可以避免文件级 import 污染
@@ -79,7 +78,7 @@ CSR 快照和 GPR 写回字段不随流水级复制。
 ```bash
 make lint       # SystemVerilog lint
 make verilator  # 构建 ysyx_25080230 C++ 模型
-make yosys-slang # 检查 core 和 cache 综合入口
+make yosys-slang # 检查顶层综合入口
 make check      # 执行 lint、Verilator 和 yosys-slang 检查
 ```
 

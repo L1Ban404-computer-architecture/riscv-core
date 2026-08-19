@@ -16,8 +16,7 @@
         "rtl/core",
         "rtl/core/pipeline",
         "rtl/core/units",
-        "rtl/cache",
-        "rtl/cache_dev",
+        "rtl/icache",
         "rtl/peripheral",
         "rtl/top"
       ],

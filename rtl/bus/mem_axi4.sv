@@ -1,20 +1,19 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 临时数据 Cache 适配器。
+// 单笔在途 CoreBus 到 AXI4 适配器。
 //
-// 将 CoreBus 数据访问直接转换为单拍 AXI4 读写事务。
-// 当前不包含缓存存储且最多保留一笔未完成事务；AW 与 W 可独立握手；
-// 请求完成前必须保持事务上下文，AXI 响应 ID 和单拍结束标志必须匹配。
+// 该模块直接使用尚未完成握手的 CoreBus 请求 payload；除写地址与写数据的
+// 独立握手标志和最小状态机外，不保存请求或响应数据。
 `include "common/assertions.svh"
 
-module dcache
+module mem_axi4
   import riscv_bus_pkg::*;
 #(
   parameter int unsigned AddrWidth = 32,
   parameter int unsigned DataWidth = 32,
   parameter int unsigned IdWidth = 4,
-  parameter int unsigned AxiId = DCACHE_AXI_ID
+  parameter int unsigned AxiId = MEM_AXI_ID
 ) (
   // 全局控制
   input logic clk_i,
@@ -40,6 +39,7 @@ module dcache
   logic w_sent_q;
   logic read_request;
   logic write_request;
+  logic ar_fire;
   logic aw_fire;
   logic w_fire;
   logic write_request_complete;
@@ -48,22 +48,22 @@ module dcache
   logic request_fire;
   logic response_fire;
 
-  assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q && core_bus.req_valid &&
-      !core_bus.req_payload.write;
+  assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q &&
+      core_bus.req_valid && !core_bus.req_payload.write;
   assign write_request = (state_q == StateIdle) && core_bus.req_valid && core_bus.req_payload.write;
 
+  assign ar_fire = read_request && axi.arready;
   assign aw_fire = write_request && !aw_sent_q && axi.awready;
   assign w_fire = write_request && !w_sent_q && axi.wready;
   assign write_request_complete = write_request && (aw_sent_q || aw_fire) && (w_sent_q || w_fire);
 
-  // 完成条件同时观察当前请求，使零延迟 AXI 从设备能够在请求握手当拍返回
-  // CoreBus 响应，不强制额外插入一个周期。
-  assign active_read_response = (state_q == StateReadResponse) || (read_request && axi.arready);
+  // 同拍 AXI 响应无需额外保存：请求握手期间直接让 CoreBus 响应通道可用。
+  assign active_read_response = (state_q == StateReadResponse) || ar_fire;
   assign active_write_response = (state_q == StateWriteResponse) || write_request_complete;
 
-  ///////////////////////////
-  // CoreBus/AXI4 通道适配 //
-  ///////////////////////////
+  ////////////////////////////
+  // CoreBus 与 AXI4 通道适配 //
+  ////////////////////////////
 
   always_comb begin
     axi.awvalid = write_request && !aw_sent_q;
@@ -86,23 +86,21 @@ module dcache
     axi.rready = active_read_response && core_bus.rsp_ready;
 
     core_bus.req_ready = 1'b0;
-    core_bus.rsp_payload = '0;
     core_bus.rsp_valid = 1'b0;
+    core_bus.rsp_payload = '0;
     if (state_q == StateIdle) begin
-      core_bus.req_ready = core_bus.req_payload.write ?
-          write_request_complete : (!aw_sent_q && !w_sent_q && axi.arready);
+      core_bus.req_ready = core_bus.req_payload.write ? write_request_complete : axi.arready;
     end
 
     if (active_read_response) begin
+      core_bus.rsp_valid = axi.rvalid;
       core_bus.rsp_payload.rdata = axi.r_payload.data;
       core_bus.rsp_payload.error = (axi.r_payload.resp != AXI4_RESP_OKAY) || !axi.r_payload.last ||
           (axi.r_payload.id != IdWidth'(AxiId));
-      core_bus.rsp_valid = axi.rvalid;
     end else if (active_write_response) begin
-      core_bus.rsp_payload.rdata = '0;
+      core_bus.rsp_valid = axi.bvalid;
       core_bus.rsp_payload.error = (axi.b_payload.resp != AXI4_RESP_OKAY) ||
           (axi.b_payload.id != IdWidth'(AxiId));
-      core_bus.rsp_valid = axi.bvalid;
     end
   end
 
@@ -110,7 +108,7 @@ module dcache
   assign response_fire = core_bus.rsp_valid && core_bus.rsp_ready;
 
   //////////////////
-  // 事务状态更新 //
+  // 状态更新逻辑 //
   //////////////////
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -152,21 +150,38 @@ module dcache
     end
   end
 
-  ////////////////////
+  //////////////////
   // 协议与参数断言 //
-  ////////////////////
+  //////////////////
 
-  `ASSERT(DCacheSingleBeatResponse, axi.rvalid |-> axi.r_payload.last, clk_i, !rst_ni,
-          "DCache only supports single-beat AXI reads.")
+  `ASSERT_STABLE(MemAxiCoreBusRequestStable, core_bus.req_valid, core_bus.req_ready,
+                 core_bus.req_payload, '0, clk_i, !rst_ni)
+  `ASSERT_STABLE(MemAxiCoreBusResponseStable, core_bus.rsp_valid, core_bus.rsp_ready,
+                 core_bus.rsp_payload, '0, clk_i, !rst_ni)
+  `ASSERT_STABLE(MemAxiAwStable, axi.awvalid, axi.awready, axi.aw_payload, '0,
+                 clk_i, !rst_ni)
+  `ASSERT_STABLE(MemAxiWStable, axi.wvalid, axi.wready, axi.w_payload, '0,
+                 clk_i, !rst_ni)
+  `ASSERT_STABLE(MemAxiArStable, axi.arvalid, axi.arready, axi.ar_payload, '0,
+                 clk_i, !rst_ni)
+  `ASSERT(MemAxiSingleBeatRead,
+          axi.rvalid && active_read_response |-> axi.r_payload.last, clk_i, !rst_ni,
+          "CoreBus adapter only accepts single-beat AXI reads.")
+  `ASSERT(MemAxiReadId,
+          axi.rvalid && active_read_response |-> (axi.r_payload.id == IdWidth'(AxiId)), clk_i,
+          !rst_ni, "AXI read response ID must match the CoreBus adapter.")
+  `ASSERT(MemAxiWriteId,
+          axi.bvalid && active_write_response |-> (axi.b_payload.id == IdWidth'(AxiId)), clk_i,
+          !rst_ni, "AXI write response ID must match the CoreBus adapter.")
 
-  `ASSERT_INIT(DCacheCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(DCacheCoreBusDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
-  `ASSERT_INIT(DCacheAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
-  `ASSERT_INIT(DCacheAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
-  `ASSERT_INIT(DCacheAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
-  `ASSERT_INIT(DCacheAxiIdFits, (AxiId >> IdWidth) == 0)
-  `ASSERT_INIT(DCacheAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
-  `ASSERT_INIT(DCacheDataWidthValid,
+  `ASSERT_INIT(MemAxiAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(MemAxiDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(MemAxiAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
+  `ASSERT_INIT(MemAxiAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
+  `ASSERT_INIT(MemAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
+  `ASSERT_INIT(MemAxiIdFits, (AxiId >> IdWidth) == 0)
+  `ASSERT_INIT(MemAxiAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
+  `ASSERT_INIT(MemAxiDataWidthValid,
                DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
 
 endmodule

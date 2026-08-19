@@ -11,10 +11,10 @@ CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
 ```
 
 `rtl/core/riscv_core_impl.sv` 是内部结构化核心，通过独立的指令和数据 CoreBus
-interface 形成 Harvard 边界。流水、控制、CSR、调试、缓存内部协议及 AXI4 也使用
+interface 形成 Harvard 边界。流水、控制、CSR、调试、I-cache 内部协议及 AXI4 也使用
 带 modport 的参数化 interface。公开顶层 `rtl/top/ysyx_25080230.sv` 在数据侧内接
-CLINT（`mtime` 位于 `0x0200_bff8`），其余数据和取指请求分别通过占位 D-cache
-与 I-cache 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的调试 ABI。
+CLINT（`mtime` 位于 `0x0200_bff8`），其余数据请求通过 CoreBus AXI4 适配器、取指请求
+通过 I-cache 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的调试 ABI。
 
 流水级之间统一使用 ready/valid 事务协议。IF 管理取指请求、旧路径响应丢弃和
 IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、分支、CSR 组合读取
@@ -28,12 +28,12 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 - `mstatus/mtvec/mepc/mcause/mtval` 及精确同步异常；
 - 只读 64 位 CLINT `mtime`，每周期递增；
 - CoreBus 零延迟响应及请求/响应背压；
-- 无存储阵列的 I/D cache 占位模块，提供低延迟 CoreBus 到 AXI4 转换；
+- 阻塞式、组相联的 I-cache，以及单 outstanding 的数据侧 CoreBus 到 AXI4 转换；
 - 暂不支持中断、其他特权级、M/C/F/A 扩展、MMU、真实缓存或分支预测。
 
 `riscv_core_impl` 在 FENCE.I 精确退休当拍输出单周期 `icache_invalidate_o`，并从
-`PC+4` 重取指以清除已预取的旧指令。该信号为未来 I-cache 的失效请求；当前公开
-SoC 顶层及占位 I-cache 尚未接入它。
+`PC+4` 重取指以清除已预取的旧指令。公开 SoC 顶层将该信号连接到 I-cache 的失效请求；
+I-cache 在排空当前事务后清除全部有效位。
 
 ## 构建
 

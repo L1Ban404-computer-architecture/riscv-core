@@ -3,7 +3,8 @@
 
 // ysyx SoC 集成顶层。
 //
-// 连接 RV32 核心、I/D Cache、AXI4 汇聚器和片内 CLINT，并将参数化内部接口
+// 连接 RV32 核心、I-cache、CoreBus AXI4 适配器、AXI4 仲裁器和片内 CLINT，
+// 并将参数化内部接口
 // 适配为评测平台规定的固定引脚。
 // 外部 AXI4 主接口固定为 32 位地址/数据和 4 位 ID；外部从接口当前停用；
 // CLINT 占用 0x0200_0000～0x0200_ffff，其余数据访问转发至外部主接口。
@@ -87,10 +88,11 @@ module ysyx_25080230
   core_bus_if dmem_bus ();
   core_bus_if clint_bus ();
   core_bus_if axi_dmem_bus ();
-  axi4_if icache_axi ();
-  axi4_if dcache_axi ();
-  axi4_if master_axi ();
+  axi4_if if_axi ();
+  axi4_if mem_axi ();
+  axi4_if core_axi ();
   logic rst_ni;
+  logic icache_invalidate;
   logic core_retire_valid  /* verilator public_flat_rd */;
   retire_debug_if retire_debug ();
   performance_debug_if performance_debug ();
@@ -195,36 +197,36 @@ module ysyx_25080230
   ////////////////////////
 
   // 主接口逐字段适配，外部从接口保持停用。
-  assign io_master_awvalid = master_axi.awvalid;
-  assign io_master_awaddr = master_axi.aw_payload.addr;
-  assign io_master_awid = master_axi.aw_payload.id;
-  assign io_master_awlen = master_axi.aw_payload.len;
-  assign io_master_awsize = master_axi.aw_payload.size;
-  assign io_master_awburst = master_axi.aw_payload.burst;
-  assign io_master_wvalid = master_axi.wvalid;
-  assign io_master_wdata = master_axi.w_payload.data;
-  assign io_master_wstrb = master_axi.w_payload.strb;
-  assign io_master_wlast = master_axi.w_payload.last;
-  assign io_master_bready = master_axi.bready;
-  assign io_master_arvalid = master_axi.arvalid;
-  assign io_master_araddr = master_axi.ar_payload.addr;
-  assign io_master_arid = master_axi.ar_payload.id;
-  assign io_master_arlen = master_axi.ar_payload.len;
-  assign io_master_arsize = master_axi.ar_payload.size;
-  assign io_master_arburst = master_axi.ar_payload.burst;
-  assign io_master_rready = master_axi.rready;
+  assign io_master_awvalid = core_axi.awvalid;
+  assign io_master_awaddr = core_axi.aw_payload.addr;
+  assign io_master_awid = core_axi.aw_payload.id;
+  assign io_master_awlen = core_axi.aw_payload.len;
+  assign io_master_awsize = core_axi.aw_payload.size;
+  assign io_master_awburst = core_axi.aw_payload.burst;
+  assign io_master_wvalid = core_axi.wvalid;
+  assign io_master_wdata = core_axi.w_payload.data;
+  assign io_master_wstrb = core_axi.w_payload.strb;
+  assign io_master_wlast = core_axi.w_payload.last;
+  assign io_master_bready = core_axi.bready;
+  assign io_master_arvalid = core_axi.arvalid;
+  assign io_master_araddr = core_axi.ar_payload.addr;
+  assign io_master_arid = core_axi.ar_payload.id;
+  assign io_master_arlen = core_axi.ar_payload.len;
+  assign io_master_arsize = core_axi.ar_payload.size;
+  assign io_master_arburst = core_axi.ar_payload.burst;
+  assign io_master_rready = core_axi.rready;
 
-  assign master_axi.awready = io_master_awready;
-  assign master_axi.wready = io_master_wready;
-  assign master_axi.bvalid = io_master_bvalid;
-  assign master_axi.b_payload.resp = io_master_bresp;
-  assign master_axi.b_payload.id = io_master_bid;
-  assign master_axi.arready = io_master_arready;
-  assign master_axi.rvalid = io_master_rvalid;
-  assign master_axi.r_payload.resp = io_master_rresp;
-  assign master_axi.r_payload.data = io_master_rdata;
-  assign master_axi.r_payload.last = io_master_rlast;
-  assign master_axi.r_payload.id = io_master_rid;
+  assign core_axi.awready = io_master_awready;
+  assign core_axi.wready = io_master_wready;
+  assign core_axi.bvalid = io_master_bvalid;
+  assign core_axi.b_payload.resp = io_master_bresp;
+  assign core_axi.b_payload.id = io_master_bid;
+  assign core_axi.arready = io_master_arready;
+  assign core_axi.rvalid = io_master_rvalid;
+  assign core_axi.r_payload.resp = io_master_rresp;
+  assign core_axi.r_payload.data = io_master_rdata;
+  assign core_axi.r_payload.last = io_master_rlast;
+  assign core_axi.r_payload.id = io_master_rid;
 
   assign io_slave_awready = 1'b0;
   assign io_slave_wready = 1'b0;
@@ -255,7 +257,7 @@ module ysyx_25080230
     .boot_pc_i(32'h3000_0000),
     .imem(imem_bus),
     .dmem(dmem_bus),
-    .icache_invalidate_o(),
+    .icache_invalidate_o(icache_invalidate),
     .debug_retire(retire_debug),
     .performance(performance_debug)
   );
@@ -282,23 +284,24 @@ module ysyx_25080230
   icache u_icache (
     .clk_i(clock),
     .rst_ni,
+    .invalidate_i(icache_invalidate),
     .core_bus(imem_bus),
-    .axi(icache_axi)
+    .axi(if_axi)
   );
 
-  dcache u_dcache (
+  mem_axi4 u_mem_axi4 (
     .clk_i(clock),
     .rst_ni,
     .core_bus(axi_dmem_bus),
-    .axi(dcache_axi)
+    .axi(mem_axi)
   );
 
-  cache_axi4_mux u_cache_axi4_mux (
+  axi4_fixed_priority_arb u_axi4_fixed_priority_arb (
     .clk_i(clock),
     .rst_ni,
-    .icache_axi,
-    .dcache_axi,
-    .master_axi
+    .if_axi,
+    .mem_axi,
+    .core_axi
   );
 
 endmodule

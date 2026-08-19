@@ -69,9 +69,11 @@ lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表�
 - IF 只发送对齐的 word 读请求。当前 I-cache 为阻塞式实现，IF 固定只保留一笔
   已接受且待响应的请求元数据；已返回指令进入独立的响应 FIFO。
 - MEM 在请求前完成地址对齐检查、store lane 生成和 load 元数据保存。
-- `corebus_addr_router` 在 D-cache 前按地址选择内部设备或外部存储路径。
-- `icache` 和 `dcache` 分别把 CoreBus 事务转换为单拍 AXI4 事务。
-- `cache_axi4_mux` 汇聚两路 AXI4 请求，并按 AXI ID 返回读响应。
+- `corebus_addr_router` 在数据侧适配器前按地址选择内部设备或外部存储路径。
+- `icache` 处理阻塞式指令查询和 burst refill；`mem_axi4` 将数据侧 CoreBus
+  事务转换为单拍 AXI4 事务。
+- `axi4_fixed_priority_arb` 汇聚两路 AXI4 请求，数据侧 AR 固定优先，并按 AXI ID
+  直接返回读响应。
 
 协议不限制 outstanding 深度，但使用方必须保存每个已接受请求的元数据，并确保
 响应仍按顺序匹配。当前数据侧与取指侧深度均固定为 1；IF 的
@@ -96,9 +98,8 @@ strobe 宽度由数据宽度自动派生；LEN、SIZE、BURST 和 RESP 等协议
 
 例如 `axi.aw_payload.addr` 与 `axi.awvalid` 配套使用。AXI ID 常量是 package 中的
 整数，在连接具体 interface 时按 `IdWidth` 显式转换，拥有行为的模块同时检查常量
-可表示性。AXI mux 在通道边界整体转移 payload；读响应 FIFO 可以使用局部等价类型，
-但只在 FIFO 边界做一次结构转换。
+可表示性。AXI 仲裁器在通道边界整体转移 payload，并按 RID 直接分发读响应。
 
-通用 `corebus_addr_router` 和 `cache_axi4_mux` 支持非默认几何，包括高地址位、8-bit
-strobe、ID 路由和背压。RV32 core、CLINT 及当前 cache endpoint 仍使用默认 32-bit
+通用 `corebus_addr_router`、`mem_axi4` 和 `axi4_fixed_priority_arb` 支持非默认几何，
+包括高地址位、8-bit strobe、ID 路由和背压。RV32 core、CLINT 及当前 endpoint 仍使用默认 32-bit
 数据配置，这不代表 RV64 支持。
