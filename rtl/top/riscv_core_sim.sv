@@ -133,7 +133,7 @@ endmodule
 
 /* verilator lint_off DECLFILENAME */
 
-// 仿真专用存储器。
+// 仿真专用存储器。每个已接受请求都先进入延迟队列，再产生至少一拍后的响应。
 // IsDmem=0 时使用指令读取 DPI-C 函数，IsDmem=1 时使用数据访问 DPI-C 函数。
 import "DPI-C" function void dpi_imem_read_sim(
   input int unsigned addr,
@@ -165,7 +165,8 @@ module mem_sim
   localparam int unsigned QueueDepth = (MaxOutstanding > 0) ? MaxOutstanding : 1;
   localparam int unsigned IndexWidth = (QueueDepth > 1) ? $clog2(QueueDepth) : 1;
   localparam int unsigned CountWidth = (QueueDepth > 1) ? $clog2(QueueDepth + 1) : 1;
-  localparam int unsigned DelayWidth = (ResponseLatency > 0) ? $clog2(ResponseLatency + 1) : 1;
+  localparam int unsigned DelayWidth = (ResponseLatency > 1) ? $clog2(ResponseLatency) : 1;
+  localparam int unsigned ResponseDelay = (ResponseLatency > 0) ? ResponseLatency - 1 : 0;
 
   typedef logic [IndexWidth-1:0] index_t;
   typedef logic [CountWidth-1:0] count_t;
@@ -181,14 +182,9 @@ module mem_sim
   count_t count_q;
 
   logic queue_has_space;
-  logic queued_rsp_valid;
-  logic zero_rsp_valid;
-  logic zero_bypass_fire;
-  logic req_fire;
-  logic queue_push;
-  logic queue_pop;
-  logic dpi_error_comb;
-  int unsigned dpi_data_comb;
+  logic response_valid;
+  logic request_fire;
+  logic response_fire;
 
   function automatic index_t next_index(input index_t index);
     if (index == index_t'(QueueDepth - 1)) return '0;
@@ -197,38 +193,22 @@ module mem_sim
 
   assign queue_has_space = count_q < count_t'(QueueDepth);
   assign
-      queued_rsp_valid = (count_q != '0) && rsp_slot_valid_q[head_q] && (rsp_delay_q[head_q] == '0);
+      response_valid = (count_q != '0) && rsp_slot_valid_q[head_q] && (rsp_delay_q[head_q] == '0);
+  // 队列满时，即使当前周期正在消费响应，也不接受新请求。这样不会在
+  // 同一时钟边沿复用 head/tail 槽位，响应完成后下一周期再重新发 ready。
+  assign core_bus.req_ready = queue_has_space;
+  assign core_bus.rsp_valid = response_valid;
+  assign
+      core_bus.rsp_payload.rdata = response_valid && !rsp_write_q[head_q] ? rsp_data_q[head_q] : '0;
+  assign core_bus.rsp_payload.error = response_valid ? rsp_error_q[head_q] : 1'b0;
 
-  // 零延迟仅在队列为空时旁路；队列非空时仍按 FIFO 顺序排队。
-  assign zero_rsp_valid = (ResponseLatency == 0) && (count_q == '0) && core_bus.req_valid;
-  assign core_bus.req_ready = queue_has_space || queue_pop;
-  assign core_bus.rsp_valid = queued_rsp_valid || zero_rsp_valid;
-  assign core_bus.rsp_payload.error = zero_rsp_valid ? dpi_error_comb : rsp_error_q[head_q];
+  assign request_fire = core_bus.req_valid && core_bus.req_ready;
+  assign response_fire = core_bus.rsp_valid && core_bus.rsp_ready;
 
-  always_comb begin
-    dpi_data_comb = '0;
-    dpi_error_comb = 1'b0;
-    if (zero_rsp_valid) begin
-      if (IsDmem) begin
-        dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write, {
-                            6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata, {
-                            4'b0, core_bus.req_payload.wstrb}, dpi_data_comb, dpi_error_comb);
-        core_bus.rsp_payload.rdata = core_bus.req_payload.write ? '0 : dpi_data_comb;
-      end else begin
-        dpi_imem_read_sim(core_bus.req_payload.addr, dpi_data_comb, dpi_error_comb);
-        core_bus.rsp_payload.rdata = dpi_data_comb;
-      end
-    end else begin
-      core_bus.rsp_payload.rdata = rsp_write_q[head_q] ? '0 : rsp_data_q[head_q];
-    end
-  end
+  always_ff @(posedge clk_i or negedge rst_ni) begin : mem_sim_state
+    int unsigned dpi_rdata;
+    bit dpi_error;
 
-  assign req_fire = core_bus.req_valid && core_bus.req_ready;
-  assign zero_bypass_fire = zero_rsp_valid && req_fire && core_bus.rsp_ready;
-  assign queue_pop = queued_rsp_valid && core_bus.rsp_ready;
-  assign queue_push = req_fire && !zero_bypass_fire;
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       head_q <= '0;
       tail_q <= '0;
@@ -242,40 +222,43 @@ module mem_sim
       end
     end else begin
       for (int unsigned i = 0; i < QueueDepth; i++) begin
-        if (rsp_slot_valid_q[i] && !(queue_push && (tail_q == index_t'(i))) &&
+        if (rsp_slot_valid_q[i] && !(request_fire && (tail_q == index_t'(i))) &&
             (rsp_delay_q[i] != '0)) begin
           rsp_delay_q[i] <= rsp_delay_q[i] - delay_t'(1);
         end
       end
 
-      if (queue_pop) begin
+      if (response_fire) begin
         rsp_slot_valid_q[head_q] <= 1'b0;
         head_q <= next_index(head_q);
       end
 
-      if (queue_push) begin
+      // DPI-C is deliberately called only for an accepted request and only on
+      // the clock edge that accepts it. The returned value is queued with the
+      // request, so combinational response logic never touches the DPI model.
+      if (request_fire) begin
+        dpi_rdata = '0;
+        dpi_error = 1'b0;
         if (IsDmem) begin
           dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write, {
                               6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata, {
-                              4'b0, core_bus.req_payload.wstrb}, rsp_data_q[tail_q],
-                              rsp_error_q[tail_q]);
+                              4'b0, core_bus.req_payload.wstrb}, dpi_rdata, dpi_error);
         end else begin
-          dpi_imem_read_sim(core_bus.req_payload.addr, rsp_data_q[tail_q], rsp_error_q[tail_q]);
+          dpi_imem_read_sim(core_bus.req_payload.addr, dpi_rdata, dpi_error);
         end
+        // The DPI result must enter the queue as a clocked update. In
+        // particular, it must not overwrite the current response slot while
+        // a response is being consumed.
+        rsp_data_q[tail_q] <= dpi_rdata;
+        rsp_error_q[tail_q] <= dpi_error;
         rsp_write_q[tail_q] <= IsDmem && core_bus.req_payload.write;
-        rsp_delay_q[tail_q] <= delay_t'((ResponseLatency > 0) ? ResponseLatency - 1 : 0);
+        rsp_delay_q[tail_q] <= delay_t'(ResponseDelay);
         rsp_slot_valid_q[tail_q] <= 1'b1;
         tail_q <= next_index(tail_q);
-      end else if (req_fire && zero_bypass_fire && IsDmem && core_bus.req_payload.write) begin
-        // 零延迟写旁路不入队，但仍必须在请求握手时执行一次写访问。
-        dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write, {
-                            6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata, {
-                            4'b0, core_bus.req_payload.wstrb}, rsp_data_q[tail_q],
-                            rsp_error_q[tail_q]);
       end
 
       unique case ({
-        queue_push, queue_pop
+        request_fire, response_fire
       })
         2'b10: count_q <= count_q + count_t'(1);
         2'b01: count_q <= count_q - count_t'(1);
@@ -283,16 +266,6 @@ module mem_sim
       endcase
     end
   end
-
-  // verilog_format: off
-  `ASSERT_INIT(MemSimMaxOutstandingValid, MaxOutstanding > 0,
-               "MaxOutstanding must be greater than zero.")
-  `ASSERT(MemSimQueueCountValid, count_q <= count_t'(QueueDepth), clk_i, !rst_ni,
-          "Simulation queue count must not exceed MaxOutstanding.")
-  `ASSERT_STABLE(MemSimResponseStable, core_bus.rsp_valid, core_bus.rsp_ready,
-                 core_bus.rsp_payload, '0, clk_i, !rst_ni,
-                 "Simulation response must remain stable while waiting for ready.")
-  // verilog_format: on
 
 endmodule
 

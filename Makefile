@@ -33,7 +33,7 @@ sim-lint: sim-parameter-lint
 
 sim-parameter-lint:
 	$(VERILATOR) --lint-only --sv --Wall $(SIM_WARNINGS) \
-		-GImemResponseLatency=0 -GImemMaxOutstanding=2 \
+		-GImemResponseLatency=1 -GImemMaxOutstanding=2 \
 		-GDmemResponseLatency=3 -GDmemMaxOutstanding=4 \
 		-f .slang/riscv_core_sim.f
 

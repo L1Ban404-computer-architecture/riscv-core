@@ -45,8 +45,8 @@ imem/dmem CoreBus 连接到同文件内的 `mem_sim` 模块，通过 `IsDmem` �
 `riscv_core_sim` 提供四个仿真参数：`ImemResponseLatency`、`ImemMaxOutstanding`、
 `DmemResponseLatency` 和 `DmemMaxOutstanding`，默认值分别为 `1、1、1、1`。
 存储器模块内部按请求接受顺序缓存 DPI-C 返回值；响应延迟从请求握手开始计时，响应
-背压不会改变已到期响应的数据。`ResponseLatency=0` 支持空队列旁路，`MaxOutstanding`
-必须大于零。两个 DPI-C 函数均通过输出参数返回访问错误：
+背压不会改变已到期响应的数据。`ResponseLatency` 必须至少为 `1`，`MaxOutstanding`
+必须大于零。DPI-C 函数仅在请求握手的上升沿调用，两个函数均通过输出参数返回访问错误：
 
 ```systemverilog
 void dpi_imem_read_sim(addr, rdata, error)
