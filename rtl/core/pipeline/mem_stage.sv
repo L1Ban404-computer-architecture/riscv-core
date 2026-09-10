@@ -23,7 +23,6 @@ module mem_stage
   // 流水事务
   ex_mem_if.consumer ex_mem,
   core_bus_if.master dmem,
-  mem_pending_if.producer mem_pending,
   writeback_if.producer mem_wb_forward,
   mem_wb_if.producer mem_wb,
 
@@ -40,12 +39,10 @@ module mem_stage
   word_t loaded_data;
 
   ex_mem_payload_t ex_mem_payload;
-  ex_mem_payload_t outstanding_head;
-  logic outstanding_ready;
-  logic outstanding_head_valid;
+  logic inflight_q;
 
   logic memory_instruction;
-  logic outstanding_input_valid;
+  logic dmem_req_fire;
   logic dmem_req_valid;
   logic dmem_rsp_ready;
   logic dmem_rsp_fire;
@@ -80,8 +77,7 @@ module mem_stage
     endcase
   endfunction
 
-  // Store lane 对齐和 load lane 提取是独立的组合数据单元。请求端可能处理
-  // 年轻 store，同时响应端处理另一条更老 load，因此两套元数据不能共用。
+  // 请求和响应共用 EX/MEM 中保持至响应握手的元数据。
   store_data_unit u_store_data_unit (
     .size_i(ex_mem_payload.mem_req.size),
     .addr_offset_i(ex_mem_payload.mem_req.addr[1:0]),
@@ -93,60 +89,41 @@ module mem_stage
   assign memory_instruction = ex_mem_payload.mem_req.valid;
 
   // EX/MEM 本身已经满足严格 ready/valid 保持规则，因此 CoreBus 请求可以
-  // 直接由它驱动。请求握手和 outstanding 槽写入是同一个原子事件。
+  // 直接由它驱动；请求握手后仍保持背压，直到响应进入 MEM/WB。
   assign dmem.req_payload.addr = ex_mem_payload.mem_req.addr;
   assign dmem.req_payload.write = ex_mem_payload.mem_req.write;
   assign dmem.req_payload.size = toCoreBusSize(ex_mem_payload.mem_req.size);
   assign dmem.req_payload.wdata = ex_mem_payload.mem_req.write ? aligned_store_data : '0;
   assign dmem.req_payload.wstrb = ex_mem_payload.mem_req.write ? store_byte_en : '0;
-  // 错误响应进入 MEM/WB 后、WB 尚未提交 trap 前，不得让年轻访存借助单槽
-  // 同拍 pop/push 发出请求。kill 同周期也必须关闭总线请求及级间交接。
-  assign request_blocked = flush_i || side_effect_block_i ||
-      (dmem.rsp_valid && dmem.rsp_payload.error);
-  assign
-      dmem_req_valid = ex_mem.valid && memory_instruction && outstanding_ready && !request_blocked;
+  // 请求端只依赖寄存状态及更老事务的阻塞，不依赖当前响应或下游容量。
+  assign request_blocked = flush_i || side_effect_block_i;
+  assign dmem_req_valid = ex_mem.valid && memory_instruction && !inflight_q && !request_blocked;
   assign dmem.req_valid = dmem_req_valid;
-  // 单槽的 valid_i 不反向依赖 ready_o；内部的 valid_i && ready_o
-  // 仍与 dmem_req_fire 完全等价，同时避免 fall-through 路径形成组合环。
-  assign outstanding_input_valid = ex_mem.valid && memory_instruction && dmem.req_ready &&
-      !request_blocked;
+  assign dmem_req_fire = dmem.req_valid && dmem.req_ready;
 
-  // 响应必须和槽内事务配对。MEM/WB 输入不可接受时直接反压 CoreBus
-  // 响应通道，不需要额外的 response holding register。
-  assign dmem_rsp_ready = outstanding_head_valid && mem_wb_input_ready;
+  // CoreBus 保证响应对应已接受或同拍接受的请求。预先给出 ready，避免
+  // 响应 ready 依赖请求 ready；响应和元数据仅在 MEM/WB 可接收时一起转移。
+  assign dmem_rsp_ready = ex_mem.valid && memory_instruction && mem_wb_input_ready && !flush_i;
   assign dmem.rsp_ready = dmem_rsp_ready;
   assign dmem_rsp_fire = dmem.rsp_valid && dmem_rsp_ready;
 
-  // 访存事务在请求被接受后释放 EX/MEM；非访存事务不能越过任何更老的
-  // outstanding 访存事务，但可以在事务槽为空时进入 MEM/WB。
   always_comb begin
     if (flush_i) ex_mem.ready = 1'b0;
-    else if (memory_instruction)
-      ex_mem.ready = outstanding_ready && dmem.req_ready && !request_blocked;
-    else ex_mem.ready = !outstanding_head_valid && mem_wb_input_ready;
+    else if (memory_instruction) ex_mem.ready = dmem_rsp_fire;
+    else ex_mem.ready = mem_wb_input_ready;
   end
 
-  fall_through_register #(
-    .T(ex_mem_payload_t)
-  ) u_outstanding_slot (
-    .clk_i,
-    .rst_ni,
-    .flush_i(1'b0),
-    .data_i(ex_mem_payload),
-    .valid_i(outstanding_input_valid),
-    .ready_o(outstanding_ready),
-    .data_o(outstanding_head),
-    .valid_o(outstanding_head_valid),
-    .ready_i(dmem_rsp_fire)
-  );
-
-  assign mem_pending.valid = outstanding_head_valid && outstanding_head.commit_ctx.wb_req.valid;
-  assign mem_pending.payload.rd_addr = outstanding_head.commit_ctx.wb_req.rd_addr;
+  // 响应优先，同拍请求和响应不留下在途事务。flush 不取消已发送的请求。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) inflight_q <= 1'b0;
+    else if (dmem_rsp_fire) inflight_q <= 1'b0;
+    else if (dmem_req_fire) inflight_q <= 1'b1;
+  end
 
   load_data_unit u_load_data_unit (
-    .size_i(outstanding_head.mem_req.size),
-    .sign_ext_i(outstanding_head.mem_req.sign_ext),
-    .addr_offset_i(outstanding_head.mem_req.addr[1:0]),
+    .size_i(ex_mem_payload.mem_req.size),
+    .sign_ext_i(ex_mem_payload.mem_req.sign_ext),
+    .addr_offset_i(ex_mem_payload.mem_req.addr[1:0]),
     .rdata_i(dmem.rsp_payload.rdata),
     .load_data_o(loaded_data)
   );
@@ -156,30 +133,30 @@ module mem_stage
   //////////////////////////////////////
 
   always_comb begin
-    completed_mem_bus = outstanding_head.commit_ctx;
+    completed_mem_bus = ex_mem_payload.commit_ctx;
     if (!completed_mem_bus.exception.valid && dmem.rsp_payload.error) begin
       completed_mem_bus.exception.valid = 1'b1;
-      completed_mem_bus.exception.cause = outstanding_head.mem_req.write ? EXC_STORE_ACCESS_FAULT :
+      completed_mem_bus.exception.cause = ex_mem_payload.mem_req.write ? EXC_STORE_ACCESS_FAULT :
           EXC_LOAD_ACCESS_FAULT;
-      completed_mem_bus.exception.tval = outstanding_head.mem_req.addr;
+      completed_mem_bus.exception.tval = ex_mem_payload.mem_req.addr;
     end
-    if (outstanding_head.commit_ctx.wb_req.valid && !completed_mem_bus.exception.valid) begin
+    if (ex_mem_payload.commit_ctx.wb_req.valid && !completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req.data_valid = 1'b1;
       completed_mem_bus.wb_req.wdata = loaded_data;
     end else if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req = '0;
     end
-    completed_mem_bus.retire_mem.mem_data = outstanding_head.mem_req.write ?
-        outstanding_head.mem_req.wdata : loaded_data;
+    completed_mem_bus.retire_mem.mem_data = ex_mem_payload.mem_req.write ?
+        ex_mem_payload.mem_req.wdata : loaded_data;
     if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.retire_mem.mem_op = RETIRE_MEM_NONE;
     end
 
     bypass_mem_bus = ex_mem_payload.commit_ctx;
 
-    // outstanding 响应优先；事务槽非空时 ex_mem.ready 会阻止非访存输入。
-    if (outstanding_head_valid) begin
-      mem_wb_input_valid = dmem.rsp_valid;
+    // 访存响应和非访存直通共享 MEM/WB，EX/MEM 保证二者互斥。
+    if (memory_instruction) begin
+      mem_wb_input_valid = ex_mem.valid && dmem.rsp_valid;
       mem_wb_input_bus = completed_mem_bus;
     end else begin
       mem_wb_input_valid = ex_mem.valid && !memory_instruction;
@@ -210,7 +187,7 @@ module mem_stage
     mem_wb_forward.payload.valid = mem_wb.valid && mem_wb_payload.wb_req.valid;
   end
 
-  assign busy_o = outstanding_head_valid;
+  assign busy_o = inflight_q || dmem_req_fire;
 
   //////////////
   // 协议断言 //
@@ -224,7 +201,7 @@ module mem_stage
     dmem.req_payload,
     '0,
     clk_i,
-    !rst_ni || flush_i,
+    !rst_ni,
     "CoreBus data request must remain stable while waiting for ready."
   )
 
@@ -235,6 +212,20 @@ module mem_stage
     !rst_ni,
     "CoreBus data request valid must remain asserted until ready."
   )
+
+  `ASSERT(DmemResponseOwned, dmem_rsp_fire |-> (inflight_q || dmem_req_fire),
+          clk_i, !rst_ni, "Response must match an accepted or same-cycle request.")
+  `ASSERT(DmemSingleInflight, inflight_q |-> !dmem_req_fire,
+          clk_i, !rst_ni, "Only one data request may be outstanding.")
+  `ASSERT(DmemInflightMetadata, inflight_q |-> (ex_mem.valid && memory_instruction),
+          clk_i, !rst_ni, "In-flight metadata must remain in EX/MEM.")
+  `ASSERT_STABLE(DmemMetadataStable, ex_mem.valid && memory_instruction, ex_mem.ready,
+                 ex_mem_payload, ex_mem_payload_t'(0), clk_i, !rst_ni ||
+                 (flush_i && !inflight_q), "Held memory metadata must remain stable.")
+  `ASSERT(DmemInflightNoFlush, inflight_q |-> !flush_i,
+          clk_i, !rst_ni, "Backend flush must not discard an in-flight transaction.")
+  `ASSERT(DmemSendingNoFlush, dmem.req_valid && !dmem.req_ready |=> !flush_i,
+          clk_i, !rst_ni, "Backend flush must not cancel a stalled request.")
 
   `ASSERT_STABLE(
     MemWbStable,

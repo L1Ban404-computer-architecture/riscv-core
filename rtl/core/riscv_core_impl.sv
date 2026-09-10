@@ -43,7 +43,6 @@ module riscv_core_impl
   csr_read_if csr_read ();
   writeback_if mem_wb_forward ();
   writeback_if wb ();
-  mem_pending_if mem_pending ();
 
   logic serialize_block;
   logic serialize_ready;
@@ -109,7 +108,6 @@ module riscv_core_impl
     .flush_i(backend_flush),
     .serialize_ready_i(serialize_ready),
     .id_ex,
-    .mem_pending,
     .mem_wb(mem_wb_forward),
     .csr_read,
     .redirect(ex_redirect),
@@ -123,7 +121,6 @@ module riscv_core_impl
     .side_effect_block_i(mem_side_effect_block),
     .ex_mem,
     .dmem,
-    .mem_pending,
     .mem_wb_forward,
     .mem_wb,
     .busy_o(mem_busy)

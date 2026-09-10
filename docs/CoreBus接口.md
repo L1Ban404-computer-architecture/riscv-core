@@ -68,7 +68,8 @@ lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表�
 
 - IF 只发送对齐的 word 读请求。当前 I-cache 为阻塞式实现，IF 固定只保留一笔
   已接受且待响应的请求元数据；已返回指令进入独立的响应 FIFO。
-- MEM 在请求前完成地址对齐检查、store lane 生成和 load 元数据保存。
+- EX 完成地址对齐检查；MEM 生成 store lane，背压 EX/MEM 保存请求及 load 元数据，
+  直到响应和元数据一起写入 MEM/WB。MEM 只寄存单比特在途标志，不另存事务。
 - `corebus_addr_router` 在数据侧适配器前按地址选择内部设备或外部存储路径。
 - `icache` 处理阻塞式指令查询和 burst refill；`mem_axi4` 将数据侧 CoreBus
   事务转换为单拍 AXI4 事务。
@@ -78,7 +79,9 @@ lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表�
   直接返回读响应。
 
 协议不限制 outstanding 深度，但使用方必须保存每个已接受请求的元数据，并确保
-响应仍按顺序匹配。当前数据侧与取指侧深度均固定为 1；IF 的
+响应仍按顺序匹配。MEM 的响应 ready 只取决于 EX/MEM 有效访存、MEM/WB 输入
+容量和 flush，不依赖请求 ready；断言检查响应握手对应已有或同拍接受的请求。
+请求发出后至响应完成前，后端不得冲刷保存元数据的 EX/MEM。当前数据侧与取指侧深度均固定为 1；IF 的
 `FetchOutstandingDepth` 参数仅为接口兼容性保留，并由 assertion 约束为 1。
 
 RTL 中保留请求、响应稳定性和关键编码约束的仿真 assertion。

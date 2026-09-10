@@ -21,7 +21,6 @@ module ex_stage
 
   // 流水事务与前递
   id_ex_if.consumer id_ex,
-  mem_pending_if.consumer mem_pending,
   writeback_if.consumer mem_wb,
 
   // CSR 与改道
@@ -94,7 +93,6 @@ module ex_stage
     .rs1_value_i(id_ex_payload.exec_data.rs1_value),
     .rs2_value_i(id_ex_payload.exec_data.rs2_value),
     .ex_wb,
-    .mem_pending,
     .mem_wb,
     .rs1_value_o(rs1_value),
     .rs2_value_o(rs2_value),

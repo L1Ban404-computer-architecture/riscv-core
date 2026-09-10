@@ -290,9 +290,6 @@ package riscv_core_pkg;
     pc_t target_pc;
   } retire_redirect_payload_t;
 
-  // 尚未返回的 load 目标寄存器；valid 属于该组合旁路事件，不重复放入 payload。
-  typedef struct packed {reg_addr_t rd_addr;} mem_pending_payload_t;
-
   // WB 到 CSR 单元的完整架构状态更新请求。
   typedef struct packed {
     csr_write_payload_t write;
@@ -304,7 +301,7 @@ package riscv_core_pkg;
     logic mret;
   } csr_commit_payload_t;
 
-  // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在 outstanding 完成时修改
+  // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在访存响应完成时修改
   // retire_mem.mem_data，其余字段直接整体转移。
   typedef struct packed {
     instruction_meta_payload_t meta;

@@ -26,7 +26,6 @@ module forwarding_unit
 
   // 前递来源
   writeback_if.consumer ex_wb,
-  mem_pending_if.consumer mem_pending,
   writeback_if.consumer mem_wb,
 
   // 选择结果
@@ -44,8 +43,6 @@ module forwarding_unit
   word_t held_rs1_value_q;
   word_t held_rs2_value_q;
 
-  logic rs1_pending;
-  logic rs2_pending;
   logic mem_wb_rs1_forwarded;
   logic mem_wb_rs2_forwarded;
   logic held_rs1_valid_q;
@@ -61,14 +58,6 @@ module forwarding_unit
   assign rs2_base_value = held_rs2_valid_q ? held_rs2_value_q : rs2_value_i;
 
   always_comb begin
-    rs1_pending = 1'b0;
-    rs2_pending = 1'b0;
-
-    rs1_pending = mem_pending.valid && (mem_pending.payload.rd_addr == rs1_addr_i);
-    rs2_pending = mem_pending.valid && (mem_pending.payload.rd_addr == rs2_addr_i);
-  end
-
-  always_comb begin
     rs1_value_o = rs1_base_value;
     rs2_value_o = rs2_base_value;
     mem_wb_rs1_forwarded = 1'b0;
@@ -81,8 +70,6 @@ module forwarding_unit
       if (ex_wb.payload.valid && (ex_wb.payload.rd_addr == rs1_addr_i)) begin
         if (ex_wb.payload.data_valid) rs1_value_o = ex_wb.payload.wdata;
         else stall_o = 1'b1;
-      end else if (rs1_pending) begin
-        stall_o = 1'b1;
       end else if (mem_wb.payload.valid && (mem_wb.payload.rd_addr == rs1_addr_i)) begin
         if (mem_wb.payload.data_valid) begin
           rs1_value_o = mem_wb.payload.wdata;
@@ -97,8 +84,6 @@ module forwarding_unit
       if (ex_wb.payload.valid && (ex_wb.payload.rd_addr == rs2_addr_i)) begin
         if (ex_wb.payload.data_valid) rs2_value_o = ex_wb.payload.wdata;
         else stall_o = 1'b1;
-      end else if (rs2_pending) begin
-        stall_o = 1'b1;
       end else if (mem_wb.payload.valid && (mem_wb.payload.rd_addr == rs2_addr_i)) begin
         if (mem_wb.payload.data_valid) begin
           rs2_value_o = mem_wb.payload.wdata;

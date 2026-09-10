@@ -86,10 +86,9 @@ module performance_stats
   assign mem_local_stall = ex_mem_stall && !mem_wb_stall;
   assign wb_local_stall = mem_wb_stall;
 
-  // 这些计数器仅从 stage 接口观察“对上游形成压力”的周期。例如 MEM 已经接受
-  // 请求、正在等待响应，但此时没有年轻事务停在 EX/MEM，接口上不会出现 stall，
-  // 因而不能把这种内部等待归因给 MEM。若未来需要完整 CPI 分解，应另行引入
-  // stage 内部原因事件，而不能改变本组接口级计数器的既定语义。
+  // 这些计数器仅从 stage 接口观察“对上游形成压力”的周期。MEM 将访存
+  // 保持在 EX/MEM 直到响应写入 MEM/WB，因此请求等待和响应等待都会表现为
+  // EX/MEM stall；ex_mem_fire 对访存表示完成交接，不再表示请求已被接受。
   // 所有 64 位计数器达到最大值后自然回绕，与 cycle/instret 的现有行为一致。
 
   ////////////////////

@@ -35,15 +35,6 @@ interface writeback_if;
   modport monitor(input payload);
 endinterface
 
-// MEM 中尚未返回的 load 目标寄存器，用于阻塞不能立即满足的 RAW 相关。
-interface mem_pending_if;
-  logic valid;
-  riscv_core_pkg::mem_pending_payload_t payload;
-  modport producer(output valid, payload);
-  modport consumer(input valid, payload);
-  modport monitor(input valid, payload);
-endinterface
-
 ////////////////////////
 // CSR 与全局控制接口 //
 ////////////////////////
