@@ -14,7 +14,7 @@ CoreBus imem → IF → ID → EX → MEM → WB → retire/debug
 interface 形成 Harvard 边界。流水、控制、CSR、调试、I-cache 内部协议及 AXI4 也使用
 带 modport 的参数化 interface。公开顶层 `rtl/top/ysyx_25080230.sv` 在数据侧内接
 CLINT（`mtime` 位于 `0x0200_bff8`），其余数据请求通过 CoreBus AXI4 适配器、取指请求
-通过 I-cache 和临时 burst splitter 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的
+通过独立的 `mem_axi4` 接入单路 AXI4 Master，并保持 mini-soc/Verilator 使用的
 调试 ABI。
 
 流水级之间统一使用 ready/valid 事务协议。IF 管理取指请求、旧路径响应丢弃和
@@ -23,6 +23,9 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 响应进入 MEM/WB，支持同拍请求与响应；WB 是 GPR、CSR、trap 和 MRET 的
 唯一架构提交点。
 
+当前临时使用单指令多周期、无 I-cache 配置。恢复步骤见
+[流水线和 cache 回退](docs/流水线和cache回退.md)。
+
 ## 实现范围
 
 - RV32I 整数、分支跳转、load/store、FENCE 与 Zifencei FENCE.I；
@@ -30,18 +33,19 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 - `mstatus/mtvec/mepc/mcause/mtval` 及精确同步异常；
 - 只读 64 位 CLINT `mtime`，每周期递增；
 - CoreBus 零延迟响应及请求/响应背压；
-- 阻塞式、组相联的 I-cache，以及单 outstanding 的数据侧 CoreBus 到 AXI4 转换；
+- 单 outstanding 的指令/数据 CoreBus 到 AXI4 转换；I-cache 源码保留，暂不实例化；
 - 暂不支持中断、其他特权级、M/C/F/A 扩展、MMU、真实缓存或分支预测。
 
 `riscv_core_impl` 在 FENCE.I 精确退休当拍输出单周期 `icache_invalidate_o`，并从
-`PC+4` 重取指以清除已预取的旧指令。公开 SoC 顶层将该信号连接到 I-cache 的失效请求；
-I-cache 在排空当前事务后清除全部有效位。
+`PC+4` 重取指。当前无 I-cache，SoC 顶层将失效输出留空，保留 FENCE.I 的提交和改道。
 
 仿真专用顶层 `rtl/top/riscv_core_sim.sv` 与 `ysyx_25080230` 并列，直接将核心的
 imem/dmem CoreBus 连接到同文件内的 `mem_sim` 模块，通过 `IsDmem` 参数分别选择
 `dpi_imem_read_sim` 或 `dpi_dmem_access_sim`。具体内存内容和地址映射由仿真环境提供。
-退休调试和性能接口已展开为顶层标量端口。对应的检查和 Verilator 生成入口为
+退休调试和性能接口已展开为顶层标量及分类计数数组端口。对应的检查和 Verilator 生成入口为
 `make sim-lint`、`make sim-parameter-lint` 与 `make sim-verilator`。
+
+性能日志报告 IPC、分类局部阻塞均值和 imem/dmem 延迟、请求背压指标；统计口径见[性能计数器](docs/性能计数器.md)。
 
 `riscv_core_sim` 提供四个仿真参数：`ImemResponseLatency`、`ImemMaxOutstanding`、
 `DmemResponseLatency` 和 `DmemMaxOutstanding`，默认值分别为 `1、1、1、1`。

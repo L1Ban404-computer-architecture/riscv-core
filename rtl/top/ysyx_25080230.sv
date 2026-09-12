@@ -3,7 +3,7 @@
 
 // ysyx SoC 集成顶层。
 //
-// 连接 RV32 核心、I-cache、CoreBus AXI4 适配器、AXI4 仲裁器和片内 CLINT，
+// 连接 RV32 核心、指令/数据 CoreBus AXI4 适配器、AXI4 仲裁器和片内 CLINT，
 // 并将参数化内部接口
 // 适配为评测平台规定的固定引脚。
 // 外部 AXI4 主接口固定为 32 位地址/数据和 4 位 ID；外部从接口当前停用；
@@ -92,7 +92,6 @@ module ysyx_25080230
   axi4_if mem_axi ();
   axi4_if core_axi ();
   logic rst_ni;
-  logic icache_invalidate;
   logic core_retire_valid  /* verilator public_flat_rd */;
   retire_debug_if retire_debug ();
   performance_debug_if performance_debug ();
@@ -114,39 +113,26 @@ module ysyx_25080230
   logic [31:0] debug_retire_mepc  /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mcause  /* verilator public_flat_rd */;
   logic [31:0] debug_retire_mtval  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_cycle_count  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_instret_count  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_if_id_fire_count  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_id_ex_fire_count  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_ex_mem_fire_count  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_mem_wb_fire_count  /* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_if_id_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_id_ex_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_ex_mem_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_mem_wb_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_if_starve_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_id_local_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_ex_local_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_mem_local_stall_cycle_count
-/* verilator public_flat_rd */;
-  logic [63:0]
-      debug_perf_wb_local_stall_cycle_count
-/* verilator public_flat_rd */;
+  logic [63:0] debug_perf_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_instret_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_if_local_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_instret_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_id_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_ex_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_mem_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_wb_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_request_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_completion_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_request_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_last_request_cycle /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_request_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_request_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_completion_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_request_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_last_request_cycle /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
 
   ////////////////////////
   // 退休与性能观测信号 //
@@ -171,23 +157,26 @@ module ysyx_25080230
   assign debug_retire_mtval = retire_debug.payload.csr.mtval;
   assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
   assign debug_perf_instret_count = performance_debug.payload.instret_count;
-  assign debug_perf_if_id_fire_count = performance_debug.payload.if_id_fire_count;
-  assign debug_perf_id_ex_fire_count = performance_debug.payload.id_ex_fire_count;
-  assign debug_perf_ex_mem_fire_count = performance_debug.payload.ex_mem_fire_count;
-  assign debug_perf_mem_wb_fire_count = performance_debug.payload.mem_wb_fire_count;
-  assign debug_perf_if_id_stall_cycle_count = performance_debug.payload.if_id_stall_cycle_count;
-  assign debug_perf_id_ex_stall_cycle_count = performance_debug.payload.id_ex_stall_cycle_count;
-  assign debug_perf_ex_mem_stall_cycle_count = performance_debug.payload.ex_mem_stall_cycle_count;
-  assign debug_perf_mem_wb_stall_cycle_count = performance_debug.payload.mem_wb_stall_cycle_count;
-  assign debug_perf_if_starve_cycle_count = performance_debug.payload.if_starve_cycle_count;
-  assign
-      debug_perf_id_local_stall_cycle_count = performance_debug.payload.id_local_stall_cycle_count;
-  assign
-      debug_perf_ex_local_stall_cycle_count = performance_debug.payload.ex_local_stall_cycle_count;
-  assign debug_perf_mem_local_stall_cycle_count =
-      performance_debug.payload.mem_local_stall_cycle_count;
-  assign
-      debug_perf_wb_local_stall_cycle_count = performance_debug.payload.wb_local_stall_cycle_count;
+  assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
+  assign debug_perf_imem_request_count = performance_debug.payload.imem.request_count;
+  assign debug_perf_imem_completion_count = performance_debug.payload.imem.completion_count;
+  assign debug_perf_imem_request_cycle_sum = performance_debug.payload.imem.request_cycle_sum;
+  assign debug_perf_imem_response_cycle_sum = performance_debug.payload.imem.response_cycle_sum;
+  assign debug_perf_imem_last_request_cycle = performance_debug.payload.imem.last_request_cycle;
+  assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
+  assign debug_perf_dmem_request_count = performance_debug.payload.dmem.request_count;
+  assign debug_perf_dmem_completion_count = performance_debug.payload.dmem.completion_count;
+  assign debug_perf_dmem_request_cycle_sum = performance_debug.payload.dmem.request_cycle_sum;
+  assign debug_perf_dmem_response_cycle_sum = performance_debug.payload.dmem.response_cycle_sum;
+  assign debug_perf_dmem_last_request_cycle = performance_debug.payload.dmem.last_request_cycle;
+  assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
+  for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
+    assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
+    assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;
+    assign debug_perf_class_ex_local_stall_cycle_count[i] = performance_debug.payload.classes[i].ex_local_stall_cycle_count;
+    assign debug_perf_class_mem_local_stall_cycle_count[i] = performance_debug.payload.classes[i].mem_local_stall_cycle_count;
+    assign debug_perf_class_wb_local_stall_cycle_count[i] = performance_debug.payload.classes[i].wb_local_stall_cycle_count;
+  end
 
   assign rst_ni = ~reset;
   assign core_retire_valid = retire_debug.valid;
@@ -257,7 +246,8 @@ module ysyx_25080230
     .boot_pc_i(32'h3000_0000),
     .imem(imem_bus),
     .dmem(dmem_bus),
-    .icache_invalidate_o(icache_invalidate),
+    // 临时无 cache：保留核心 FENCE.I 提交和改道，失效输出无需连接。
+    .icache_invalidate_o(),
     .debug_retire(retire_debug),
     .performance(performance_debug)
   );
@@ -281,10 +271,12 @@ module ysyx_25080230
     .core_bus(clint_bus)
   );
 
-  icache u_icache (
+  // 临时无 cache：沿用取指 AXI ID，保证仲裁器将响应送回 IF。
+  mem_axi4 #(
+    .AxiId(ICACHE_AXI_ID)
+  ) u_if_mem_axi4 (
     .clk_i(clock),
     .rst_ni,
-    .invalidate_i(icache_invalidate),
     .core_bus(imem_bus),
     .axi(if_axi)
   );

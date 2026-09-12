@@ -26,6 +26,8 @@ module if_stage
   input logic clk_i,
   input logic rst_ni,
   input pc_t boot_pc_i,
+  // 临时单指令限制：所有 WB 提交（包括异常）释放取指占用。
+  input logic retire_i,
   redirect_if.consumer redirect,
 
   // 取指与流水事务
@@ -50,6 +52,8 @@ module if_stage
   pc_t pc_d;
   logic boot_pending_q;
   logic frontend_flush;
+  // 临时单指令限制：从请求分配到 WB 提交，包含尚未握手的请求。
+  logic instruction_active_q;
 
   // 请求 holding register 在空闲时组合旁路，在 I-cache 反压时保持请求和 payload。
   // request_outstanding_q 仅在请求已经握手、但响应尚未握手的期间置位。
@@ -89,7 +93,7 @@ module if_stage
 
   // redirect 只禁止向 u_req_hold 分配新 PC，已经锁存并对外展示的请求仍须保持。
   assign frontend_flush = redirect.valid;
-  assign fetch_req_valid = !boot_pending_q && !frontend_flush;
+  assign fetch_req_valid = !boot_pending_q && !frontend_flush && !instruction_active_q;
   assign fetch_req_data = '{pc: pc_q};
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
@@ -191,6 +195,13 @@ module if_stage
     end
   end
 
+  // 临时单指令限制：redirect 只更新 PC，不能提前放行下一条指令。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) instruction_active_q <= 1'b0;
+    else if (retire_i) instruction_active_q <= 1'b0;
+    else if (fetch_req_fire) instruction_active_q <= 1'b1;
+  end
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       pc_q <= '0;
@@ -233,6 +244,18 @@ module if_stage
   ////////////////////
 
   // verilog_format: off
+  // 临时单指令限制断言；恢复流水线时一并移除。
+  // 异步复位同时作为 SVA disable 条件，不是数据通路的同步复位。
+  /* verilator lint_off SYNCASYNCNET */
+  `ASSERT(SingleInstructionAllocation, instruction_active_q |-> !fetch_req_fire,
+          clk_i, !rst_ni, "No new allocation before the active instruction commits.")
+  `ASSERT(SingleInstructionRetire, retire_i |-> instruction_active_q,
+          clk_i, !rst_ni, "Every commit must own the instruction slot.")
+  `ASSERT(SingleInstructionHold, instruction_active_q && !retire_i |=> instruction_active_q,
+          clk_i, !rst_ni, "Redirect must not release the instruction slot.")
+
+  /* verilator lint_on SYNCASYNCNET */
+
   `ASSERT_STABLE(
     ImemReqStable,
     imem.req_valid,

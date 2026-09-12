@@ -17,9 +17,9 @@ module riscv_core_impl
   input logic rst_ni,
   input pc_t boot_pc_i,
 
-  // 存储器接口
-  core_bus_if.master imem,
-  core_bus_if.master dmem,
+  // 连接层保留完整接口，供流水级以 master、性能模块以 monitor 视图使用。
+  core_bus_if imem,
+  core_bus_if dmem,
 
   // 由提交的 FENCE.I 产生的单周期 I-cache 失效请求
   output logic icache_invalidate_o,
@@ -87,6 +87,8 @@ module riscv_core_impl
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
+    // 临时单指令限制：下一条取指等待本条 WB 提交。
+    .retire_i(mem_wb.valid && mem_wb.ready),
     .redirect(resolved_redirect),
     .imem,
     .if_id
@@ -147,6 +149,10 @@ module riscv_core_impl
     .mem_wb,
     .redirect(resolved_redirect),
     .flush_backend_i(backend_flush),
+    .imem,
+    .dmem,
+    // 临时单指令限制：后端执行时主动停取，不属于 IF 供给不足。
+    .if_local_stall_enable_i(!(id_ex.valid || ex_mem.valid || mem_wb.valid || mem_busy)),
     .performance
   );
 

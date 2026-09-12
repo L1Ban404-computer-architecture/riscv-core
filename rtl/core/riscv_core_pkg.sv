@@ -323,23 +323,39 @@ package riscv_core_pkg;
     csr_state_payload_t csr;
   } retire_debug_payload_t;
 
-  // 性能统计快照；边界传输、边界阻塞和局部阻塞计数具有互不相同的解释口径。
+  // 仅供性能观测；顺序与仿真端的类别数组一致。
+  localparam int unsigned PerfClassCount = 7;
+  typedef enum logic [2:0] {
+    PERF_COMPUTE, PERF_LOAD, PERF_STORE, PERF_BRANCH,
+    PERF_JUMP, PERF_SYSTEM, PERF_OTHER
+  } perf_class_e;
+
   typedef struct packed {
-    logic [63:0] cycle_count;
     logic [63:0] instret_count;
-    logic [63:0] if_id_fire_count;
-    logic [63:0] id_ex_fire_count;
-    logic [63:0] ex_mem_fire_count;
-    logic [63:0] mem_wb_fire_count;
-    logic [63:0] if_id_stall_cycle_count;
-    logic [63:0] id_ex_stall_cycle_count;
-    logic [63:0] ex_mem_stall_cycle_count;
-    logic [63:0] mem_wb_stall_cycle_count;
-    logic [63:0] if_starve_cycle_count;
     logic [63:0] id_local_stall_cycle_count;
     logic [63:0] ex_local_stall_cycle_count;
     logic [63:0] mem_local_stall_cycle_count;
     logic [63:0] wb_local_stall_cycle_count;
+  } class_performance_payload_t;
+
+  // 请求、响应独立累计握手时刻，仿真端计算已完成事务的总延迟。
+  typedef struct packed {
+    logic [63:0] request_count;
+    logic [63:0] completion_count;
+    logic [63:0] request_cycle_sum;
+    logic [63:0] response_cycle_sum;
+    logic [63:0] last_request_cycle;
+    logic [63:0] request_stall_cycle_count;
+  } memory_performance_payload_t;
+
+  // 局部阻塞按被挡在阶段入口的指令分类；IF 未译码，只统计总体。
+  typedef struct packed {
+    logic [63:0] cycle_count;
+    logic [63:0] instret_count;
+    logic [63:0] if_local_stall_cycle_count;
+    class_performance_payload_t [PerfClassCount-1:0] classes;
+    memory_performance_payload_t imem;
+    memory_performance_payload_t dmem;
   } performance_debug_payload_t;
 
   ////////////////////
