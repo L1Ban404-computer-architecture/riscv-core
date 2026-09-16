@@ -66,14 +66,6 @@ interface csr_commit_if;
   modport monitor(input payload);
 endinterface
 
-// 提交后的 CSR 架构状态快照，仅用于退休调试观察，不参与流水控制。
-interface csr_state_if;
-  riscv_core_pkg::csr_state_payload_t payload;
-  modport producer(output payload);
-  modport consumer(input payload);
-  modport monitor(input payload);
-endinterface
-
 // 控制流改道事件；valid 当拍的 target_pc 是下一条应取指的架构 PC。
 interface redirect_if #(
   parameter int unsigned AddrWidth = riscv_common_pkg::XLen
@@ -90,6 +82,15 @@ endinterface
 ////////////////////////
 // 调试与性能观测接口 //
 ////////////////////////
+
+`ifndef SYNTHESIS
+// 提交后的 CSR 架构状态快照，仅用于退休调试观察，不参与流水控制。
+interface csr_state_if;
+  riscv_core_pkg::csr_state_payload_t payload;
+  modport producer(output payload);
+  modport consumer(input payload);
+  modport monitor(input payload);
+endinterface
 
 // 单条退休事件及其架构副作用快照。valid 仅在退休当拍拉高；valid 为零时其余
 // 字段无效，生产者可以将其清零。
@@ -108,6 +109,7 @@ interface performance_debug_if;
   modport consumer(input payload);
   modport monitor(input payload);
 endinterface
+`endif
 
 /////////////////////////////
 // 流水级 ready/valid 接口 //

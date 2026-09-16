@@ -17,7 +17,7 @@ module riscv_core_sim
 ) (
   input logic clk_i,
   input logic rst_ni,
-  input pc_t boot_pc_i,
+`ifndef SYNTHESIS
   output logic debug_retire_valid,
   output logic [31:0] debug_retire_pc,
   output logic [31:0] debug_retire_instr,
@@ -53,16 +53,21 @@ module riscv_core_sim
   output logic [127:0] performance_dmem_request_cycle_sum,
   output logic [127:0] performance_dmem_response_cycle_sum,
   output logic [63:0] performance_dmem_request_stall_cycle_count,
-  output logic [63:0] performance_dmem_response_stall_cycle_count
+  output logic [63:0] performance_dmem_response_stall_cycle_count,
+`endif
+  input pc_t boot_pc_i
 );
 
   core_bus_if imem_bus ();
   core_bus_if dmem_bus ();
+`ifndef SYNTHESIS
   retire_debug_if retire_debug_int ();
   performance_debug_if performance_int ();
+`endif
 
   logic unused_icache_invalidate;
 
+`ifndef SYNTHESIS
   assign debug_retire_valid = retire_debug_int.valid;
   assign debug_retire_pc = retire_debug_int.payload.meta.pc;
   assign debug_retire_instr = retire_debug_int.payload.meta.instr;
@@ -101,6 +106,7 @@ module riscv_core_sim
     assign performance_class_mem_local_stall_cycle_count[i] = performance_int.payload.classes[i].mem_local_stall_cycle_count;
     assign performance_class_wb_local_stall_cycle_count[i] = performance_int.payload.classes[i].wb_local_stall_cycle_count;
   end
+`endif
 
   riscv_core_impl u_core_impl (
     .clk_i,
@@ -108,9 +114,11 @@ module riscv_core_sim
     .boot_pc_i,
     .imem(imem_bus),
     .dmem(dmem_bus),
-    .icache_invalidate_o(unused_icache_invalidate),
+`ifndef SYNTHESIS
     .debug_retire(retire_debug_int),
-    .performance(performance_int)
+    .performance(performance_int),
+`endif
+    .icache_invalidate_o(unused_icache_invalidate)
   );
 
   mem_sim #(

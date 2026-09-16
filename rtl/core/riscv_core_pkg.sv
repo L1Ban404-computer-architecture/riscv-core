@@ -160,12 +160,14 @@ package riscv_core_pkg;
   localparam csr_addr_t CsrMvendorid = 12'hf11;
   localparam csr_addr_t CsrMarchid = 12'hf12;
 
+`ifndef SYNTHESIS
   // 调试接口中的退休访存事件编码；相关调试 payload 类型同样由本 package 定义。
   typedef enum logic [1:0] {
     RETIRE_MEM_NONE = 2'd0,
     RETIRE_MEM_READ = 2'd1,
     RETIRE_MEM_WRITE = 2'd2
   } retire_mem_op_e;
+`endif
 
   ////////////////////////////////
   // 执行与提交子事务 payload 类型 //
@@ -273,9 +275,19 @@ package riscv_core_pkg;
   typedef struct packed {
     pc_t pc;
     instr_t instr;
+`ifndef SYNTHESIS
     logic [63:0] instid;
+`endif
   } instruction_meta_payload_t;
 
+  // EX 之后指令字仅用于观测；功能提交仍需 PC。仿真布局与前端元数据一致。
+`ifdef SYNTHESIS
+  typedef struct packed {pc_t pc;} commit_meta_payload_t;
+`else
+  typedef instruction_meta_payload_t commit_meta_payload_t;
+`endif
+
+`ifndef SYNTHESIS
   // MEM 完成后仍需送达退休观察端的访存结果。功能 mem_req 仍独立保留 sign_ext
   // 和原始 store 数据，避免调试语义反向约束执行请求。
   typedef struct packed {
@@ -289,6 +301,7 @@ package riscv_core_pkg;
     logic valid;
     pc_t target_pc;
   } retire_redirect_payload_t;
+`endif
 
   // WB 到 CSR 单元的完整架构状态更新请求。
   typedef struct packed {
@@ -304,14 +317,17 @@ package riscv_core_pkg;
   // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在访存响应完成时修改
   // retire_mem.mem_data，其余字段直接整体转移。
   typedef struct packed {
-    instruction_meta_payload_t meta;
+    commit_meta_payload_t meta;
     writeback_payload_t wb_req;
     exception_payload_t exception;
     commit_ctrl_payload_t commit;
+`ifndef SYNTHESIS
     retire_mem_payload_t retire_mem;
     retire_redirect_payload_t redirect;
+`endif
   } commit_context_payload_t;
 
+`ifndef SYNTHESIS
   // 完整退休快照只在 WB 生成，CSR 快照和 GPR 写回字段不再随流水线传播。
   typedef struct packed {
     instruction_meta_payload_t meta;
@@ -356,6 +372,7 @@ package riscv_core_pkg;
     memory_performance_payload_t imem;
     memory_performance_payload_t dmem;
   } performance_debug_payload_t;
+`endif
 
   ////////////////////
   // 流水级边界事务 //

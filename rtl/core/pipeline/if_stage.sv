@@ -43,7 +43,9 @@ module if_stage
 
   typedef struct packed {
     pc_t pc;
+`ifndef SYNTHESIS
     logic [63:0] instid;
+`endif
   } fetch_meta_t;
 
   // pc_q 是下一次分配给 u_req_hold 的取指 PC。boot_pc_i 在复位释放后的第一个
@@ -85,7 +87,9 @@ module if_stage
   logic inst_fifo_valid;
   logic inst_fifo_push;
   logic inst_fifo_ready_i;
+`ifndef SYNTHESIS
   logic [63:0] instid_q;
+`endif
 
   ////////////////////////
   // 取指请求与响应配对 //
@@ -108,8 +112,10 @@ module if_stage
 
   // 在无 outstanding 的同拍 hit 情形，响应元数据来自当前 holding request；否则
   // 使用已经锁存的 pending 元数据。instid 在请求握手沿后递增，因此本拍仍是当前 ID。
-  assign response_meta = request_outstanding_q ? pending_meta_q :
-      '{pc: req_hold_data.pc, instid: instid_q};
+  assign response_meta.pc = request_outstanding_q ? pending_meta_q.pc : req_hold_data.pc;
+`ifndef SYNTHESIS
+  assign response_meta.instid = request_outstanding_q ? pending_meta_q.instid : instid_q;
+`endif
   assign response_stale = frontend_flush ||
       (request_outstanding_q ? pending_stale_q : held_request_stale_q);
   // stale 响应无需占用 FIFO，即使 FIFO 满也必须能被接收并丢弃。
@@ -125,7 +131,9 @@ module if_stage
     inst_fifo_data = '0;
     inst_fifo_data.meta.pc = response_meta.pc;
     inst_fifo_data.meta.instr = instr_t'(imem.rsp_payload.rdata);
+`ifndef SYNTHESIS
     inst_fifo_data.meta.instid = response_meta.instid;
+`endif
     inst_fifo_data.exception.valid = imem.rsp_payload.error;
     inst_fifo_data.exception.cause = imem.rsp_payload.error ? EXC_INST_ACCESS_FAULT :
         exception_cause_e'('0);
@@ -210,19 +218,18 @@ module if_stage
       pending_meta_q <= '0;
       pending_stale_q <= 1'b0;
       held_request_stale_q <= 1'b0;
-      instid_q <= 64'd1;
     end else begin
       pc_q <= pc_d;
       boot_pending_q <= 1'b0;
-
-      if (imem_req_fire) instid_q <= instid_q + 64'd1;
 
       // 只有“请求已握手且响应尚未同拍返回”才形成 pending 事务。I-cache hit 的
       // 同拍 request/response 不占用该寄存器。
       if (imem_req_fire && !imem_rsp_fire) begin
         request_outstanding_q <= 1'b1;
         pending_meta_q.pc <= req_hold_data.pc;
+`ifndef SYNTHESIS
         pending_meta_q.instid <= instid_q;
+`endif
         pending_stale_q <= frontend_flush || held_request_stale_q;
       end else if (imem_rsp_fire && request_outstanding_q) begin
         request_outstanding_q <= 1'b0;
@@ -238,6 +245,14 @@ module if_stage
       else if (req_hold_flush) held_request_stale_q <= 1'b0;
     end
   end
+
+`ifndef SYNTHESIS
+  // 指令编号只用于观测，在取指请求握手时分配，与功能状态独立。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) instid_q <= 64'd1;
+    else if (imem_req_fire) instid_q <= instid_q + 64'd1;
+  end
+`endif
 
   ////////////////////
   // 协议与参数断言 //

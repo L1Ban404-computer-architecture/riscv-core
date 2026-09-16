@@ -4,6 +4,7 @@
 // CoreBus 事件统计，只观察握手，不驱动事务通路。
 // 事务数按请求握手累计，两侧独立累计握手时刻和背压周期。
 // 仿真端计算累计时刻之差 / 事务数，不修正未完成请求。
+`ifndef SYNTHESIS
 module memory_performance_stats
   import riscv_core_pkg::*;
 (
@@ -39,3 +40,4 @@ module memory_performance_stats
   end
 
 endmodule
+`endif

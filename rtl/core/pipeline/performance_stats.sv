@@ -6,6 +6,7 @@
 // 统计分类退休数、局部背压前沿和 CoreBus 事务性能。
 // 仅观察公开 ready/valid 与全局控制，不读取流水级私有状态；计数不参与功能
 // 控制；各局部阻塞计数允许重叠，不能直接相加解释为总 CPI 损失。
+`ifndef SYNTHESIS
 module performance_stats
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -181,3 +182,4 @@ module performance_stats
   end
 
 endmodule
+`endif

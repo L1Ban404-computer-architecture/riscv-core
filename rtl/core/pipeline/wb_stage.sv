@@ -22,10 +22,11 @@ module wb_stage
   redirect_if.producer redirect,
   output logic flush_o,
   output logic icache_invalidate_o,
-  writeback_if.producer wb,
-
+`ifndef SYNTHESIS
   // 退休观测
-  retire_debug_if.producer debug_retire
+  retire_debug_if.producer debug_retire,
+`endif
+  writeback_if.producer wb
 );
 
   ////////////////////////
@@ -36,15 +37,17 @@ module wb_stage
   logic trap_commit;
   logic mret_commit;
   logic fence_i_commit;
-  exception_payload_t effective_exception;
   csr_write_payload_t csr_write;
   mem_wb_payload_t mem_wb_payload;
   writeback_payload_t wb_req;
-  retire_debug_payload_t debug_payload;
   csr_commit_if csr_commit ();
-  csr_state_if csr_state ();
   word_t current_mtvec;
   word_t current_mepc;
+
+`ifndef SYNTHESIS
+  retire_debug_payload_t debug_payload;
+  csr_state_if csr_state ();
+`endif
 
   ////////////////////////////
   // 提交事务解包与输出打包 //
@@ -59,9 +62,9 @@ module wb_stage
     csr_commit.payload.write = csr_write;
     csr_commit.payload.trap = trap_commit;
     csr_commit.payload.trap_epc = mem_wb_payload.meta.pc;
-    csr_commit.payload.trap_is_interrupt = effective_exception.is_interrupt;
-    csr_commit.payload.trap_cause = effective_exception.cause;
-    csr_commit.payload.trap_tval = effective_exception.tval;
+    csr_commit.payload.trap_is_interrupt = mem_wb_payload.exception.is_interrupt;
+    csr_commit.payload.trap_cause = mem_wb_payload.exception.cause;
+    csr_commit.payload.trap_tval = mem_wb_payload.exception.tval;
     csr_commit.payload.mret = mret_commit;
   end
 
@@ -73,14 +76,11 @@ module wb_stage
   // wb_fire 门控，避免无效 MEM/WB payload 产生副作用。
   assign mem_wb.ready = 1'b1;
   assign wb_fire = mem_wb.valid && mem_wb.ready;
+  assign flush_o = redirect.valid;
 
   always_comb begin
-    // MRET 的目标来自提交前 mepc。csr_unit 按 IALIGN=32 将 mepc[1:0]
-    // 实现为只读零，因此隐式读取的返回地址始终满足指令对齐要求。
-    effective_exception = mem_wb_payload.exception;
-
     // 架构提交优先级固定为：trap entry > MRET > FENCE.I > 普通 CSR/GPR 写回。
-    trap_commit = wb_fire && effective_exception.valid;
+    trap_commit = wb_fire && mem_wb_payload.exception.valid;
     mret_commit = wb_fire && !trap_commit && (mem_wb_payload.commit.system_op == SYS_MRET);
     fence_i_commit = wb_fire && !trap_commit && !mret_commit && mem_wb_payload.commit.fence_i;
 
@@ -92,23 +92,21 @@ module wb_stage
     // 后继，避免在失效前已经取到的年轻指令继续执行。
     redirect.valid = 1'b0;
     redirect.payload.target_pc = '0;
-    flush_o = 1'b0;
     icache_invalidate_o = fence_i_commit;
     if (trap_commit) begin
       redirect.valid = 1'b1;
       redirect.payload.target_pc = current_mtvec;
     end else if (mret_commit) begin
+      // 读取提交前的 mepc；csr_unit 已将 mepc[1:0] 实现为只读零。
       redirect.valid = 1'b1;
       redirect.payload.target_pc = current_mepc;
     end else if (fence_i_commit) begin
       redirect.valid = 1'b1;
       redirect.payload.target_pc = mem_wb_payload.meta.pc + word_t'(4);
     end
-    flush_o = redirect.valid;
 
     wb_req = '0;
     if (wb_fire && !trap_commit && !mret_commit) wb_req = mem_wb_payload.wb_req;
-
   end
 
   //////////////////
@@ -122,7 +120,9 @@ module wb_stage
     .rst_ni,
     .csr_read,
     .commit(csr_commit),
+`ifndef SYNTHESIS
     .state(csr_state),
+`endif
     .current_mtvec_o(current_mtvec),
     .current_mepc_o(current_mepc)
   );
@@ -131,6 +131,7 @@ module wb_stage
   // 退休调试输出       //
   ////////////////////////
 
+`ifndef SYNTHESIS
   // valid 为零时其余字段无效，因此完整 debug payload 只在 WB 最终生成。
   always_comb begin
     debug_payload = '0;
@@ -152,6 +153,7 @@ module wb_stage
 
   assign debug_retire.valid = wb_fire;
   assign debug_retire.payload = debug_payload;
+`endif
 
   // FENCE.I 的失效请求必须精确对应一次实际提交，并同时发起顺序后继重取指和
   // 后端冲刷；被异常或 flush 丢弃的事务不得产生该外部副作用。

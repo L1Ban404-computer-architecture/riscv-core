@@ -21,12 +21,14 @@ module riscv_core_impl
   core_bus_if imem,
   core_bus_if dmem,
 
-  // 由提交的 FENCE.I 产生的单周期 I-cache 失效请求
-  output logic icache_invalidate_o,
-
+`ifndef SYNTHESIS
   // 调试与性能观测
   retire_debug_if.producer debug_retire,
-  performance_debug_if.producer performance
+  performance_debug_if.producer performance,
+`endif
+
+  // 由提交的 FENCE.I 产生的单周期 I-cache 失效请求
+  output logic icache_invalidate_o
 );
 
   //////////////////
@@ -136,10 +138,13 @@ module riscv_core_impl
     .redirect(wb_redirect),
     .flush_o(backend_flush),
     .icache_invalidate_o,
-    .wb,
-    .debug_retire
+`ifndef SYNTHESIS
+    .debug_retire,
+`endif
+    .wb
   );
 
+`ifndef SYNTHESIS
   performance_stats u_performance_stats (
     .clk_i,
     .rst_ni,
@@ -155,5 +160,6 @@ module riscv_core_impl
     .if_local_stall_enable_i(!(id_ex.valid || ex_mem.valid || mem_wb.valid || mem_busy)),
     .performance
   );
+`endif
 
 endmodule

@@ -133,11 +133,7 @@ module mem_axi4
           end
         end
 
-        StateReadResponse: begin
-          if (response_fire) state_q <= StateIdle;
-        end
-
-        StateWriteResponse: begin
+        StateReadResponse, StateWriteResponse: begin
           if (response_fire) state_q <= StateIdle;
         end
 

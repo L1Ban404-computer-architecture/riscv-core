@@ -87,7 +87,7 @@ make perf                           # 目标 5000 MHz，即 0.2 ns
 make perf CLK_FREQ_MHZ=500          # 目标 500 MHz，即 2 ns
 ```
 
-Makefile 只做两步：用 slang 读取固定的 `.slang/riscv_core.f`，通过 `proc` 将
+Makefile 只做两步：用 slang 显式传入 `-D SYNTHESIS` 读取固定的 `.slang/riscv_core.f`，通过 `proc` 将
 SystemVerilog 降低，并用 `bwmuxmap` 展开内部位选择单元，导出 `build/perf/rtl.v`；
 再调用上游 `make sta` 完成综合和时序分析。
 每次运行都重新转换，并用 `make -B` 强制上游重新综合、分析。
@@ -111,3 +111,25 @@ SystemVerilog 降低，并用 `bwmuxmap` 展开内部位选择单元，导出 `b
 构建产物写入 `build/`。设计说明见 `docs/架构设计.md`，内部总线契约见
 `docs/CoreBus接口.md`，编码和构建约定见 `docs/RTL开发约定.md`。复杂实现细节记录
 在对应 RTL 的局部注释中。
+
+### 综合时关闭调试与统计
+
+`SYNTHESIS` 是统一的观测逻辑开关。未定义时保留现有退休调试接口、指令
+`instid` 和性能统计，mini-soc / SoC 仿真端无需修改。定义后通过条件编译移除
+调试端口和连线、IF 指令编号计数器及流水线编号、EX 之后仅供观测的指令字、
+退休访存和改道记录、CSR 调试快照，以及全部流水线和访存性能计数器。
+PC、译码及异常处理需要的指令字、真实 CSR 状态和 CLINT `mtime` 保留。
+
+`make perf` 和 `make yosys-slang` 在读取原始 RTL 时显式定义该宏，因此
+`build/perf/rtl.v` 已不包含上述观测逻辑，不依赖后续综合优化删除它们。
+仿真文件列表不定义该宏；手动检查裁剪模式可运行 `make synthesis-lint`。
+仿真专用顶层即使裁剪观测端口，仍含 DPI 存储器模型，不能作为硬件综合顶层。
+
+`make check` 同时执行普通及综合模式 lint 和 `make synthesis-test`。后者检查
+预处理结果与降低后的 RTL，并在相同程序、复位和总线背压下逐周期比较两种
+模式的功能总线输出及 FENCE.I 失效脉冲，覆盖分支、访存、CSR、异常和 MRET。
+测试日志和两份对比轨迹位于 `build/synthesis-test/`。
+
+`make forwarding-test` 单独验证两路操作数的前递优先级、未就绪生产者阻塞、
+以及阻塞期间写回数据的保存和清除，在普通及 `SYNTHESIS` 模式下运行。
+该测试也包含在 `make check` 中；日志位于 `build/forwarding-test/`。

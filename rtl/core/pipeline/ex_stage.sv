@@ -162,23 +162,23 @@ module ex_stage
     // 上游异常不可覆盖。EX 仅在当前 payload 尚无异常时补充控制流目标、
     // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex_payload.exception;
-    if (!executed_exception.valid && branch_redirect.valid &&
-        (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
-      executed_exception.valid = 1'b1;
-      executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
-      executed_exception.tval = branch_redirect.payload.target_pc;
-    end else if (!executed_exception.valid && (id_ex_payload.ctrl.mem_cmd != MEM_NONE) &&
-                 data_misaligned) begin
-      executed_exception.valid = 1'b1;
-      executed_exception.cause = (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ?
-          EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
-      executed_exception.tval = alu_result;
-    end else if (!executed_exception.valid && (id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
-                 (!csr_read.rsp_payload.valid ||
-                  (csr_write_attempt && (id_ex_payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
-      executed_exception.valid = 1'b1;
-      executed_exception.cause = EXC_ILLEGAL_INSTR;
-      executed_exception.tval = id_ex_payload.meta.instr;
+    if (!executed_exception.valid) begin
+      if (branch_redirect.valid && (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
+        executed_exception.valid = 1'b1;
+        executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
+        executed_exception.tval = branch_redirect.payload.target_pc;
+      end else if ((id_ex_payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
+        executed_exception.valid = 1'b1;
+        executed_exception.cause = (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ?
+            EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
+        executed_exception.tval = alu_result;
+      end else if ((id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
+                   (!csr_read.rsp_payload.valid ||
+                    (csr_write_attempt && (id_ex_payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
+        executed_exception.valid = 1'b1;
+        executed_exception.cause = EXC_ILLEGAL_INSTR;
+        executed_exception.tval = id_ex_payload.meta.instr;
+      end
     end
 
     redirect.valid = branch_redirect.valid;
@@ -272,10 +272,15 @@ module ex_stage
 
   always_comb begin
     executed_ex_mem_bus = '0;
-    executed_ex_mem_bus.commit_ctx.meta = id_ex_payload.meta;
+    executed_ex_mem_bus.commit_ctx.meta.pc = id_ex_payload.meta.pc;
+`ifndef SYNTHESIS
+    executed_ex_mem_bus.commit_ctx.meta.instr = id_ex_payload.meta.instr;
+    executed_ex_mem_bus.commit_ctx.meta.instid = id_ex_payload.meta.instid;
+`endif
     executed_ex_mem_bus.commit_ctx.wb_req = wb_req;
     executed_ex_mem_bus.commit_ctx.exception = executed_exception;
     executed_ex_mem_bus.commit_ctx.commit = commit_ctrl;
+`ifndef SYNTHESIS
     executed_ex_mem_bus.commit_ctx.retire_mem.mem_op = !mem_req.valid ?
         RETIRE_MEM_NONE : (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
     executed_ex_mem_bus.commit_ctx.retire_mem.mem_size = mem_req.size;
@@ -283,6 +288,7 @@ module ex_stage
     executed_ex_mem_bus.commit_ctx.retire_mem.mem_data = mem_req.wdata;
     executed_ex_mem_bus.commit_ctx.redirect.valid = redirect.valid;
     executed_ex_mem_bus.commit_ctx.redirect.target_pc = redirect.payload.target_pc;
+`endif
     executed_ex_mem_bus.mem_req = mem_req;
   end
 

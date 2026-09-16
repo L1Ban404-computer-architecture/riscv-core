@@ -38,6 +38,13 @@ module forwarding_unit
   // 内部暂存与相关状态 //
   ////////////////////////
 
+  typedef struct packed {
+    word_t value;
+    logic stall;
+    logic mem_wb_forwarded;
+  } forward_result_t;
+
+  forward_result_t rs1_result, rs2_result;
   word_t rs1_base_value;
   word_t rs2_base_value;
   word_t held_rs1_value_q;
@@ -57,43 +64,41 @@ module forwarding_unit
   assign rs1_base_value = held_rs1_valid_q ? held_rs1_value_q : rs1_value_i;
   assign rs2_base_value = held_rs2_valid_q ? held_rs2_value_q : rs2_value_i;
 
-  always_comb begin
-    rs1_value_o = rs1_base_value;
-    rs2_value_o = rs2_base_value;
-    mem_wb_rs1_forwarded = 1'b0;
-    mem_wb_rs2_forwarded = 1'b0;
-    stall_o = 1'b0;
-
-    // 年龄最近的 EX/MEM 写回候选优先于 MEM/WB。匹配但 data_valid
-    // 尚未成立时阻塞当前 EX 事务，不能绕过它使用更老的写回值。
-    if (rs1_used_i && (rs1_addr_i != ZeroReg)) begin
-      if (ex_wb.payload.valid && (ex_wb.payload.rd_addr == rs1_addr_i)) begin
-        if (ex_wb.payload.data_valid) rs1_value_o = ex_wb.payload.wdata;
-        else stall_o = 1'b1;
-      end else if (mem_wb.payload.valid && (mem_wb.payload.rd_addr == rs1_addr_i)) begin
-        if (mem_wb.payload.data_valid) begin
-          rs1_value_o = mem_wb.payload.wdata;
-          mem_wb_rs1_forwarded = 1'b1;
+  // 最近的 EX/MEM 候选优先；匹配但尚未就绪时，不能绕过到更老的 MEM/WB。
+  function automatic forward_result_t resolve_source(
+    input logic used,
+    input reg_addr_t addr,
+    input word_t base_value,
+    input writeback_payload_t ex_candidate,
+    input writeback_payload_t mem_candidate
+  );
+    forward_result_t result;
+    result = '{value: base_value, stall: 1'b0, mem_wb_forwarded: 1'b0};
+    if (used && (addr != ZeroReg)) begin
+      if (ex_candidate.valid && (ex_candidate.rd_addr == addr)) begin
+        if (ex_candidate.data_valid) result.value = ex_candidate.wdata;
+        else result.stall = 1'b1;
+      end else if (mem_candidate.valid && (mem_candidate.rd_addr == addr)) begin
+        if (mem_candidate.data_valid) begin
+          result.value = mem_candidate.wdata;
+          result.mem_wb_forwarded = 1'b1;
         end else begin
-          stall_o = 1'b1;
+          result.stall = 1'b1;
         end
       end
     end
+    return result;
+  endfunction
 
-    if (rs2_used_i && (rs2_addr_i != ZeroReg)) begin
-      if (ex_wb.payload.valid && (ex_wb.payload.rd_addr == rs2_addr_i)) begin
-        if (ex_wb.payload.data_valid) rs2_value_o = ex_wb.payload.wdata;
-        else stall_o = 1'b1;
-      end else if (mem_wb.payload.valid && (mem_wb.payload.rd_addr == rs2_addr_i)) begin
-        if (mem_wb.payload.data_valid) begin
-          rs2_value_o = mem_wb.payload.wdata;
-          mem_wb_rs2_forwarded = 1'b1;
-        end else begin
-          stall_o = 1'b1;
-        end
-      end
-    end
-  end
+  assign rs1_result = resolve_source(rs1_used_i, rs1_addr_i, rs1_base_value,
+                                     ex_wb.payload, mem_wb.payload);
+  assign rs2_result = resolve_source(rs2_used_i, rs2_addr_i, rs2_base_value,
+                                     ex_wb.payload, mem_wb.payload);
+  assign rs1_value_o = rs1_result.value;
+  assign rs2_value_o = rs2_result.value;
+  assign mem_wb_rs1_forwarded = rs1_result.mem_wb_forwarded;
+  assign mem_wb_rs2_forwarded = rs2_result.mem_wb_forwarded;
+  assign stall_o = rs1_result.stall || rs2_result.stall;
 
   ////////////////////////
   // 阻塞期间的数据暂存 //

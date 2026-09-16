@@ -50,7 +50,6 @@ module mem_stage
 
   mem_wb_payload_t mem_wb_payload;
   mem_wb_payload_t completed_mem_bus;
-  mem_wb_payload_t bypass_mem_bus;
   mem_wb_payload_t mem_wb_input_bus;
   logic mem_wb_input_valid;
   logic mem_wb_input_ready;
@@ -146,21 +145,21 @@ module mem_stage
     end else if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req = '0;
     end
+`ifndef SYNTHESIS
     completed_mem_bus.retire_mem.mem_data = ex_mem_payload.mem_req.write ?
         ex_mem_payload.mem_req.wdata : loaded_data;
     if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.retire_mem.mem_op = RETIRE_MEM_NONE;
     end
-
-    bypass_mem_bus = ex_mem_payload.commit_ctx;
+`endif
 
     // 访存响应和非访存直通共享 MEM/WB，EX/MEM 保证二者互斥。
     if (memory_instruction) begin
       mem_wb_input_valid = ex_mem.valid && dmem.rsp_valid;
       mem_wb_input_bus = completed_mem_bus;
     end else begin
-      mem_wb_input_valid = ex_mem.valid && !memory_instruction;
-      mem_wb_input_bus = bypass_mem_bus;
+      mem_wb_input_valid = ex_mem.valid;
+      mem_wb_input_bus = ex_mem_payload.commit_ctx;
     end
   end
 

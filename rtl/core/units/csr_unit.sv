@@ -18,7 +18,9 @@ module csr_unit
   // CSR 事务
   csr_read_if.responder csr_read,
   csr_commit_if.consumer commit,
+`ifndef SYNTHESIS
   csr_state_if.producer state,
+`endif
 
   // 当前控制目标
   output word_t current_mtvec_o,
@@ -101,9 +103,11 @@ module csr_unit
   // 状态输出与寄存 //
   ////////////////////
 
+`ifndef SYNTHESIS
   // 退休快照输出下一状态，使仿真环境在 WB fire 当周期观察到本条指令提交后的
   // CSR 值；控制通路另用窄化的 current_mtvec/current_mepc 读取提交前目标。
   assign state.payload = state_d;
+`endif
   assign current_mtvec_o = state_q.mtvec;
   assign current_mepc_o = state_q.mepc;
 

@@ -92,6 +92,7 @@ module ysyx_25080230
   axi4_if mem_axi ();
   axi4_if core_axi ();
   logic rst_ni;
+`ifndef SYNTHESIS
   logic core_retire_valid  /* verilator public_flat_rd */;
   retire_debug_if retire_debug ();
   performance_debug_if performance_debug ();
@@ -131,11 +132,13 @@ module ysyx_25080230
   logic [127:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_response_stall_cycle_count /* verilator public_flat_rd */;
+`endif
 
   ////////////////////////
   // 退休与性能观测信号 //
   ////////////////////////
 
+`ifndef SYNTHESIS
   assign debug_retire_pc = retire_debug.payload.meta.pc;
   assign debug_retire_instr = retire_debug.payload.meta.instr;
   assign debug_retire_instid = retire_debug.payload.meta.instid;
@@ -174,8 +177,10 @@ module ysyx_25080230
     assign debug_perf_class_wb_local_stall_cycle_count[i] = performance_debug.payload.classes[i].wb_local_stall_cycle_count;
   end
 
-  assign rst_ni = ~reset;
   assign core_retire_valid = retire_debug.valid;
+`endif
+
+  assign rst_ni = ~reset;
 
   ////////////////////////
   // 外部 AXI4 接口适配 //
@@ -242,10 +247,12 @@ module ysyx_25080230
     .boot_pc_i(32'h3000_0000),
     .imem(imem_bus),
     .dmem(dmem_bus),
-    // 临时无 cache：保留核心 FENCE.I 提交和改道，失效输出无需连接。
-    .icache_invalidate_o(),
+`ifndef SYNTHESIS
     .debug_retire(retire_debug),
-    .performance(performance_debug)
+    .performance(performance_debug),
+`endif
+    // 临时无 cache：保留核心 FENCE.I 提交和改道，失效输出无需连接。
+    .icache_invalidate_o()
   );
 
   corebus_addr_router #(
