@@ -338,14 +338,13 @@ package riscv_core_pkg;
     logic [63:0] wb_local_stall_cycle_count;
   } class_performance_payload_t;
 
-  // 请求、响应独立累计握手时刻，仿真端计算已完成事务的总延迟。
+  // 请求、响应独立累计握手时刻，仿真端按请求事务数计算平均延迟。
   typedef struct packed {
-    logic [63:0] request_count;
-    logic [63:0] completion_count;
-    logic [63:0] request_cycle_sum;
-    logic [63:0] response_cycle_sum;
-    logic [63:0] last_request_cycle;
+    logic [63:0] transaction_count;
+    logic [127:0] request_cycle_sum;
+    logic [127:0] response_cycle_sum;
     logic [63:0] request_stall_cycle_count;
+    logic [63:0] response_stall_cycle_count;
   } memory_performance_payload_t;
 
   // 局部阻塞按被挡在阶段入口的指令分类；IF 未译码，只统计总体。

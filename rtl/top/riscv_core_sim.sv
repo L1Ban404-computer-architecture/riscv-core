@@ -44,18 +44,16 @@ module riscv_core_sim
   output logic [63:0] performance_class_ex_local_stall_cycle_count [PerfClassCount],
   output logic [63:0] performance_class_mem_local_stall_cycle_count [PerfClassCount],
   output logic [63:0] performance_class_wb_local_stall_cycle_count [PerfClassCount],
-  output logic [63:0] performance_imem_request_count,
-  output logic [63:0] performance_imem_completion_count,
-  output logic [63:0] performance_imem_request_cycle_sum,
-  output logic [63:0] performance_imem_response_cycle_sum,
-  output logic [63:0] performance_imem_last_request_cycle,
+  output logic [63:0] performance_imem_transaction_count,
+  output logic [127:0] performance_imem_request_cycle_sum,
+  output logic [127:0] performance_imem_response_cycle_sum,
   output logic [63:0] performance_imem_request_stall_cycle_count,
-  output logic [63:0] performance_dmem_request_count,
-  output logic [63:0] performance_dmem_completion_count,
-  output logic [63:0] performance_dmem_request_cycle_sum,
-  output logic [63:0] performance_dmem_response_cycle_sum,
-  output logic [63:0] performance_dmem_last_request_cycle,
-  output logic [63:0] performance_dmem_request_stall_cycle_count
+  output logic [63:0] performance_imem_response_stall_cycle_count,
+  output logic [63:0] performance_dmem_transaction_count,
+  output logic [127:0] performance_dmem_request_cycle_sum,
+  output logic [127:0] performance_dmem_response_cycle_sum,
+  output logic [63:0] performance_dmem_request_stall_cycle_count,
+  output logic [63:0] performance_dmem_response_stall_cycle_count
 );
 
   core_bus_if imem_bus ();
@@ -86,18 +84,16 @@ module riscv_core_sim
   assign performance_cycle_count = performance_int.payload.cycle_count;
   assign performance_instret_count = performance_int.payload.instret_count;
   assign performance_if_local_stall_cycle_count = performance_int.payload.if_local_stall_cycle_count;
-  assign performance_imem_request_count = performance_int.payload.imem.request_count;
-  assign performance_imem_completion_count = performance_int.payload.imem.completion_count;
+  assign performance_imem_transaction_count = performance_int.payload.imem.transaction_count;
   assign performance_imem_request_cycle_sum = performance_int.payload.imem.request_cycle_sum;
   assign performance_imem_response_cycle_sum = performance_int.payload.imem.response_cycle_sum;
-  assign performance_imem_last_request_cycle = performance_int.payload.imem.last_request_cycle;
   assign performance_imem_request_stall_cycle_count = performance_int.payload.imem.request_stall_cycle_count;
-  assign performance_dmem_request_count = performance_int.payload.dmem.request_count;
-  assign performance_dmem_completion_count = performance_int.payload.dmem.completion_count;
+  assign performance_imem_response_stall_cycle_count = performance_int.payload.imem.response_stall_cycle_count;
+  assign performance_dmem_transaction_count = performance_int.payload.dmem.transaction_count;
   assign performance_dmem_request_cycle_sum = performance_int.payload.dmem.request_cycle_sum;
   assign performance_dmem_response_cycle_sum = performance_int.payload.dmem.response_cycle_sum;
-  assign performance_dmem_last_request_cycle = performance_int.payload.dmem.last_request_cycle;
   assign performance_dmem_request_stall_cycle_count = performance_int.payload.dmem.request_stall_cycle_count;
+  assign performance_dmem_response_stall_cycle_count = performance_int.payload.dmem.response_stall_cycle_count;
   for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
     assign performance_class_instret_count[i] = performance_int.payload.classes[i].instret_count;
     assign performance_class_id_local_stall_cycle_count[i] = performance_int.payload.classes[i].id_local_stall_cycle_count;

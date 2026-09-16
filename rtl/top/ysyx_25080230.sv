@@ -121,18 +121,16 @@ module ysyx_25080230
   logic [63:0] debug_perf_class_ex_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
   logic [63:0] debug_perf_class_mem_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
   logic [63:0] debug_perf_class_wb_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_request_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_completion_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_request_cycle_sum /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_response_cycle_sum /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_last_request_cycle /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_transaction_count /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_imem_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_imem_response_cycle_sum /* verilator public_flat_rd */;
   logic [63:0] debug_perf_imem_request_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_request_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_completion_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_request_cycle_sum /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_last_request_cycle /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_response_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_transaction_count /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_dmem_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_response_stall_cycle_count /* verilator public_flat_rd */;
 
   ////////////////////////
   // 退休与性能观测信号 //
@@ -158,18 +156,16 @@ module ysyx_25080230
   assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
   assign debug_perf_instret_count = performance_debug.payload.instret_count;
   assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
-  assign debug_perf_imem_request_count = performance_debug.payload.imem.request_count;
-  assign debug_perf_imem_completion_count = performance_debug.payload.imem.completion_count;
+  assign debug_perf_imem_transaction_count = performance_debug.payload.imem.transaction_count;
   assign debug_perf_imem_request_cycle_sum = performance_debug.payload.imem.request_cycle_sum;
   assign debug_perf_imem_response_cycle_sum = performance_debug.payload.imem.response_cycle_sum;
-  assign debug_perf_imem_last_request_cycle = performance_debug.payload.imem.last_request_cycle;
   assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
-  assign debug_perf_dmem_request_count = performance_debug.payload.dmem.request_count;
-  assign debug_perf_dmem_completion_count = performance_debug.payload.dmem.completion_count;
+  assign debug_perf_imem_response_stall_cycle_count = performance_debug.payload.imem.response_stall_cycle_count;
+  assign debug_perf_dmem_transaction_count = performance_debug.payload.dmem.transaction_count;
   assign debug_perf_dmem_request_cycle_sum = performance_debug.payload.dmem.request_cycle_sum;
   assign debug_perf_dmem_response_cycle_sum = performance_debug.payload.dmem.response_cycle_sum;
-  assign debug_perf_dmem_last_request_cycle = performance_debug.payload.dmem.last_request_cycle;
   assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
+  assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
   for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
     assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
     assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;

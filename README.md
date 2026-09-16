@@ -45,7 +45,7 @@ imem/dmem CoreBus 连接到同文件内的 `mem_sim` 模块，通过 `IsDmem` �
 退休调试和性能接口已展开为顶层标量及分类计数数组端口。对应的检查和 Verilator 生成入口为
 `make sim-lint`、`make sim-parameter-lint` 与 `make sim-verilator`。
 
-性能日志报告 IPC、分类局部阻塞均值和 imem/dmem 延迟、请求背压指标；统计口径见[性能计数器](docs/性能计数器.md)。
+性能日志报告 IPC、分类局部阻塞均值和 imem/dmem 延迟、请求和响应背压指标；统计口径见[性能计数器](docs/性能计数器.md)。
 
 `riscv_core_sim` 提供四个仿真参数：`ImemResponseLatency`、`ImemMaxOutstanding`、
 `DmemResponseLatency` 和 `DmemMaxOutstanding`，默认值分别为 `1、1、1、1`。
