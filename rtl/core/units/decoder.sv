@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// RV32I/Zicsr 组合译码器，将指令编码转换为流水线执行控制。
+// RV32I/E/Zicsr 组合译码器，将指令编码转换为流水线执行控制。
 module decoder
   import riscv_core_pkg::*;
 (
@@ -13,6 +13,7 @@ module decoder
   opcode_e opcode;
   funct3_t funct3;
   funct7_t funct7;
+  logic rs1_used, rs2_used, rd_used;
 
   always_comb begin
     opcode = opcode_e'(instr_i[6:0]);
@@ -320,6 +321,19 @@ module decoder
       // 非法的 7-bit opcode 编码由枚举 cast 后落入 default。
       default: ;
     endcase
+
+    // 仅检查真正的寄存器操作数，立即数与保留字段不受 E 模式限制。
+    rd_used = decode_o.ctrl.rd_write;
+    rs1_used = (opcode == OPC_JALR) || (opcode == OPC_BRANCH) ||
+               (opcode == OPC_LOAD) || (opcode == OPC_STORE) ||
+               (opcode == OPC_OP_IMM) || (opcode == OPC_OP) ||
+               ((opcode == OPC_SYSTEM) && (decode_o.ctrl.csr_cmd != CSR_NONE) &&
+                !decode_o.ctrl.csr_use_imm);
+    rs2_used = (opcode == OPC_BRANCH) || (opcode == OPC_STORE) || (opcode == OPC_OP);
+    if (Rve && ((rd_used && instr_i[11]) ||
+                (rs1_used && instr_i[19]) || (rs2_used && instr_i[24]))) begin
+      decode_o.illegal = 1'b1;
+    end
   end
 
 endmodule

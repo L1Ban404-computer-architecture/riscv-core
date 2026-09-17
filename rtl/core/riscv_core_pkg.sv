@@ -1,15 +1,21 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// RV32I/Zicsr/Zifencei 指令字段、执行操作、异常原因及核心公共类型。
+// RV32I/E/Zicsr/Zifencei 指令字段、执行操作、异常原因及核心公共类型。
 // 流水、调试和性能 payload 类型也由本 package 统一拥有。
+`ifndef RISCV_CORE_RVE
+`define RISCV_CORE_RVE 1
+`endif
+
 package riscv_core_pkg;
+  localparam bit Rve = `RISCV_CORE_RVE;
+  localparam int unsigned GprCount = Rve ? 16 : 32;
 
   ////////////////////////
   // 基础宽度与标量类型 //
   ////////////////////////
 
-  // 当前实现面向 RV32I：指令固定为 32 位，整数寄存器地址固定为 5 位。
+  // RV32I/E 共用指令编码：指令固定为 32 位，整数寄存器地址固定为 5 位。
   parameter int unsigned ILen = 32;
   parameter int unsigned RegAddrW = 5;
 

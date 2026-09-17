@@ -79,7 +79,7 @@ CSR 快照和 GPR 写回字段不随流水级复制。
 make lint       # SystemVerilog lint
 make verilator  # 构建 ysyx_25080230 C++ 模型
 make yosys-slang # 检查顶层综合入口
-make check      # 执行 lint、Verilator 和 yosys-slang 检查
+make check      # 执行 lint、synthesis-lint、Verilator 和 yosys-slang 检查
 ```
 
 yosys-slang 检查使用 `--single-unit`。仿真 assertion 在 `SYNTHESIS` 下自动移除。

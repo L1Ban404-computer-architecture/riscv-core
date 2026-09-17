@@ -1,6 +1,6 @@
-# riscv-core：RV32I 五级流水线 RTL
+# riscv-core：RV32E/RV32I 五级流水线 RTL
 
-本项目以可综合 RTL 子集实现单发射、顺序执行/退休的 RV32I 核心，并包含最小
+本项目以可综合 RTL 子集实现单发射、顺序执行/退休的 RV32E/RV32I 核心，并包含最小
 M-mode 精确同步异常、Zicsr 与 Zifencei 支持。仓库提供 Verilator lint、模型构建，以及
 基于开源工具的 ASIC 综合和布局前 STA 估算；尚未建立布局布线、CDC/RDC 与门级签核流程。
 
@@ -28,7 +28,7 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 
 ## 实现范围
 
-- RV32I 整数、分支跳转、load/store、FENCE 与 Zifencei FENCE.I；
+- RV32E/RV32I 整数、分支跳转、load/store、FENCE 与 Zifencei FENCE.I；
 - ECALL、EBREAK、MRET 和六条 Zicsr 指令；
 - `mstatus/mtvec/mepc/mcause/mtval` 及精确同步异常；
 - 只读 64 位 CLINT `mtime`，每周期递增；
@@ -67,7 +67,7 @@ void dpi_dmem_access_sim(addr, write, wdata, wstrb, rdata, error)
 make lint       # Verilator 静态检查（包含 RTL 仿真 assertion）
 make verilator  # 构建 ysyx_25080230 C++ 模型
 make yosys-slang # 默认核心和 cache elaboration/synthesis
-make check      # lint + verilator + yosys-slang
+make check      # lint + synthesis-lint + verilator + yosys-slang
 make perf       # 调用 yosys-sta，生成标准单元面积和时序报告
 ```
 
@@ -125,11 +125,15 @@ PC、译码及异常处理需要的指令字、真实 CSR 状态和 CLINT `mtime
 仿真文件列表不定义该宏；手动检查裁剪模式可运行 `make synthesis-lint`。
 仿真专用顶层即使裁剪观测端口，仍含 DPI 存储器模型，不能作为硬件综合顶层。
 
-`make check` 同时执行普通及综合模式 lint 和 `make synthesis-test`。后者检查
-预处理结果与降低后的 RTL，并在相同程序、复位和总线背压下逐周期比较两种
-模式的功能总线输出及 FENCE.I 失效脉冲，覆盖分支、访存、CSR、异常和 MRET。
-测试日志和两份对比轨迹位于 `build/synthesis-test/`。
+`make check` 执行普通及综合模式 lint、Verilator 模型构建和 Yosys-Slang
+综合语义检查。运行验证通过 AM 工作负载和 runner 差分完成，流程见工作台根目录 README。
 
-`make forwarding-test` 单独验证两路操作数的前递优先级、未就绪生产者阻塞、
-以及阻塞期间写回数据的保存和清除，在普通及 `SYNTHESIS` 模式下运行。
-该测试也包含在 `make check` 中；日志位于 `build/forwarding-test/`。
+## RV32E / RV32I 选择
+
+默认 RV32E。独立构建用 `make check RVE=1` 或 `make check RVE=0`；外部 RTL
+构建用 `-DRISCV_CORE_RVE=1` 或 `=0`，省略宏时默认 1。lint、综合、仿真和 perf
+使用同一选择；mini-soc、ysyx-soc 从 runner 契约推导该宏。
+
+指令寄存器编码保持 5 位，E 模式只实现 x1–x15，x0 硬连零。实际操作数引用
+x16–x31 时产生非法指令异常，mtval 保存原指令；CSR zimm、移位量和 FENCE
+保留字段不受寄存器数量限制。`check` 对所选模式执行静态检查和模型构建。

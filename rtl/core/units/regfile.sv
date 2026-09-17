@@ -25,11 +25,12 @@ module regfile
   //////////////////////
 
   // 普通 GPR 的复位值在 RISC-V 架构中未定义。阵列不接复位可以避免为
-  // 31 个数据寄存器铺设复位网络；x0 由读写逻辑强制为零。
-  word_t regs_q[31:1];
+  // 普通数据寄存器铺设复位网络；x0 由读写逻辑强制为零。
+  word_t regs_q[GprCount-1:1];
   logic wb_write;
 
-  assign wb_write = wb.payload.valid && wb.payload.data_valid && (wb.payload.rd_addr != ZeroReg);
+  assign wb_write = wb.payload.valid && wb.payload.data_valid && (wb.payload.rd_addr != ZeroReg)
+                  && (int'(wb.payload.rd_addr) < GprCount);
 
   always_ff @(posedge clk_i) begin
     if (wb_write) begin
@@ -43,7 +44,7 @@ module regfile
 
   always_comb begin
     rs1_value_o = '0;
-    if (rs1_addr_i != ZeroReg) begin
+    if ((rs1_addr_i != ZeroReg) && (int'(rs1_addr_i) < GprCount)) begin
       // WB 和 ID 同周期访问同一寄存器时显式旁路，避免依赖 SRAM/寄存器阵列
       // 的 read-during-write 工艺语义。
       if (wb_write && (wb.payload.rd_addr == rs1_addr_i)) begin
@@ -54,7 +55,7 @@ module regfile
     end
 
     rs2_value_o = '0;
-    if (rs2_addr_i != ZeroReg) begin
+    if ((rs2_addr_i != ZeroReg) && (int'(rs2_addr_i) < GprCount)) begin
       if (wb_write && (wb.payload.rd_addr == rs2_addr_i)) begin
         rs2_value_o = wb.payload.wdata;
       end else begin

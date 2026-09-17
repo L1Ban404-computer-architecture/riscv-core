@@ -49,7 +49,7 @@
 
 ```sh
 make check sim-lint
-make -C ../mini-soc test
+make -C ../mini-soc lint build
 ```
 
 回退流水线后，应在仿真中确认多条指令重叠执行。若本机 Verilator 对原版本
