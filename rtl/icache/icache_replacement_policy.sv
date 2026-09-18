@@ -10,9 +10,9 @@
 module icache_replacement_policy
   import icache_pkg::*;
 #(
-  parameter int unsigned SetCount = 2,
-  parameter int unsigned WayCount = 2,
-  parameter icache_replacement_policy_e ReplacementPolicy = ICACHE_REPLACEMENT_ROUND_ROBIN,
+  parameter int unsigned SetCount = ICacheSetCount,
+  parameter int unsigned WayCount = ICacheWayCount,
+  parameter icache_replacement_policy_e ReplacementPolicy = ICacheReplacementPolicy,
   localparam int unsigned SetIndexW = (SetCount > 1) ? $clog2(SetCount) : 1,
   localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2(WayCount) : 1
 ) (

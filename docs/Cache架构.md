@@ -2,9 +2,13 @@
 
 ## 当前集成
 
-顶层只实现指令缓存。`rtl/icache/` 中的 `icache` 是阻塞式、组相联缓存，默认几何为
-`BlockBytes=4`、`SetCount=2`、`WayCount=2`，即总数据容量 16 B。它使用组合 tag/data
-查询；命中请求与 CoreBus 响应可在同拍完成，miss 则以 AXI4 INCR burst 回填一整行。
+顶层实现指令缓存。`rtl/icache/` 中的 `icache` 是阻塞式缓存，由 `ysyx_25080230`
+接在 SoC 取指 CoreBus 上。默认块大小、组数、路数和替换策略只定义在
+`icache_pkg` 的 `ICacheBlockBytes` / `ICacheSetCount` / `ICacheWayCount` /
+`ICacheReplacementPolicy`；顶层实例不覆盖这些参数。它使用组合 tag/data 查询；
+命中请求与 CoreBus 响应可在同拍完成，miss 则以 AXI4 INCR 读回填一整行，
+`ARLEN` 由块内 word 数决定。仿真期 `icache_performance_stats` 统计请求数、命中数
+和命中/缺失延迟，口径见 [性能计数器](性能计数器.md)。
 
 每个实例最多有一笔 miss 在途。回填数据直接写入最终阵列位置，控制器只保存回填组、路、
 目标 word、beat 计数和错误位；不使用缓存行暂存寄存器或 MSHR 队列。`FENCE.I` 连接到

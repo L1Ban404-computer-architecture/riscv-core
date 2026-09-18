@@ -8,4 +8,5 @@ rtl/icache/icache_if.sv
 rtl/icache/icache_replacement_policy.sv
 rtl/icache/icache_array.sv
 rtl/icache/icache_control.sv
+rtl/icache/icache_performance_stats.sv
 rtl/icache/icache.sv

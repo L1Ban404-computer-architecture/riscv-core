@@ -3,9 +3,8 @@
 
 // ysyx SoC 集成顶层。
 //
-// 连接 RV32 核心、指令/数据 CoreBus AXI4 适配器、AXI4 仲裁器和片内 CLINT，
-// 并将参数化内部接口
-// 适配为评测平台规定的固定引脚。
+// 连接 RV32 核心、指令 I-cache、数据 CoreBus AXI4 适配器、AXI4 仲裁器和片内
+// CLINT，并将参数化内部接口适配为评测平台规定的固定引脚。
 // 外部 AXI4 主接口固定为 32 位地址/数据和 4 位 ID；外部从接口当前停用；
 // CLINT 占用 0x0200_0000～0x0200_ffff，其余数据访问转发至外部主接口。
 module ysyx_25080230
@@ -96,6 +95,7 @@ module ysyx_25080230
   logic core_retire_valid  /* verilator public_flat_rd */;
   retire_debug_if retire_debug ();
   performance_debug_if performance_debug ();
+  icache_performance_debug_if icache_performance ();
 
   logic [31:0] debug_retire_pc  /* verilator public_flat_rd */;
   logic [31:0] debug_retire_instr  /* verilator public_flat_rd */;
@@ -132,6 +132,12 @@ module ysyx_25080230
   logic [127:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_response_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_request_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_hit_count /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_hit_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_hit_response_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_miss_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_miss_response_cycle_sum /* verilator public_flat_rd */;
 `endif
 
   ////////////////////////
@@ -169,6 +175,12 @@ module ysyx_25080230
   assign debug_perf_dmem_response_cycle_sum = performance_debug.payload.dmem.response_cycle_sum;
   assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
   assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
+  assign debug_perf_icache_request_count = icache_performance.payload.request_count;
+  assign debug_perf_icache_hit_count = icache_performance.payload.hit_count;
+  assign debug_perf_icache_hit_request_cycle_sum = icache_performance.payload.hit_request_cycle_sum;
+  assign debug_perf_icache_hit_response_cycle_sum = icache_performance.payload.hit_response_cycle_sum;
+  assign debug_perf_icache_miss_request_cycle_sum = icache_performance.payload.miss_request_cycle_sum;
+  assign debug_perf_icache_miss_response_cycle_sum = icache_performance.payload.miss_response_cycle_sum;
   for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
     assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
     assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;
@@ -241,6 +253,8 @@ module ysyx_25080230
   // 核心与片上互连实例 //
   ////////////////////////
 
+  logic icache_invalidate;
+
   riscv_core_impl u_core (
     .clk_i(clock),
     .rst_ni,
@@ -251,8 +265,7 @@ module ysyx_25080230
     .debug_retire(retire_debug),
     .performance(performance_debug),
 `endif
-    // 临时无 cache：保留核心 FENCE.I 提交和改道，失效输出无需连接。
-    .icache_invalidate_o()
+    .icache_invalidate_o(icache_invalidate)
   );
 
   corebus_addr_router #(
@@ -274,14 +287,16 @@ module ysyx_25080230
     .core_bus(clint_bus)
   );
 
-  // 临时无 cache：沿用取指 AXI ID，保证仲裁器将响应送回 IF。
-  mem_axi4 #(
-    .AxiId(ICACHE_AXI_ID)
-  ) u_if_mem_axi4 (
+  icache u_icache (
     .clk_i(clock),
     .rst_ni,
+    .invalidate_i(icache_invalidate),
     .core_bus(imem_bus),
     .axi(if_axi)
+`ifndef SYNTHESIS
+    ,
+    .performance(icache_performance)
+`endif
   );
 
   mem_axi4 u_mem_axi4 (

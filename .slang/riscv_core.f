@@ -6,6 +6,7 @@
 -y rtl/core/units
 -y rtl/bus
 -y rtl/peripheral
+-y rtl/icache
 rtl/common/riscv_common_pkg.sv
 rtl/bus/riscv_bus_pkg.sv
 rtl/core/riscv_core_pkg.sv

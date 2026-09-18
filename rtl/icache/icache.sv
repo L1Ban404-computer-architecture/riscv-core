@@ -3,9 +3,8 @@
 
 // 参数化超小型 I-cache 顶层。
 //
-// 默认数据容量为 4 B * 2 组 * 2 路 = 128 bit。控制器只允许一笔 miss 在途；
-// 命中由寄存器阵列组合返回，miss 的 AXI R beat 直接写入阵列，不保存请求副本或
-// 完整缓存行。
+// 默认几何由 icache_pkg 给出。控制器只允许一笔 miss 在途；命中由寄存器阵列组合
+// 返回，miss 的 AXI R beat 直接写入阵列，不保存请求副本或完整缓存行。
 //
 // invalidate_i 是电平请求：先排空已经对外展示或已经握手的事务，再清除全部 valid；
 // 信号保持为高时持续阻止新请求进入。
@@ -19,10 +18,10 @@ module icache
   parameter int unsigned DataWidth = 32,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = ICACHE_AXI_ID,
-  parameter int unsigned BlockBytes = 8,
-  parameter int unsigned SetCount = 2,
-  parameter int unsigned WayCount = 2,
-  parameter icache_replacement_policy_e ReplacementPolicy = ICACHE_REPLACEMENT_ROUND_ROBIN,
+  parameter int unsigned BlockBytes = ICacheBlockBytes,
+  parameter int unsigned SetCount = ICacheSetCount,
+  parameter int unsigned WayCount = ICacheWayCount,
+  parameter icache_replacement_policy_e ReplacementPolicy = ICacheReplacementPolicy,
   localparam int unsigned BlockOffsetW = $clog2(BlockBytes),
   localparam int unsigned SetIndexBits = $clog2(SetCount),
   localparam int unsigned TagW = AddrWidth - BlockOffsetW - SetIndexBits
@@ -35,6 +34,10 @@ module icache
   // 指令请求与下级存储访问
   core_bus_if.slave core_bus,
   axi4_if.master axi
+`ifndef SYNTHESIS
+  ,
+  icache_performance_debug_if.producer performance
+`endif
 );
 
   //////////////////
@@ -94,6 +97,18 @@ module icache
     .refill,
     .invalidate_apply_i(invalidate_apply)
   );
+
+`ifndef SYNTHESIS
+  icache_performance_stats u_performance_stats (
+    .clk_i,
+    .rst_ni,
+    .req_valid_i(core_bus.req_valid),
+    .req_ready_i(core_bus.req_ready),
+    .rsp_valid_i(core_bus.rsp_valid),
+    .rsp_ready_i(core_bus.rsp_ready),
+    .performance
+  );
+`endif
 
   ////////////////////
   // 参数与接口断言 //

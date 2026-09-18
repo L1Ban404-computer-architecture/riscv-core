@@ -13,10 +13,10 @@ module icache_array
 #(
   parameter int unsigned AddrWidth = 32,
   parameter int unsigned DataWidth = 32,
-  parameter int unsigned BlockBytes = 4,
-  parameter int unsigned SetCount = 2,
-  parameter int unsigned WayCount = 2,
-  parameter icache_replacement_policy_e ReplacementPolicy = ICACHE_REPLACEMENT_ROUND_ROBIN,
+  parameter int unsigned BlockBytes = ICacheBlockBytes,
+  parameter int unsigned SetCount = ICacheSetCount,
+  parameter int unsigned WayCount = ICacheWayCount,
+  parameter icache_replacement_policy_e ReplacementPolicy = ICacheReplacementPolicy,
   localparam int unsigned BlockOffsetW = $clog2(BlockBytes),
   localparam int unsigned SetIndexBits = $clog2(SetCount),
   localparam int unsigned SetIndexW = (SetCount > 1) ? SetIndexBits : 1,
@@ -44,8 +44,8 @@ module icache_array
   typedef logic [WordIndexW-1:0] word_index_t;
   typedef logic [TagW-1:0] tag_t;
 
-  // 物理组织为 [路][组][行内 word]；默认数据阵列总计 2 * 2 * 1 * 32 = 128 bit。
-  // data 和 tag 不复位，valid=0 时其内容不可见，从而节省复位网络。
+  // 物理组织为 [路][组][行内 word]。data 和 tag 不复位，valid=0 时其内容不可见，
+  // 从而节省复位网络。
   logic [DataWidth-1:0] data_q[WayCount][SetCount][WordCount];
   tag_t tag_q[WayCount][SetCount];
   logic valid_q[WayCount][SetCount];

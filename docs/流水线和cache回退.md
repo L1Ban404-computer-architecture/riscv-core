@@ -1,8 +1,8 @@
 # 流水线和 cache 回退
 
-当前保留五级结构，但从取指请求分配到 WB 提交只允许一条在途指令；SoC 取指侧
-用 `mem_axi4` 替代 I-cache，每次取指发出一笔单拍 AXI 读。I-cache 源码和编译列表
-保留，下面两项可独立恢复。若修改已形成独立提交，也可审阅后 `git revert <实际提交号>`。
+当前保留五级结构，但从取指请求分配到 WB 提交只允许一条在途指令。SoC 取指侧
+已恢复 I-cache；流水线单指令限制仍可独立恢复。若修改已形成独立提交，也可审阅后
+`git revert <实际提交号>`。
 
 ## 恢复流水线
 
@@ -24,26 +24,12 @@
 当前多周期模式仅排除后端执行期间的 IF starve；`cycle_count` 仍计全部非复位周期，
 `instret_count` 仍包括异常提交。恢复流水线无需修改其他计数器。
 
-## 恢复 I-cache
+## I-cache 现状
 
-仅修改 `rtl/top/ysyx_25080230.sv`：
-
-1. 恢复 `logic icache_invalidate;`，将核心实例留空的输出改为
-   `.icache_invalidate_o(icache_invalidate)`，删除对应“临时无 cache”注释。
-2. 将整个 `mem_axi4 #(.AxiId(ICACHE_AXI_ID)) u_if_mem_axi4` 实例替换为：
-   ```systemverilog
-   icache u_icache (
-     .clk_i(clock),
-     .rst_ni,
-     .invalidate_i(icache_invalidate),
-     .core_bus(imem_bus),
-     .axi(if_axi)
-   );
-   ```
-
-数据侧 `u_mem_axi4`、仲裁器和 AXI ID 保持原样。无 cache 时 FENCE.I 的提交与改道
-仍执行，只是不使用失效输出。`riscv_core_sim` 原本直连 DPI 存储器，无需修改。
-恢复后同步 README 和顶层说明；两项都恢复后可删除本文及 README 的入口。
+`ysyx_25080230` 取指路径已实例化 `icache`，`icache_invalidate_o` 接到
+`invalidate_i`。仿真下 cache 性能计数经 `icache_performance_debug_if` 拆平为
+`debug_perf_icache_*`。数据侧 `u_mem_axi4`、仲裁器和 AXI ID 保持原样。
+`riscv_core_sim` 仍直连 DPI 存储器，不覆盖 cache/AXI 通路。
 
 ## 验证
 
@@ -57,10 +43,9 @@ make -C ../mini-soc lint build
 
 ```sh
 make check sim-lint \
-  VERILATOR_WARNINGS="-Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR -Wno-SYNCASYNCNET"
+    VERILATOR_WARNINGS="-Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR -Wno-SYNCASYNCNET"
 ```
 
-cache 通路需通过 SoC 顶层验证：无 cache 时每条取指对应单拍读；恢复后重复访问
-应命中，且 FENCE.I 后重新取指。mini-soc 不覆盖 cache/AXI 通路。
-差分使用 runner 和 NEMU 共同支持的指令；当前 NEMU 不支持 FENCE.I，该指令需在
-SoC 仿真中单独观察提交、失效和重新取指行为。所有生成物放在 `build/`，建议在独立副本验证回退。
+cache 通路通过 SoC 顶层验证：重复访问应命中，FENCE.I 后重新取指。mini-soc 不覆盖
+cache/AXI 通路。差分使用 runner 和 NEMU 共同支持的指令；当前 NEMU 不支持 FENCE.I，
+该指令需在 SoC 仿真中单独观察提交、失效和重新取指行为。所有生成物放在 `build/`。
