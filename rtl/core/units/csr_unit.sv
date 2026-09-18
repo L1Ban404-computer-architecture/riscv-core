@@ -21,10 +21,7 @@ module csr_unit
 `ifndef SYNTHESIS
   csr_state_if.producer state,
 `endif
-
-  // 当前控制目标
-  output word_t current_mtvec_o,
-  output word_t current_mepc_o
+  csr_status_if.producer status
 );
 
   /////////////////////////
@@ -105,11 +102,11 @@ module csr_unit
 
 `ifndef SYNTHESIS
   // 退休快照输出下一状态，使仿真环境在 WB fire 当周期观察到本条指令提交后的
-  // CSR 值；控制通路另用窄化的 current_mtvec/current_mepc 读取提交前目标。
+  // CSR 值；trap/MRET 目标另由 status 接口提供提交前的 mtvec/mepc。
   assign state.payload = state_d;
 `endif
-  assign current_mtvec_o = state_q.mtvec;
-  assign current_mepc_o = state_q.mepc;
+  assign status.mtvec = state_q.mtvec;
+  assign status.mepc = state_q.mepc;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

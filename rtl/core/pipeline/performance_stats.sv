@@ -22,7 +22,7 @@ module performance_stats
   mem_wb_if.monitor mem_wb,
   redirect_if.monitor redirect,
   input logic flush_backend_i,
-  // 临时单指令限制：仅在前端负责推进当前指令时统计供给不足。
+  // 当前按多周期占用运行：仅在前端负责推进当前指令时统计供给不足。
   input logic if_local_stall_enable_i,
 
   // 存储器监视
@@ -130,7 +130,7 @@ module performance_stats
   // IF 没有 core 内部的输入握手，因此不能按其他 stage 的入口阻塞方式统计。
   // 这里把“后端愿意接收而 IF/ID 没有事务”定义为 IF 供给不足；redirect 当拍
   // 不计入，但 redirect 后恢复取指导致的空泡仍会自然计入。
-  // 临时单指令限制：后端执行期间的主动停取由使能排除；cycle_count 仍累计。
+  // 当前按多周期占用运行：后端执行期间的主动停取由使能排除；cycle_count 仍累计。
   assign if_local_stall = if_local_stall_enable_i && if_id.ready && !if_id.valid && !redirect.valid;
 
   // 局部阻塞前沿用于剔除逐级向上传播的背压。某阶段阻挡了入口，而它的出口

@@ -133,25 +133,19 @@ module mem_stage
 
   always_comb begin
     completed_mem_bus = ex_mem_payload.commit_ctx;
-    if (!completed_mem_bus.exception.valid && dmem.rsp_payload.error) begin
-      completed_mem_bus.exception.valid = 1'b1;
-      completed_mem_bus.exception.cause = ex_mem_payload.mem_req.write ? EXC_STORE_ACCESS_FAULT :
-          EXC_LOAD_ACCESS_FAULT;
-      completed_mem_bus.exception.tval = ex_mem_payload.mem_req.addr;
+    if (dmem.rsp_payload.error) begin
+      completed_mem_bus.exception = raise_exception(completed_mem_bus.exception,
+          ex_mem_payload.mem_req.write ? EXC_STORE_ACCESS_FAULT : EXC_LOAD_ACCESS_FAULT,
+          ex_mem_payload.mem_req.addr);
     end
-    if (ex_mem_payload.commit_ctx.wb_req.valid && !completed_mem_bus.exception.valid) begin
+    if (!completed_mem_bus.exception.valid && memory_instruction &&
+        !ex_mem_payload.mem_req.write) begin
+      // 成功 load 始终留下整理后的数据，包括 rd=x0；前递仍看 wb_req.valid。
       completed_mem_bus.wb_req.data_valid = 1'b1;
       completed_mem_bus.wb_req.wdata = loaded_data;
     end else if (completed_mem_bus.exception.valid) begin
       completed_mem_bus.wb_req = '0;
     end
-`ifndef SYNTHESIS
-    completed_mem_bus.retire_mem.mem_data = ex_mem_payload.mem_req.write ?
-        ex_mem_payload.mem_req.wdata : loaded_data;
-    if (completed_mem_bus.exception.valid) begin
-      completed_mem_bus.retire_mem.mem_op = RETIRE_MEM_NONE;
-    end
-`endif
 
     // 访存响应和非访存直通共享 MEM/WB，EX/MEM 保证二者互斥。
     if (memory_instruction) begin
@@ -167,7 +161,7 @@ module mem_stage
   // MEM/WB 弹性寄存器与前递 //
   /////////////////////////////
 
-  stream_register #(
+  pipeline_register #(
     .T(mem_wb_payload_t)
   ) u_mem_wb_register (
     .clk_i,
@@ -226,16 +220,6 @@ module mem_stage
   `ASSERT(DmemSendingNoFlush, dmem.req_valid && !dmem.req_ready |=> !flush_i,
           clk_i, !rst_ni, "Backend flush must not cancel a stalled request.")
 
-  `ASSERT_STABLE(
-    MemWbStable,
-    mem_wb.valid,
-    mem_wb.ready,
-    mem_wb_payload,
-    mem_wb_payload_t'(0),
-    clk_i,
-    !rst_ni,
-    "MEM/WB payload must remain stable while valid is waiting for ready."
-  )
   // verilog_format: on
 
 endmodule

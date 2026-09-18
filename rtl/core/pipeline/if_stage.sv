@@ -26,7 +26,7 @@ module if_stage
   input logic clk_i,
   input logic rst_ni,
   input pc_t boot_pc_i,
-  // 临时单指令限制：所有 WB 提交（包括异常）释放取指占用。
+  // 当前按多周期占用运行：所有 WB 提交（包括异常）释放取指占用。
   input logic retire_i,
   redirect_if.consumer redirect,
 
@@ -54,7 +54,7 @@ module if_stage
   pc_t pc_d;
   logic boot_pending_q;
   logic frontend_flush;
-  // 临时单指令限制：从请求分配到 WB 提交，包含尚未握手的请求。
+  // 当前按多周期占用：从请求分配到 WB 提交，包含尚未握手的请求。
   logic instruction_active_q;
 
   // 请求 holding register 在空闲时组合旁路，在 I-cache 反压时保持请求和 payload。
@@ -134,10 +134,9 @@ module if_stage
 `ifndef SYNTHESIS
     inst_fifo_data.meta.instid = response_meta.instid;
 `endif
-    inst_fifo_data.exception.valid = imem.rsp_payload.error;
-    inst_fifo_data.exception.cause = imem.rsp_payload.error ? EXC_INST_ACCESS_FAULT :
-        exception_cause_e'('0);
-    inst_fifo_data.exception.tval = imem.rsp_payload.error ? response_meta.pc : '0;
+    if (imem.rsp_payload.error) begin
+      inst_fifo_data.exception = raise_exception('0, EXC_INST_ACCESS_FAULT, response_meta.pc);
+    end
   end
 
   ////////////////////
@@ -203,7 +202,7 @@ module if_stage
     end
   end
 
-  // 临时单指令限制：redirect 只更新 PC，不能提前放行下一条指令。
+  // 当前按多周期占用：redirect 只更新 PC，不能提前放行下一条指令。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) instruction_active_q <= 1'b0;
     else if (retire_i) instruction_active_q <= 1'b0;
@@ -259,7 +258,7 @@ module if_stage
   ////////////////////
 
   // verilog_format: off
-  // 临时单指令限制断言；恢复流水线时一并移除。
+  // 当前多周期占用断言；恢复流水重叠时一并移除。
   // 异步复位同时作为 SVA disable 条件，不是数据通路的同步复位。
   /* verilator lint_off SYNCASYNCNET */
   `ASSERT(SingleInstructionAllocation, instruction_active_q |-> !fetch_req_fire,

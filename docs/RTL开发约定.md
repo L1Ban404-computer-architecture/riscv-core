@@ -46,14 +46,23 @@ package → interface → module 的编译顺序。interface 不拥有时钟、�
   模块内部状态或 FIFO payload。握手信号始终独立于 payload；同一 payload 几何的边界
   使用整体赋值，只有协议类型转换才逐字段显式映射。
 - ready/valid 在受背压时必须保持 valid 和 payload 稳定。
-- 优先复用 `stream_register`、`fall_through_register` 和 `stream_fifo`。
+- 优先复用 `pipeline_register`、`stream_register`、`fall_through_register` 和 `stream_fifo`。
 
 核心流水 payload 按职责分层：`instruction_meta_payload_t` 保存唯一的 PC/指令来源，
-`commit_context_payload_t` 保存仍可能影响功能提交的上下文，`retire_mem_payload_t`
-和 `retire_redirect_payload_t` 保存退休观察所需的事件。`ex_mem_payload_t` 由
+`commit_context_payload_t` 只保存仍可能影响功能提交的上下文。`ex_mem_payload_t` 由
 `commit_ctx + mem_req` 组成，`mem_wb_payload_t` 是公共提交上下文的类型别名；MEM
-不再重新构造一份 EX/MEM 的公共字段。完整 `retire_debug_payload_t` 只在 WB 生成，
-CSR 快照和 GPR 写回字段不随流水级复制。
+不再重新构造一份 EX/MEM 的公共字段。源寄存器是否真正使用由 decoder 写入
+`reg_addr_payload_t.rs1_used` / `rs2_used`。同步异常归并用 package 函数
+`raise_exception`：已有 `valid` 时保持原样。WB 用 `commit_kind_from_context` 分类提交，
+经 `commit_event_if` 给出 `COMMIT_NORMAL` / `COMMIT_TRAP` / `COMMIT_MRET` /
+`COMMIT_FENCE_I`；`redirect_if` 只携带前端重取的 `target_pc`。`retire_mem_payload_t` 与
+`retire_redirect_payload_t` 仅用于 `retire_debug_payload_t`；完整退休快照由
+`retire_debug` 监视公开流水、提交事件与寄存器接口生成，并用参数化顺序在途队列对齐各级
+延迟，不随功能事务复制，也不观察 CoreBus。
+
+ID/EX、EX/MEM、MEM/WB 的具名流水 interface 由 `RISCV_CORE_PIPELINE_STREAM_IF` 生成协议壳；
+`pipeline_stream_if` 保留为理想泛型，不作为模块端口。这三级边界使用 `pipeline_register`
+保存事务并检查 payload/valid 在背压下保持稳定。
 
 每个自有模块在声明前用一至数句自然语言说明职责；只有确实影响使用方式的关键约束
 才写入模块说明，不设置“功能”“约束”等固定字段。端口区只用简短注释分组，不描述

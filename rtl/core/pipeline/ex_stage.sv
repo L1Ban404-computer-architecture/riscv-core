@@ -1,8 +1,6 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common/assertions.svh"
-
 // 指令执行级。
 //
 // 完成操作数前递、整数运算、分支判定、访存地址生成和 CSR 读改写计算，
@@ -61,9 +59,6 @@ module ex_stage
   word_t csr_new_value;
   logic csr_write_attempt;
   logic data_misaligned;
-  logic conditional_branch;
-  logic rs1_used;
-  logic rs2_used;
 
   ////////////////////////
   // 流水接口解包与打包 //
@@ -88,8 +83,8 @@ module ex_stage
     .execute_fire_i(ex_execute_fire),
     .rs1_addr_i(id_ex_payload.reg_addr.rs1_addr),
     .rs2_addr_i(id_ex_payload.reg_addr.rs2_addr),
-    .rs1_used_i(rs1_used),
-    .rs2_used_i(rs2_used),
+    .rs1_used_i(id_ex_payload.reg_addr.rs1_used),
+    .rs2_used_i(id_ex_payload.reg_addr.rs2_used),
     .rs1_value_i(id_ex_payload.exec_data.rs1_value),
     .rs2_value_i(id_ex_payload.exec_data.rs2_value),
     .ex_wb,
@@ -98,23 +93,6 @@ module ex_stage
     .rs2_value_o(rs2_value),
     .stall_o(forward_stall)
   );
-
-  always_comb begin
-    conditional_branch = 1'b0;
-    case (id_ex_payload.ctrl.branch_op)
-      BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU: conditional_branch = 1'b1;
-      default: ;
-    endcase
-    // 只检查指令真正读取的源寄存器，编码中无语义的 rs 字段不会产生
-    // LUI、JAL、FENCE 等指令的伪相关。
-    rs1_used = conditional_branch || (id_ex_payload.ctrl.branch_op == BR_JALR) ||
-        (id_ex_payload.ctrl.mem_cmd != MEM_NONE) ||
-        ((id_ex_payload.ctrl.csr_cmd != CSR_NONE) && !id_ex_payload.ctrl.csr_use_imm) ||
-        ((id_ex_payload.ctrl.wb_sel == WB_ALU) && (id_ex_payload.ctrl.op_a_sel == OP_A_RS1) &&
-         (id_ex_payload.ctrl.alu_op != ALU_PASS_B));
-    rs2_used = conditional_branch || (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ||
-        ((id_ex_payload.ctrl.wb_sel == WB_ALU) && (id_ex_payload.ctrl.op_b_sel == OP_B_RS2));
-  end
 
   //////////////////////
   // ALU 与控制流执行 //
@@ -162,23 +140,19 @@ module ex_stage
     // 上游异常不可覆盖。EX 仅在当前 payload 尚无异常时补充控制流目标、
     // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex_payload.exception;
-    if (!executed_exception.valid) begin
-      if (branch_redirect.valid && (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
-        executed_exception.valid = 1'b1;
-        executed_exception.cause = EXC_INST_ADDR_MISALIGNED;
-        executed_exception.tval = branch_redirect.payload.target_pc;
-      end else if ((id_ex_payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
-        executed_exception.valid = 1'b1;
-        executed_exception.cause = (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ?
-            EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED;
-        executed_exception.tval = alu_result;
-      end else if ((id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
-                   (!csr_read.rsp_payload.valid ||
-                    (csr_write_attempt && (id_ex_payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
-        executed_exception.valid = 1'b1;
-        executed_exception.cause = EXC_ILLEGAL_INSTR;
-        executed_exception.tval = id_ex_payload.meta.instr;
-      end
+    if (branch_redirect.valid && (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
+      executed_exception = raise_exception(executed_exception, EXC_INST_ADDR_MISALIGNED,
+                                           branch_redirect.payload.target_pc);
+    end else if ((id_ex_payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
+      executed_exception = raise_exception(executed_exception,
+                                           (id_ex_payload.ctrl.mem_cmd == MEM_STORE) ?
+                                               EXC_STORE_ADDR_MISALIGNED :
+                                               EXC_LOAD_ADDR_MISALIGNED, alu_result);
+    end else if ((id_ex_payload.ctrl.csr_cmd != CSR_NONE) &&
+                 (!csr_read.rsp_payload.valid ||
+                  (csr_write_attempt && (id_ex_payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
+      executed_exception = raise_exception(executed_exception, EXC_ILLEGAL_INSTR,
+                                           id_ex_payload.meta.instr);
     end
 
     redirect.valid = branch_redirect.valid;
@@ -280,20 +254,11 @@ module ex_stage
     executed_ex_mem_bus.commit_ctx.wb_req = wb_req;
     executed_ex_mem_bus.commit_ctx.exception = executed_exception;
     executed_ex_mem_bus.commit_ctx.commit = commit_ctrl;
-`ifndef SYNTHESIS
-    executed_ex_mem_bus.commit_ctx.retire_mem.mem_op = !mem_req.valid ?
-        RETIRE_MEM_NONE : (mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ);
-    executed_ex_mem_bus.commit_ctx.retire_mem.mem_size = mem_req.size;
-    executed_ex_mem_bus.commit_ctx.retire_mem.mem_addr = mem_req.addr;
-    executed_ex_mem_bus.commit_ctx.retire_mem.mem_data = mem_req.wdata;
-    executed_ex_mem_bus.commit_ctx.redirect.valid = redirect.valid;
-    executed_ex_mem_bus.commit_ctx.redirect.target_pc = redirect.payload.target_pc;
-`endif
     executed_ex_mem_bus.mem_req = mem_req;
   end
 
   // 满载且 MEM 就绪时允许同拍弹出和写入，不在连续指令之间插入气泡。
-  stream_register #(
+  pipeline_register #(
     .T(ex_mem_payload_t)
   ) u_ex_mem_register (
     .clk_i,
@@ -307,28 +272,4 @@ module ex_stage
     .data_o(ex_mem_payload)
   );
 
-  //////////////
-  // 协议断言 //
-  //////////////
-
-  // verilog_format: off
-  `ASSERT_STABLE(
-    ExMemStable,
-    ex_mem.valid,
-    ex_mem.ready,
-    ex_mem_payload,
-    ex_mem_payload_t'(0),
-    clk_i,
-    !rst_ni || flush_i,
-    "EX/MEM payload must remain stable while valid is waiting for ready."
-  )
-
-  `ASSERT(
-    ExMemValidStable,
-    ex_mem.valid && !ex_mem.ready |=> ex_mem.valid,
-    clk_i,
-    !rst_ni || flush_i,
-    "EX/MEM valid must remain asserted until ready."
-  )
-  // verilog_format: on
 endmodule

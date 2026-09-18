@@ -144,6 +144,14 @@ package riscv_core_pkg;
     SYS_MRET
   } system_op_e;
 
+  // WB 作为唯一架构提交点产出的提交类别；FENCE.I 会前端重取，但不是架构改道。
+  typedef enum logic [1:0] {
+    COMMIT_NORMAL,
+    COMMIT_TRAP,
+    COMMIT_MRET,
+    COMMIT_FENCE_I
+  } commit_kind_e;
+
   // 当前核心支持的同步异常 cause，编码与 RISC-V mcause 的低位定义一致。
   typedef enum logic [3:0] {
     EXC_INST_ADDR_MISALIGNED = 4'd0,
@@ -184,6 +192,8 @@ package riscv_core_pkg;
     reg_addr_t rs1_addr;
     reg_addr_t rs2_addr;
     reg_addr_t rd_addr;
+    logic rs1_used;
+    logic rs2_used;
   } reg_addr_payload_t;
 
   // EX 所需的两路寄存器快照和已扩展立即数。
@@ -229,6 +239,21 @@ package riscv_core_pkg;
     exception_cause_e cause;
     riscv_common_pkg::word_t tval;
   } exception_payload_t;
+
+  // 更老异常获胜。existing.valid 时保持原样，否则填入一条同步异常。
+  function automatic exception_payload_t raise_exception(
+    input exception_payload_t existing,
+    input exception_cause_e cause,
+    input riscv_common_pkg::word_t tval
+  );
+    exception_payload_t result;
+    if (existing.valid) return existing;
+    result = '0;
+    result.valid = 1'b1;
+    result.cause = cause;
+    result.tval = tval;
+    return result;
+  endfunction
 
   // EX 生成、MEM 消费的架构访存请求。wdata 在此仍未按总线 lane 对齐。
   typedef struct packed {
@@ -294,8 +319,7 @@ package riscv_core_pkg;
 `endif
 
 `ifndef SYNTHESIS
-  // MEM 完成后仍需送达退休观察端的访存结果。功能 mem_req 仍独立保留 sign_ext
-  // 和原始 store 数据，避免调试语义反向约束执行请求。
+  // 退休观察器从功能 mem_req 与数据响应推导访存事件；功能通路不携带这些字段。
   typedef struct packed {
     retire_mem_op_e mem_op;
     mem_size_e mem_size;
@@ -321,20 +345,27 @@ package riscv_core_pkg;
   } csr_commit_payload_t;
 
   // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在访存响应完成时修改
-  // retire_mem.mem_data，其余字段直接整体转移。
+  // 异常和 load 写回数据，其余字段直接整体转移。退休观察字段不进入本结构。
   typedef struct packed {
     commit_meta_payload_t meta;
     writeback_payload_t wb_req;
     exception_payload_t exception;
     commit_ctrl_payload_t commit;
-`ifndef SYNTHESIS
-    retire_mem_payload_t retire_mem;
-    retire_redirect_payload_t redirect;
-`endif
   } commit_context_payload_t;
 
+  // 提交优先级与 WB 一致：trap entry > MRET > FENCE.I > 普通写回。
+  // 只解释 exception/system_op/fence_i；其余上下文字段有意忽略。
+  /* verilator lint_off UNUSEDSIGNAL */
+  function automatic commit_kind_e commit_kind_from_context(input commit_context_payload_t ctx);
+    if (ctx.exception.valid) return COMMIT_TRAP;
+    if (ctx.commit.system_op == SYS_MRET) return COMMIT_MRET;
+    if (ctx.commit.fence_i) return COMMIT_FENCE_I;
+    return COMMIT_NORMAL;
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+
 `ifndef SYNTHESIS
-  // 完整退休快照只在 WB 生成，CSR 快照和 GPR 写回字段不再随流水线传播。
+  // 完整退休快照由核心顶层观察器生成，不随流水级功能事务传播。
   typedef struct packed {
     instruction_meta_payload_t meta;
     logic gpr_we;

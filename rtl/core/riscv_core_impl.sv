@@ -3,21 +3,22 @@
 
 // 五级顺序 RV32 核心。
 //
-// 连接 IF、ID、EX、MEM、WB 流水级，并集中处理改道、串行化、数据前递和
-// 性能观测通路。
+// 连接 IF、ID、EX、MEM、WB 流水级与顶层 GPR/CSR，以及流水控制与仿真期观察通路。
 module riscv_core_impl
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 #(
   parameter int unsigned FetchOutstandingDepth = 1,
-  parameter int unsigned IfIdQueueDepth = 2
+  parameter int unsigned IfIdQueueDepth = 2,
+  parameter int unsigned ExMaxInflight = 1,
+  parameter int unsigned MemMaxInflight = 1
 ) (
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
   input pc_t boot_pc_i,
 
-  // 连接层保留完整接口，供流水级以 master、性能模块以 monitor 视图使用。
+  // 连接层保留完整接口，供流水级以 master、观察模块以 monitor 视图使用。
   core_bus_if imem,
   core_bus_if dmem,
 
@@ -43,6 +44,10 @@ module riscv_core_impl
   redirect_if wb_redirect ();
   redirect_if resolved_redirect ();
   csr_read_if csr_read ();
+  csr_commit_if csr_commit ();
+  csr_status_if csr_status ();
+  commit_event_if commit_event ();
+  gpr_read_if gpr_read ();
   writeback_if mem_wb_forward ();
   writeback_if wb ();
 
@@ -52,35 +57,31 @@ module riscv_core_impl
   logic mem_side_effect_block;
   logic backend_flush;
 
+`ifndef SYNTHESIS
+  csr_state_if csr_state ();
+`endif
+
   //////////////////////////
   // 全局改道与串行化控制 //
   //////////////////////////
 
-  // 精确异常要求“更老者获胜”。同周期 WB 提交异常与 EX 分支竞争时，
-  // 必须采用 WB 目标，年轻分支随后由后端 flush 清除。
-  // 分支只需要刷新前端；WB 的 trap/MRET 同时刷新前端和后端。
-  // WB 更老，因此它的目标地址覆盖同周期 EX 产生的分支目标。
-  assign resolved_redirect.valid = wb_redirect.valid || ex_redirect.valid;
-  assign resolved_redirect.payload.target_pc = wb_redirect.valid ? wb_redirect.payload.target_pc :
-      ex_redirect.payload.target_pc;
-  // CSR/SYSTEM 在 ID/EX 至 WB 期间构成串行屏障。它进入 EX 前先等待更老
-  // EX/MEM、LSU outstanding 和 MEM/WB 排空，因此 CSR 读取无需专用前递。
-  // 屏障存在期间禁止更年轻指令进入 ID/EX，异常同样需要保持精确顺序。
-  assign serialize_block = (id_ex.valid &&
-                            (id_ex.payload.ctrl.serialize || id_ex.payload.exception.valid)) ||
-      (ex_mem.valid &&
-       (ex_mem.payload.commit_ctx.commit.serialize || ex_mem.payload.commit_ctx.exception.valid)) ||
-      (mem_wb.valid && (mem_wb.payload.commit.serialize || mem_wb.payload.exception.valid));
-  // 仅当所有更老的流水事务、访存 outstanding 和待提交事务都已排空时，
-  // 当前屏障才允许从 ID/EX 进入 EX。
-  assign serialize_ready = !ex_mem.valid && !mem_busy && !mem_wb.valid;
-  // WB 中的屏障尚未提交时，禁止更年轻访存发出可能可见的总线副作用。
-  assign mem_side_effect_block = mem_wb.valid &&
-      (mem_wb.payload.commit.serialize || mem_wb.payload.exception.valid);
+  pipeline_ctrl u_pipeline_ctrl (
+    .id_ex,
+    .ex_mem,
+    .mem_wb,
+    .ex_redirect,
+    .wb_redirect,
+    .mem_busy_i(mem_busy),
+    .serialize_block_o(serialize_block),
+    .serialize_ready_o(serialize_ready),
+    .mem_side_effect_block_o(mem_side_effect_block),
+    .resolved_redirect,
+    .backend_flush_o(backend_flush)
+  );
 
-  //////////////////////////
-  // 流水级与性能统计实例 //
-  //////////////////////////
+  ////////////////////////////////
+  // 架构状态、流水级与观察器   //
+  ////////////////////////////////
 
   if_stage #(
     .FetchOutstandingDepth(FetchOutstandingDepth),
@@ -89,7 +90,7 @@ module riscv_core_impl
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
-    // 临时单指令限制：下一条取指等待本条 WB 提交。
+    // 当前按多周期占用运行：下一条取指等待本条 WB 提交。流水结构与在途参数保留。
     .retire_i(mem_wb.valid && mem_wb.ready),
     .redirect(resolved_redirect),
     .imem,
@@ -102,8 +103,14 @@ module riscv_core_impl
     .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
     .if_id,
-    .wb,
-    .id_ex
+    .id_ex,
+    .gpr_read
+  );
+
+  regfile u_regfile (
+    .clk_i,
+    .gpr_read,
+    .wb
   );
 
   ex_stage u_ex_stage (
@@ -134,14 +141,23 @@ module riscv_core_impl
     .clk_i,
     .rst_ni,
     .mem_wb,
-    .csr_read,
+    .csr_commit,
+    .csr_status,
+    .commit_event,
     .redirect(wb_redirect),
-    .flush_o(backend_flush),
     .icache_invalidate_o,
-`ifndef SYNTHESIS
-    .debug_retire,
-`endif
     .wb
+  );
+
+  csr_unit u_csr_unit (
+    .clk_i,
+    .rst_ni,
+    .csr_read,
+    .commit(csr_commit),
+`ifndef SYNTHESIS
+    .state(csr_state),
+`endif
+    .status(csr_status)
   );
 
 `ifndef SYNTHESIS
@@ -156,9 +172,27 @@ module riscv_core_impl
     .flush_backend_i(backend_flush),
     .imem,
     .dmem,
-    // 临时单指令限制：后端执行时主动停取，不属于 IF 供给不足。
+    // 当前按多周期占用运行：后端执行时主动停取，不属于 IF 供给不足。
     .if_local_stall_enable_i(!(id_ex.valid || ex_mem.valid || mem_wb.valid || mem_busy)),
     .performance
+  );
+
+  retire_debug #(
+    .ExMaxInflight(ExMaxInflight),
+    .MemMaxInflight(MemMaxInflight)
+  ) u_retire_debug (
+    .clk_i,
+    .rst_ni,
+    .flush_backend_i(backend_flush),
+    .id_ex,
+    .ex_mem,
+    .mem_wb,
+    .ex_redirect,
+    .wb_redirect,
+    .wb,
+    .csr_state,
+    .commit_event,
+    .debug_retire
   );
 `endif
 

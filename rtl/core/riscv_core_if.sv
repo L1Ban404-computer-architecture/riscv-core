@@ -35,6 +35,25 @@ interface writeback_if;
   modport monitor(input payload);
 endinterface
 
+// ID 到寄存器堆的两路组合读；写回旁路仍由寄存器堆在内部完成。
+interface gpr_read_if;
+  typedef struct packed {
+    riscv_core_pkg::reg_addr_t rs1_addr;
+    riscv_core_pkg::reg_addr_t rs2_addr;
+  } req_payload_t;
+
+  typedef struct packed {
+    riscv_common_pkg::word_t rs1_value;
+    riscv_common_pkg::word_t rs2_value;
+  } rsp_payload_t;
+
+  req_payload_t req_payload;
+  rsp_payload_t rsp_payload;
+  modport requester(output req_payload, input rsp_payload);
+  modport responder(input req_payload, output rsp_payload);
+  modport monitor(input req_payload, rsp_payload);
+endinterface
+
 ////////////////////////
 // CSR 与全局控制接口 //
 ////////////////////////
@@ -66,7 +85,17 @@ interface csr_commit_if;
   modport monitor(input payload);
 endinterface
 
+// 提交前的 trap/MRET 控制目标；与 Zicsr 组合读口分离。
+interface csr_status_if;
+  riscv_common_pkg::word_t mtvec;
+  riscv_common_pkg::word_t mepc;
+  modport producer(output mtvec, mepc);
+  modport consumer(input mtvec, mepc);
+  modport monitor(input mtvec, mepc);
+endinterface
+
 // 控制流改道事件；valid 当拍的 target_pc 是下一条应取指的架构 PC。
+// FENCE.I 也走本接口做前端重取；架构提交类别由 commit_event_if 单独给出。
 interface redirect_if #(
   parameter int unsigned AddrWidth = riscv_common_pkg::XLen
 );
@@ -77,6 +106,15 @@ interface redirect_if #(
   modport producer(output valid, payload);
   modport consumer(input valid, payload);
   modport monitor(input valid, payload);
+endinterface
+
+// WB 唯一提交点给出的退休类别。valid 与 MEM/WB fire 同拍；kind 仅在 valid 时有意义。
+interface commit_event_if;
+  logic valid;
+  riscv_core_pkg::commit_kind_e kind;
+  modport producer(output valid, kind);
+  modport consumer(input valid, kind);
+  modport monitor(input valid, kind);
 endinterface
 
 ////////////////////////
@@ -116,44 +154,21 @@ endinterface
 /////////////////////////////
 
 // 当前目标工具对 parameterized interface port 的 modport 语法和
-// interface clone 支持不完整，实际核心使用下面的 typed wrapper；wrapper
-// 只固定事务类型，不重新声明其中的字段。
+// interface clone 支持不完整。pipeline_stream_if 保留为理想泛型；实际端口
+// 使用下面的 typed wrapper。宏只生成协议壳，不重复 payload 字段。
+`define RISCV_CORE_PIPELINE_STREAM_IF(__name, __payload_t) \
+  interface __name; \
+    logic valid; \
+    logic ready; \
+    __payload_t payload; \
+    modport producer(output valid, payload, input ready); \
+    modport consumer(input valid, payload, output ready); \
+    modport monitor(input valid, ready, payload); \
+  endinterface
 
-// 每个边界只重复协议壳，不重复 payload 字段。payload 类型由 package 统一拥有，
-// 这样既保留了 modport 方向检查，也避开目标工具对 parameterized interface port
-// 的限制。
-interface if_id_if;
-  logic valid;
-  logic ready;
-  riscv_core_pkg::if_id_payload_t payload;
-  modport producer(output valid, payload, input ready);
-  modport consumer(input valid, payload, output ready);
-  modport monitor(input valid, ready, payload);
-endinterface
+`RISCV_CORE_PIPELINE_STREAM_IF(if_id_if, riscv_core_pkg::if_id_payload_t)
+`RISCV_CORE_PIPELINE_STREAM_IF(id_ex_if, riscv_core_pkg::id_ex_payload_t)
+`RISCV_CORE_PIPELINE_STREAM_IF(ex_mem_if, riscv_core_pkg::ex_mem_payload_t)
+`RISCV_CORE_PIPELINE_STREAM_IF(mem_wb_if, riscv_core_pkg::mem_wb_payload_t)
 
-interface id_ex_if;
-  logic valid;
-  logic ready;
-  riscv_core_pkg::id_ex_payload_t payload;
-  modport producer(output valid, payload, input ready);
-  modport consumer(input valid, payload, output ready);
-  modport monitor(input valid, ready, payload);
-endinterface
-
-interface ex_mem_if;
-  logic valid;
-  logic ready;
-  riscv_core_pkg::ex_mem_payload_t payload;
-  modport producer(output valid, payload, input ready);
-  modport consumer(input valid, payload, output ready);
-  modport monitor(input valid, ready, payload);
-endinterface
-
-interface mem_wb_if;
-  logic valid;
-  logic ready;
-  riscv_core_pkg::mem_wb_payload_t payload;
-  modport producer(output valid, payload, input ready);
-  modport consumer(input valid, payload, output ready);
-  modport monitor(input valid, ready, payload);
-endinterface
+`undef RISCV_CORE_PIPELINE_STREAM_IF
