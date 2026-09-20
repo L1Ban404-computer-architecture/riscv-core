@@ -37,10 +37,24 @@ interface core_bus_if #(
   logic req_ready;
   logic rsp_valid;
   logic rsp_ready;
+  logic req_fire;
+  logic rsp_fire;
 
-  modport master(output req_payload, req_valid, rsp_ready, input req_ready, rsp_payload, rsp_valid);
-  modport slave(input req_payload, req_valid, rsp_ready, output req_ready, rsp_payload, rsp_valid);
-  modport monitor(input req_payload, req_valid, req_ready, rsp_payload, rsp_valid, rsp_ready);
+  // fire 由握手派生，所有 modport 只读，模块不得驱动。
+  assign req_fire = req_valid && req_ready;
+  assign rsp_fire = rsp_valid && rsp_ready;
+
+  modport master(
+      output req_payload, req_valid, rsp_ready, input req_ready, rsp_payload, rsp_valid, req_fire,
+          rsp_fire
+  );
+  modport slave(
+      input req_payload, req_valid, rsp_ready, req_fire, rsp_fire, output req_ready, rsp_payload,
+          rsp_valid
+  );
+  modport monitor(
+      input req_payload, req_valid, req_ready, req_fire, rsp_payload, rsp_valid, rsp_ready, rsp_fire
+  );
 endinterface
 
 /////////////////////
@@ -95,30 +109,45 @@ interface axi4_if #(
 
   logic awvalid;
   logic awready;
+  logic aw_fire;
 
   logic wvalid;
   logic wready;
+  logic w_fire;
 
   logic bvalid;
   logic bready;
+  logic b_fire;
 
   logic arvalid;
   logic arready;
+  logic ar_fire;
 
   logic rvalid;
   logic rready;
+  logic r_fire;
+
+  // 各通道 fire 由握手派生，所有 modport 只读，模块不得驱动。
+  assign aw_fire = awvalid && awready;
+  assign w_fire = wvalid && wready;
+  assign b_fire = bvalid && bready;
+  assign ar_fire = arvalid && arready;
+  assign r_fire = rvalid && rready;
 
   modport master(
       output awvalid, aw_payload, wvalid, w_payload, bready, arvalid, ar_payload, rready,
-      input awready, wready, bvalid, b_payload, arready, rvalid, r_payload
+      input awready, wready, bvalid, b_payload, arready, rvalid, r_payload, aw_fire, w_fire, b_fire,
+          ar_fire, r_fire
   );
   modport slave(
-      input awvalid, aw_payload, wvalid, w_payload, bready, arvalid, ar_payload, rready,
+      input awvalid, aw_payload, wvalid, w_payload, bready, arvalid, ar_payload, rready, aw_fire,
+          w_fire, b_fire, ar_fire, r_fire,
       output awready, wready, bvalid, b_payload, arready, rvalid, r_payload
   );
   modport monitor(
-      input awvalid, awready, aw_payload, wvalid, wready, w_payload, bvalid, bready, b_payload,
-          arvalid, arready, ar_payload, rvalid, rready, r_payload
+      input awvalid, awready, aw_fire, aw_payload, wvalid, wready, w_fire, w_payload, bvalid,
+          bready, b_fire, b_payload, arvalid, arready, ar_fire, ar_payload, rvalid, rready, r_fire,
+          r_payload
   );
 endinterface
 /* verilator lint_on DECLFILENAME */

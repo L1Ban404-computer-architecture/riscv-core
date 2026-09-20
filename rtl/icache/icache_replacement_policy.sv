@@ -45,6 +45,7 @@ module icache_replacement_policy
   if (WayCount == 1) begin : gen_direct_mapped
     assign full_victim = '0;
 
+    // 1 路不读这些输入；赋值未被读取，综合会删除。
     logic unused_policy_inputs;
     assign unused_policy_inputs = ^{clk_i, rst_ni, select_set_i, hit_valid_i, hit_set_i, hit_way_i,
                                     fill_valid_i, fill_set_i, fill_way_i};

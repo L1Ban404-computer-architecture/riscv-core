@@ -14,22 +14,19 @@ module memory_performance_stats
   core_bus_if.monitor bus,
   output memory_performance_payload_t stats_o
 );
-  logic request_fire, response_fire;
   memory_performance_payload_t stats_q;
 
   assign stats_o = stats_q;
-  assign request_fire = bus.req_valid && bus.req_ready;
-  assign response_fire = bus.rsp_valid && bus.rsp_ready;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       stats_q <= '0;
     end else begin
-      if (request_fire) begin
+      if (bus.req_fire) begin
         stats_q.transaction_count <= stats_q.transaction_count + 64'd1;
         stats_q.request_cycle_sum <= stats_q.request_cycle_sum + 128'(cycle_i);
       end
-      if (response_fire) begin
+      if (bus.rsp_fire) begin
         stats_q.response_cycle_sum <= stats_q.response_cycle_sum + 128'(cycle_i);
       end
       if (bus.req_valid && !bus.req_ready)

@@ -73,19 +73,25 @@ make perf       # 调用 yosys-sta，生成标准单元面积和时序报告
 ```
 
 `make perf` 使用 [OSCPU/yosys-sta](https://github.com/OSCPU/yosys-sta) 的原生
-Yosys + iSTA 流程和 icsprout55 工艺库。依赖须提前安装，运行时不下载工具。
-本机安装位于 `~/.local/yosys-sta`，`~/.zsh/env.zsh` 设置 `YOSYS_STA_HOME`
-并将其 `bin` 加入 PATH；Yosys/slang 复用已有 OSS CAD Suite。
+Yosys + iSTA 流程，默认工艺为 **nangate45**（讲义 B 阶段面积预算约 25000 也按此库）。
+依赖须提前安装，运行时不下载工具。本机安装位于 `~/.local/yosys-sta`，
+`~/.zsh/env.zsh` 设置 `YOSYS_STA_HOME` 并将其 `bin` 加入 PATH；Yosys/slang 复用已有
+OSS CAD Suite。nangate45 标准单元库从
+[ysyx archive](https://ysyx.oscc.cc/slides/resources/archive/nangate45.tar.bz2)
+解压到 `$YOSYS_STA_HOME/pdk/nangate45`。
 
-本机固定版本：yosys-sta `72495ad5619a9d5053c3a2748db1b295d5df3fb4`，
-icsprout55（`ysyx` 分支）`6bc74eeed6d019a46c9f00ee0d325ec6196233ab`。
-其他机器请按上游 README 安装 iEDA 和 PDK，准备支持 slang 的 Yosys，并设置：
+本机固定版本：yosys-sta `72495ad5619a9d5053c3a2748db1b295d5df3fb4`。
+其他机器请按上游 README 安装 iEDA，准备支持 slang 的 Yosys，并设置：
 
 ```sh
 export YOSYS_STA_HOME="$HOME/.local/yosys-sta"
 export PATH="$YOSYS_STA_HOME/bin:$PATH"
+# 若尚未安装 nangate45：
+#   mkdir -p "$YOSYS_STA_HOME/pdk" && cd "$YOSYS_STA_HOME/pdk" && \
+#   wget -O - https://ysyx.oscc.cc/slides/resources/archive/nangate45.tar.bz2 | tar xfj -
 make perf                           # 目标 5000 MHz，即 0.2 ns
 make perf CLK_FREQ_MHZ=500          # 目标 500 MHz，即 2 ns
+make perf PDK=icsprout55            # 对照 55nm 库（需已 clone icsprout55 PDK）
 ```
 
 Makefile 只做两步：用 slang 显式传入 `-D SYNTHESIS` 读取固定的 `.slang/riscv_core.f`，通过 `proc` 将
@@ -93,8 +99,8 @@ SystemVerilog 降低，并用 `bwmuxmap` 展开内部位选择单元，导出 `b
 再调用上游 `make sta` 完成综合和时序分析。
 每次运行都重新转换，并用 `make -B` 强制上游重新综合、分析。
 参数沿用上游名称：`DESIGN=ysyx_25080230`、`CLK_PORT_NAME=clock`、
-`CLK_FREQ_MHZ=5000`；它们不改变固定文件列表所展开的 CPU。
-第一版不提供任意模块或工艺库评估接口，不再使用旧的 `PERF_*` 参数。
+`CLK_FREQ_MHZ=5000`、`PDK=nangate45`；它们不改变固定文件列表所展开的 CPU。
+第一版不提供任意模块评估接口，不再使用旧的 `PERF_*` 参数。
 
 默认结果位于 `build/perf/ysyx_25080230-5000MHz/`，直接阅读上游输出：
 
@@ -106,8 +112,8 @@ SystemVerilog 降低，并用 `bwmuxmap` 展开内部位选择单元，导出 `b
 不另行生成摘要、JSON 或最高频率换算；目标频率不代表实现频率，负 slack 表示
 未满足目标。命令失败会使 `make perf` 失败，旧版本遗留的 `build/perf/<顶层>/`
 目录不属于新流程输出。阅读报告时也应检查综合警告及未约束路径。
-结果是布局前估计，采用上游工艺库、映射策略和默认 SDC，不包含布线寄生，
-不能直接与旧 Nangate45/OpenSTA 结果比较。上游功耗报告使用默认翻转率假设。
+结果是布局前估计，采用上游工艺库、映射策略和默认 SDC，不包含布线寄生。
+上游功耗报告使用默认翻转率假设。nangate45 与 icsprout55 的面积/频率不可直接比较。
 
 构建产物写入 `build/`。设计说明见 `docs/架构设计.md`，内部总线契约见
 `docs/CoreBus接口.md`，编码和构建约定见 `docs/RTL开发约定.md`。复杂实现细节记录

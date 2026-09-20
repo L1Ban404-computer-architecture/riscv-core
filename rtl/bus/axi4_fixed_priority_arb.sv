@@ -33,12 +33,10 @@ module axi4_fixed_priority_arb
   logic ar_locked_q;
   logic ar_owner_mem_q;
   logic select_mem;
-  logic core_ar_fire;
 
   // 选中的 AR 源在外部反压时必须保持不变；锁存的所有权阻止后来到达的数据请求
   // 改变已经展示给外部总线的请求源。
   assign select_mem = ar_locked_q ? ar_owner_mem_q : mem_axi.arvalid;
-  assign core_ar_fire = core_axi.arvalid && core_axi.arready;
 
   //////////////////////
   // AXI 通道组合仲裁 //
@@ -107,7 +105,7 @@ module axi4_fixed_priority_arb
       ar_locked_q <= 1'b0;
       ar_owner_mem_q <= 1'b0;
     end else if (ar_locked_q) begin
-      if (core_ar_fire) ar_locked_q <= 1'b0;
+      if (core_axi.ar_fire) ar_locked_q <= 1'b0;
     end else if (core_axi.arvalid && !core_axi.arready) begin
       ar_locked_q <= 1'b1;
       ar_owner_mem_q <= select_mem;

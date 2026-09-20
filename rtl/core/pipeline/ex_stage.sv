@@ -42,7 +42,6 @@ module ex_stage
 
   logic forward_stall;
   logic serialize_stall;
-  logic ex_execute_fire;
   logic ex_mem_input_valid;
   logic ex_mem_input_ready;
 
@@ -80,7 +79,7 @@ module ex_stage
     .clk_i,
     .rst_ni,
     .transaction_valid_i(id_ex.valid),
-    .execute_fire_i(ex_execute_fire),
+    .execute_fire_i(id_ex.fire),
     .rs1_addr_i(id_ex_payload.reg_addr.rs1_addr),
     .rs2_addr_i(id_ex_payload.reg_addr.rs2_addr),
     .rs1_used_i(id_ex_payload.reg_addr.rs1_used),
@@ -110,7 +109,7 @@ module ex_stage
   );
 
   branch_unit u_branch_unit (
-    .execute_fire_i(ex_execute_fire),
+    .execute_fire_i(id_ex.fire),
     .illegal_instr_i(id_ex_payload.exception.valid),
     .branch_op_i(id_ex_payload.ctrl.branch_op),
     .rs1_value_i(rs1_value),
@@ -242,7 +241,6 @@ module ex_stage
       !serialize_ready_i;
   assign ex_mem_input_valid = id_ex.valid && !forward_stall && !serialize_stall && !flush_i;
   assign id_ex.ready = ex_mem_input_ready && !forward_stall && !serialize_stall && !flush_i;
-  assign ex_execute_fire = ex_mem_input_valid && ex_mem_input_ready;
 
   always_comb begin
     executed_ex_mem_bus = '0;

@@ -36,13 +36,9 @@ module axi4_burst_splitter
   logic [2:0] burst_size_q;
   logic [7:0] beat_index_q;
 
-  logic sub_ar_fire;
-  logic r_fire;
   logic final_beat;
   logic downstream_r_error;
 
-  assign sub_ar_fire = single_axi.arvalid && single_axi.arready;
-  assign r_fire = single_axi.rvalid && single_axi.rready;
   assign final_beat = beat_index_q == burst_len_q;
   // 每个下游请求都是单拍，缺失 RLAST 在任意 beat 都应报告为协议错误；
   // 拆分器仍按原突发长度推进，避免错误响应把上游控制器永久挂起。
@@ -108,7 +104,7 @@ module axi4_burst_splitter
       burst_size_q <= '0;
       beat_index_q <= '0;
     end else begin
-      if (sub_ar_fire) begin
+      if (single_axi.ar_fire) begin
         if (!busy_q) begin
           base_addr_q <= burst_axi.ar_payload.addr;
           burst_id_q <= burst_axi.ar_payload.id;
@@ -118,7 +114,7 @@ module axi4_burst_splitter
         end
         busy_q <= 1'b1;
         waiting_r_q <= 1'b1;
-      end else if (r_fire) begin
+      end else if (single_axi.r_fire) begin
         if (final_beat) begin
           busy_q <= 1'b0;
           waiting_r_q <= 1'b0;

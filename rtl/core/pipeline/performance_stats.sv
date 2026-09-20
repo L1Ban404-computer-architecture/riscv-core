@@ -37,8 +37,6 @@ module performance_stats
   // 内部事件与计数状态 //
   ////////////////////////
 
-  logic mem_wb_fire;
-
   logic if_id_stall;
   logic id_ex_stall;
   logic ex_mem_stall;
@@ -117,7 +115,6 @@ module performance_stats
 
   // fire 只表示边界上真实发生的事务传输。它不使用 flush 额外门控：stage 已经
   // 按功能语义决定当拍 valid/ready，统计侧必须保留 trap/MRET 退休等真实握手。
-  assign mem_wb_fire = mem_wb.valid && mem_wb.ready;
 
   // 原始 stall 表示边界上存在事务需求但接收端不能接受。redirect 或后端 flush
   // 会主动屏蔽 valid/ready 并清除错误路径事务，这种协议行为不是性能阻塞，因而
@@ -156,10 +153,10 @@ module performance_stats
     end else begin
       performance_debug_q.cycle_count <= performance_debug_q.cycle_count + 64'd1;
       // 沿用调试提交口径，包括异常；并非排除异常的架构 minstret。
-      if (mem_wb_fire)
+      if (mem_wb.fire)
         performance_debug_q.instret_count <= performance_debug_q.instret_count + 64'd1;
 
-      if (mem_wb_fire)
+      if (mem_wb.fire)
         performance_debug_q.classes[wb_class].instret_count <=
             performance_debug_q.classes[wb_class].instret_count + 64'd1;
 

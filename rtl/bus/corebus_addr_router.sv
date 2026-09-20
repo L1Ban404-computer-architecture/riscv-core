@@ -34,8 +34,6 @@ module corebus_addr_router
   logic owner_device_q;
   logic request_device;
   logic active_device;
-  logic request_fire;
-  logic response_fire;
 
   assign request_device = (master_bus.req_payload.addr & DeviceMask) == (DeviceBase & DeviceMask);
   assign active_device = busy_q ? owner_device_q : request_device;
@@ -73,9 +71,6 @@ module corebus_addr_router
     end
   end
 
-  assign request_fire = master_bus.req_valid && master_bus.req_ready;
-  assign response_fire = master_bus.rsp_valid && master_bus.rsp_ready;
-
   //////////////
   // 参数断言 //
   //////////////
@@ -97,10 +92,10 @@ module corebus_addr_router
       busy_q <= 1'b0;
       owner_device_q <= 1'b0;
     end else begin
-      if (response_fire) busy_q <= 1'b0;
-      else if (request_fire) busy_q <= 1'b1;
+      if (master_bus.rsp_fire) busy_q <= 1'b0;
+      else if (master_bus.req_fire) busy_q <= 1'b1;
 
-      if (request_fire) owner_device_q <= request_device;
+      if (master_bus.req_fire) owner_device_q <= request_device;
     end
   end
 

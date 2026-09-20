@@ -3,16 +3,22 @@
 ## 当前集成
 
 顶层实现指令缓存。`rtl/icache/` 中的 `icache` 是阻塞式缓存，由 `ysyx_25080230`
-接在 SoC 取指 CoreBus 上。默认块大小、组数、路数和替换策略只定义在
+接在 SoC 取指 CoreBus 上。需要无 interface 端口的设计可实例化
+`rtl/top/icache_top.sv`，它把 CPU 侧 CoreBus 从设备和存储器侧 AXI4 主设备展开为
+标量引脚。默认块大小、组数、路数和替换策略只定义在
 `icache_pkg` 的 `ICacheBlockBytes` / `ICacheSetCount` / `ICacheWayCount` /
-`ICacheReplacementPolicy`；顶层实例不覆盖这些参数。它使用组合 tag/data 查询；
-命中请求与 CoreBus 响应可在同拍完成，miss 则以 AXI4 INCR 读回填一整行，
-`ARLEN` 由块内 word 数决定。仿真期 `icache_performance_stats` 统计请求数、命中数
-和命中/缺失延迟，口径见 [性能计数器](性能计数器.md)。
+`ICacheReplacementPolicy`；顶层实例不覆盖这些参数。每路 tag 与 data 各一块读延迟
+1 拍的 `sram_1rw`（查询当拍启动，下一拍用读出比较），valid 仍为寄存器。控制器在 Idle
+启动查询，下一拍 Lookup 用读出结果判定命中或缺失；命中请求与 CoreBus 响应在 Lookup
+同拍完成，miss
+则以 AXI4 INCR 读回填一整行，`ARLEN` 由块内 word 数决定。仿真期
+`icache_performance_stats` 观察已有
+`core_bus_if.monitor`、lookup/refill monitor，按请求接受当拍的 lookup.hit 分类统计
+请求数、命中数和命中/缺失延迟，不改控制器；口径见 [性能计数器](性能计数器.md)。
 
 每个实例最多有一笔 miss 在途。回填数据直接写入最终阵列位置，控制器只保存回填组、路、
-目标 word、beat 计数和错误位；不使用缓存行暂存寄存器或 MSHR 队列。`FENCE.I` 连接到
-`invalidate_i`，I-cache 会先排空已有事务，再清除所有 valid 位。
+目标 word、beat 计数、错误位和旁路的响应 word；不使用缓存行暂存寄存器或 MSHR 队列。
+`FENCE.I` 连接到 `invalidate_i`，I-cache 会先排空已有事务，再清除所有 valid 位。
 
 ## 顶层总线路径
 

@@ -26,7 +26,7 @@
 
 ## I-cache 现状
 
-`ysyx_25080230` 取指路径已实例化 `icache`，`icache_invalidate_o` 接到
+`ysyx_25080230` 取指路径已实例化 `icache`（每路 tag/data 各一块读延迟 1 的 `sram_1rw`），`icache_invalidate_o` 接到
 `invalidate_i`。仿真下 cache 性能计数经 `icache_performance_debug_if` 拆平为
 `debug_perf_icache_*`。数据侧 `u_mem_axi4`、仲裁器和 AXI ID 保持原样。
 `riscv_core_sim` 仍直连 DPI 存储器，不覆盖 cache/AXI 通路。

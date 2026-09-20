@@ -6,9 +6,9 @@
 // 指令取指级。
 //
 // 当前 I-cache 最多接受一笔未完成请求，因此 IF 使用单笔 pending 元数据寄存器，
-// 而非可支持多 outstanding 的 PC FIFO。命中请求和响应仍可同拍握手：响应写入
-// 非 fall-through 指令 FIFO 后，于下一周期对 ID 有效。该寄存器边界切断
-// ID/I-cache ready 到请求 valid 的组合回路。
+// 而非可支持多 outstanding 的 PC FIFO。I-cache 用一拍 SRAM 查询后再与 CoreBus
+// 同拍握手：响应写入非 fall-through 指令 FIFO 后，于下一周期对 ID 有效。该
+// 寄存器边界切断 ID/I-cache ready 到请求 valid 的组合回路。
 //
 // 已向 CoreBus 声明 valid 的请求不可撤销。redirect 会立即清空已返回指令、
 // 更新 PC，并将已发出或已展示的旧路径请求标记为 stale；旧响应返回后握手并丢弃。
@@ -66,8 +66,6 @@ module if_stage
   logic req_hold_flush;
   logic fetch_req_valid;
   logic fetch_req_fire;
-  logic imem_req_fire;
-  logic imem_rsp_fire;
   logic request_outstanding_q;
 
   // pending_meta_q 对应唯一一笔已被 I-cache 接收、正在等待响应的请求。
@@ -108,7 +106,6 @@ module if_stage
   assign imem.req_payload.wstrb = '0;
   // 不依赖响应 FIFO ready；这是切断 I-cache hit 路径组合环的关键。
   assign imem.req_valid = req_hold_valid && !request_outstanding_q;
-  assign imem_req_fire = imem.req_valid && imem.req_ready;
 
   // 在无 outstanding 的同拍 hit 情形，响应元数据来自当前 holding request；否则
   // 使用已经锁存的 pending 元数据。instid 在请求握手沿后递增，因此本拍仍是当前 ID。
@@ -120,8 +117,7 @@ module if_stage
       (request_outstanding_q ? pending_stale_q : held_request_stale_q);
   // stale 响应无需占用 FIFO，即使 FIFO 满也必须能被接收并丢弃。
   assign imem.rsp_ready = response_stale || inst_fifo_ready;
-  assign imem_rsp_fire = imem.rsp_valid && imem.rsp_ready;
-  assign inst_fifo_push = imem_rsp_fire && !response_stale;
+  assign inst_fifo_push = imem.rsp_fire && !response_stale;
 
   // redirect 可直接取消尚未向 CoreBus 展示的预存请求；已经 req_valid 的请求不能
   // 撤销，会由 held_request_stale_q 标记并在后续响应返回时丢弃。
@@ -223,14 +219,14 @@ module if_stage
 
       // 只有“请求已握手且响应尚未同拍返回”才形成 pending 事务。I-cache hit 的
       // 同拍 request/response 不占用该寄存器。
-      if (imem_req_fire && !imem_rsp_fire) begin
+      if (imem.req_fire && !imem.rsp_fire) begin
         request_outstanding_q <= 1'b1;
         pending_meta_q.pc <= req_hold_data.pc;
 `ifndef SYNTHESIS
         pending_meta_q.instid <= instid_q;
 `endif
         pending_stale_q <= frontend_flush || held_request_stale_q;
-      end else if (imem_rsp_fire && request_outstanding_q) begin
+      end else if (imem.rsp_fire && request_outstanding_q) begin
         request_outstanding_q <= 1'b0;
         pending_stale_q <= 1'b0;
       end else if (frontend_flush && request_outstanding_q) begin
@@ -239,7 +235,7 @@ module if_stage
 
       // 已经展示的 request 在 redirect 后必须保留到握手；尚未展示的 request
       // 则由 req_hold_flush 直接清除。
-      if (imem_req_fire) held_request_stale_q <= 1'b0;
+      if (imem.req_fire) held_request_stale_q <= 1'b0;
       else if (frontend_flush && imem.req_valid) held_request_stale_q <= 1'b1;
       else if (req_hold_flush) held_request_stale_q <= 1'b0;
     end
@@ -249,7 +245,7 @@ module if_stage
   // 指令编号只用于观测，在取指请求握手时分配，与功能状态独立。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) instid_q <= 64'd1;
-    else if (imem_req_fire) instid_q <= instid_q + 64'd1;
+    else if (imem.req_fire) instid_q <= instid_q + 64'd1;
   end
 `endif
 

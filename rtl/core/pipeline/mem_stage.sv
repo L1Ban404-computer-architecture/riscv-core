@@ -42,10 +42,8 @@ module mem_stage
   logic inflight_q;
 
   logic memory_instruction;
-  logic dmem_req_fire;
   logic dmem_req_valid;
   logic dmem_rsp_ready;
-  logic dmem_rsp_fire;
   logic request_blocked;
 
   mem_wb_payload_t mem_wb_payload;
@@ -98,25 +96,23 @@ module mem_stage
   assign request_blocked = flush_i || side_effect_block_i;
   assign dmem_req_valid = ex_mem.valid && memory_instruction && !inflight_q && !request_blocked;
   assign dmem.req_valid = dmem_req_valid;
-  assign dmem_req_fire = dmem.req_valid && dmem.req_ready;
 
   // CoreBus 保证响应对应已接受或同拍接受的请求。预先给出 ready，避免
   // 响应 ready 依赖请求 ready；响应和元数据仅在 MEM/WB 可接收时一起转移。
   assign dmem_rsp_ready = ex_mem.valid && memory_instruction && mem_wb_input_ready && !flush_i;
   assign dmem.rsp_ready = dmem_rsp_ready;
-  assign dmem_rsp_fire = dmem.rsp_valid && dmem_rsp_ready;
 
   always_comb begin
     if (flush_i) ex_mem.ready = 1'b0;
-    else if (memory_instruction) ex_mem.ready = dmem_rsp_fire;
+    else if (memory_instruction) ex_mem.ready = dmem.rsp_fire;
     else ex_mem.ready = mem_wb_input_ready;
   end
 
   // 响应优先，同拍请求和响应不留下在途事务。flush 不取消已发送的请求。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) inflight_q <= 1'b0;
-    else if (dmem_rsp_fire) inflight_q <= 1'b0;
-    else if (dmem_req_fire) inflight_q <= 1'b1;
+    else if (dmem.rsp_fire) inflight_q <= 1'b0;
+    else if (dmem.req_fire) inflight_q <= 1'b1;
   end
 
   load_data_unit u_load_data_unit (
@@ -180,7 +176,7 @@ module mem_stage
     mem_wb_forward.payload.valid = mem_wb.valid && mem_wb_payload.wb_req.valid;
   end
 
-  assign busy_o = inflight_q || dmem_req_fire;
+  assign busy_o = inflight_q || dmem.req_fire;
 
   //////////////
   // 协议断言 //
@@ -206,9 +202,9 @@ module mem_stage
     "CoreBus data request valid must remain asserted until ready."
   )
 
-  `ASSERT(DmemResponseOwned, dmem_rsp_fire |-> (inflight_q || dmem_req_fire),
+  `ASSERT(DmemResponseOwned, dmem.rsp_fire |-> (inflight_q || dmem.req_fire),
           clk_i, !rst_ni, "Response must match an accepted or same-cycle request.")
-  `ASSERT(DmemSingleInflight, inflight_q |-> !dmem_req_fire,
+  `ASSERT(DmemSingleInflight, inflight_q |-> !dmem.req_fire,
           clk_i, !rst_ni, "Only one data request may be outstanding.")
   `ASSERT(DmemInflightMetadata, inflight_q |-> (ex_mem.valid && memory_instruction),
           clk_i, !rst_ni, "In-flight metadata must remain in EX/MEM.")

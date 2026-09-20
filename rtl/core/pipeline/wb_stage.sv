@@ -30,7 +30,6 @@ module wb_stage
   // 私有类型与内部信号 //
   ////////////////////////
 
-  logic wb_fire;
   commit_kind_e commit_kind;
   logic trap_commit;
   logic mret_commit;
@@ -63,21 +62,20 @@ module wb_stage
   //////////////////////////
 
   // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
-  // wb_fire 门控，避免无效 MEM/WB payload 产生副作用。
+  // mem_wb.fire 门控，避免无效 MEM/WB payload 产生副作用。
   assign mem_wb.ready = 1'b1;
-  assign wb_fire = mem_wb.valid && mem_wb.ready;
   assign commit_kind = commit_kind_from_context(mem_wb_payload);
-  assign commit_event.valid = wb_fire;
+  assign commit_event.valid = mem_wb.fire;
   assign commit_event.kind = commit_kind;
 
   always_comb begin
     // 架构提交优先级固定为：trap entry > MRET > FENCE.I > 普通 CSR/GPR 写回。
-    trap_commit = wb_fire && (commit_kind == COMMIT_TRAP);
-    mret_commit = wb_fire && (commit_kind == COMMIT_MRET);
-    fence_i_commit = wb_fire && (commit_kind == COMMIT_FENCE_I);
+    trap_commit = mem_wb.fire && (commit_kind == COMMIT_TRAP);
+    mret_commit = mem_wb.fire && (commit_kind == COMMIT_MRET);
+    fence_i_commit = mem_wb.fire && (commit_kind == COMMIT_FENCE_I);
 
     csr_write = mem_wb_payload.commit.csr_write;
-    csr_write.valid = wb_fire && !trap_commit && !mret_commit &&
+    csr_write.valid = mem_wb.fire && !trap_commit && !mret_commit &&
         mem_wb_payload.commit.csr_write.valid;
 
     // trap、MRET 和 FENCE.I 都从 WB 发起全流水 flush；FENCE.I 重新取其顺序
@@ -98,7 +96,7 @@ module wb_stage
     end
 
     wb_req = '0;
-    if (wb_fire && !trap_commit && !mret_commit) wb_req = mem_wb_payload.wb_req;
+    if (mem_wb.fire && !trap_commit && !mret_commit) wb_req = mem_wb_payload.wb_req;
   end
 
 `ifdef SYNTHESIS

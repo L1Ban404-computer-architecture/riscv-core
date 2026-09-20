@@ -56,9 +56,9 @@ module corebus_clint
     end else begin
       mtime_q <= mtime_q + 64'd1;
 
-      if (rsp_valid_q && core_bus.rsp_ready) rsp_valid_q <= 1'b0;
+      if (core_bus.rsp_fire) rsp_valid_q <= 1'b0;
 
-      if (core_bus.req_valid && core_bus.req_ready) begin
+      if (core_bus.req_fire) begin
         rsp_valid_q <= 1'b1;
         rsp_error_q <= core_bus.req_payload.write ||
             (core_bus.req_payload.size != CORE_BUS_SIZE_WORD) || !mtime_addr_hit;

@@ -39,26 +39,19 @@ module mem_axi4
   logic w_sent_q;
   logic read_request;
   logic write_request;
-  logic ar_fire;
-  logic aw_fire;
-  logic w_fire;
   logic write_request_complete;
   logic active_read_response;
   logic active_write_response;
-  logic request_fire;
-  logic response_fire;
 
   assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q &&
       core_bus.req_valid && !core_bus.req_payload.write;
   assign write_request = (state_q == StateIdle) && core_bus.req_valid && core_bus.req_payload.write;
 
-  assign ar_fire = read_request && axi.arready;
-  assign aw_fire = write_request && !aw_sent_q && axi.awready;
-  assign w_fire = write_request && !w_sent_q && axi.wready;
-  assign write_request_complete = write_request && (aw_sent_q || aw_fire) && (w_sent_q || w_fire);
+  assign write_request_complete =
+      write_request && (aw_sent_q || axi.aw_fire) && (w_sent_q || axi.w_fire);
 
   // 同拍 AXI 响应无需额外保存：请求握手期间直接让 CoreBus 响应通道可用。
-  assign active_read_response = (state_q == StateReadResponse) || ar_fire;
+  assign active_read_response = (state_q == StateReadResponse) || axi.ar_fire;
   assign active_write_response = (state_q == StateWriteResponse) || write_request_complete;
 
   ////////////////////////////
@@ -104,9 +97,6 @@ module mem_axi4
     end
   end
 
-  assign request_fire = core_bus.req_valid && core_bus.req_ready;
-  assign response_fire = core_bus.rsp_valid && core_bus.rsp_ready;
-
   //////////////////
   // 状态更新逻辑 //
   //////////////////
@@ -120,21 +110,21 @@ module mem_axi4
       unique case (state_q)
         StateIdle: begin
           if (write_request) begin
-            if (request_fire) begin
+            if (core_bus.req_fire) begin
               aw_sent_q <= 1'b0;
               w_sent_q <= 1'b0;
-              if (!response_fire) state_q <= StateWriteResponse;
+              if (!core_bus.rsp_fire) state_q <= StateWriteResponse;
             end else begin
-              if (aw_fire) aw_sent_q <= 1'b1;
-              if (w_fire) w_sent_q <= 1'b1;
+              if (axi.aw_fire) aw_sent_q <= 1'b1;
+              if (axi.w_fire) w_sent_q <= 1'b1;
             end
-          end else if (request_fire && !response_fire) begin
+          end else if (core_bus.req_fire && !core_bus.rsp_fire) begin
             state_q <= StateReadResponse;
           end
         end
 
         StateReadResponse, StateWriteResponse: begin
-          if (response_fire) state_q <= StateIdle;
+          if (core_bus.rsp_fire) state_q <= StateIdle;
         end
 
         default: begin

@@ -20,11 +20,15 @@ interface pipeline_stream_if #(
 );
   logic valid;
   logic ready;
+  logic fire;
   PayloadT payload;
 
-  modport producer(output valid, payload, input ready);
-  modport consumer(input valid, payload, output ready);
-  modport monitor(input valid, ready, payload);
+  // fire 由握手派生，所有 modport 只读，模块不得驱动。
+  assign fire = valid && ready;
+
+  modport producer(output valid, payload, input ready, fire);
+  modport consumer(input valid, payload, fire, output ready);
+  modport monitor(input valid, ready, fire, payload);
 endinterface
 
 // 通用 GPR 写回候选。valid 表示存在写回语义，data_valid 表示数据已经可前递。
@@ -156,14 +160,17 @@ endinterface
 // 当前目标工具对 parameterized interface port 的 modport 语法和
 // interface clone 支持不完整。pipeline_stream_if 保留为理想泛型；实际端口
 // 使用下面的 typed wrapper。宏只生成协议壳，不重复 payload 字段。
+// fire 由握手派生，所有 modport 只读。
 `define RISCV_CORE_PIPELINE_STREAM_IF(__name, __payload_t) \
   interface __name; \
     logic valid; \
     logic ready; \
+    logic fire; \
     __payload_t payload; \
-    modport producer(output valid, payload, input ready); \
-    modport consumer(input valid, payload, output ready); \
-    modport monitor(input valid, ready, payload); \
+    assign fire = valid && ready; \
+    modport producer(output valid, payload, input ready, fire); \
+    modport consumer(input valid, payload, fire, output ready); \
+    modport monitor(input valid, ready, fire, payload); \
   endinterface
 
 `RISCV_CORE_PIPELINE_STREAM_IF(if_id_if, riscv_core_pkg::if_id_payload_t)

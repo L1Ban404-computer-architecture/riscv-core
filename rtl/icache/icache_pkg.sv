@@ -28,7 +28,7 @@ package icache_pkg;
   endfunction
 
 `ifndef SYNTHESIS
-  // 仅供仿真观测。同拍 req+rsp 记为命中，其余请求/响应分别计入缺失时刻。
+  // 仅供仿真观测。命中由 lookup 查询结果分类，请求与响应独立计时。
   typedef struct packed {
     logic [63:0] request_count;
     logic [63:0] hit_count;

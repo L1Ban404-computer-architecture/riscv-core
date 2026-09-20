@@ -91,7 +91,7 @@ module riscv_core_impl
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
     // 当前按多周期占用运行：下一条取指等待本条 WB 提交。流水结构与在途参数保留。
-    .retire_i(mem_wb.valid && mem_wb.ready),
+    .retire_i(mem_wb.fire),
     .redirect(resolved_redirect),
     .imem,
     .if_id

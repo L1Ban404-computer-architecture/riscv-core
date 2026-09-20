@@ -3,8 +3,9 @@
 
 // 参数化超小型 I-cache 顶层。
 //
-// 默认几何由 icache_pkg 给出。控制器只允许一笔 miss 在途；命中由寄存器阵列组合
-// 返回，miss 的 AXI R beat 直接写入阵列，不保存请求副本或完整缓存行。
+// 默认几何由 icache_pkg 给出。控制器只允许一笔 miss 在途；命中由阵列一拍 SRAM
+// 读出后判定，miss 的 AXI R beat 直接写入阵列，目标 word 旁路到 CoreBus 响应，
+// 不保存请求副本或完整缓存行。
 //
 // invalidate_i 是电平请求：先排空已经对外展示或已经握手的事务，再清除全部 valid；
 // 信号保持为高时持续阻止新请求进入。
@@ -32,7 +33,8 @@ module icache
   input logic invalidate_i,
 
   // 指令请求与下级存储访问
-  core_bus_if.slave core_bus,
+  // 连接层保留完整 CoreBus，供控制器以 slave、观察模块以 monitor 视图使用。
+  core_bus_if core_bus,
   axi4_if.master axi
 `ifndef SYNTHESIS
   ,
@@ -61,7 +63,7 @@ module icache
   logic invalidate_apply;
 
   //////////////////////
-  // 控制器与寄存器阵列 //
+  // 控制器与 SRAM 阵列 //
   //////////////////////
 
   icache_control #(
@@ -102,10 +104,9 @@ module icache
   icache_performance_stats u_performance_stats (
     .clk_i,
     .rst_ni,
-    .req_valid_i(core_bus.req_valid),
-    .req_ready_i(core_bus.req_ready),
-    .rsp_valid_i(core_bus.rsp_valid),
-    .rsp_ready_i(core_bus.rsp_ready),
+    .core_bus,
+    .lookup,
+    .refill,
     .performance
   );
 `endif

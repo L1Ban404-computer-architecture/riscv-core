@@ -11,16 +11,17 @@ scoreboard；跨模块端口必须声明合适的 modport。
 
 ## Payload 与握手边界
 
-CoreBus 将请求和响应分别封装成 typed payload；`valid/ready` 独立存在，不放入
-payload，也不在 interface 中保留同一字段的兼容别名：
+CoreBus 将请求和响应分别封装成 typed payload。每个通道是
+`{payload, valid, ready, fire}`：握手独立于 payload，`fire` 由 interface 派生为
+`valid && ready`，所有 modport 只读，模块不得再本地计算同一对握手。
 
 ```systemverilog
 core_bus.req_payload.addr
 core_bus.req_payload.wdata
 core_bus.rsp_payload.rdata
 core_bus.rsp_payload.error
-core_bus.req_valid, core_bus.req_ready
-core_bus.rsp_valid, core_bus.rsp_ready
+core_bus.req_valid, core_bus.req_ready, core_bus.req_fire
+core_bus.rsp_valid, core_bus.rsp_ready, core_bus.rsp_fire
 ```
 
 | payload | 字段 |
@@ -37,13 +38,10 @@ core_bus.rsp_valid, core_bus.rsp_ready
 | --- | --- |
 | master -> slave | `req_payload`、`req_valid`、`rsp_ready` |
 | slave -> master | `req_ready`、`rsp_payload`、`rsp_valid` |
+| 只读派生 | `req_fire`、`rsp_fire` |
 
-请求和响应各自使用 ready/valid：
-
-```systemverilog
-req_fire = req_valid && req_ready;
-rsp_fire = rsp_valid && rsp_ready;
-```
+请求和响应各自使用 ready/valid；模块通过 `core_bus.req_fire` / `core_bus.rsp_fire`
+观察握手完成。`valid && !ready` 仍表示背压，不能用 `!fire` 代替。
 
 协议约束如下：
 
@@ -55,7 +53,8 @@ rsp_fire = rsp_valid && rsp_ready;
 
 ## 编码
 
-`write=0` 表示读，`write=1` 表示写。`size` 使用固定 2-bit 的 `core_bus_size_e`，分别
+读写共用同一请求通道：`write=0` 表示读，`write=1` 表示写。`imem` 与 `dmem` 是哈佛
+结构下的两套 CoreBus 实例，不是读/写 interface。`size` 使用固定 2-bit 的 `core_bus_size_e`，分别
 表示 byte、halfword、word 和 doubleword，编码与 AXI `AxSIZE` 一致。该类型属于
 CoreBus ABI，与核心内部
 `mem_size_e` 相互独立；MEM stage 在产生数据请求时逐项完成两者转换。地址必须保留
@@ -91,7 +90,9 @@ RTL 中保留请求、响应稳定性和关键编码约束的仿真 assertion。
 同文件中的 `axi4_if` 保存项目使用的 AXI4 五通道子集，提供相同的
 `master/slave/monitor` modport。`AddrWidth=32`、`DataWidth=32`、`IdWidth=4` 为默认值，
 strobe 宽度由数据宽度自动派生；LEN、SIZE、BURST 和 RESP 等协议字段保持 AXI 固定
-宽度。每个通道的数据字段也分别组成 payload，握手仍是独立的标量：
+宽度。每个通道的数据字段也分别组成 payload，握手仍是独立的标量，并派生只读
+`aw_fire` / `w_fire` / `b_fire` / `ar_fire` / `r_fire`。CPU 与 Cache 侧的读写复用
+CoreBus 请求通道；片外 AXI 才把读写拆成独立通道，但仍捆在同一个 `axi4_if` 内。
 
 | 通道 | payload 字段 |
 | --- | --- |
@@ -101,7 +102,7 @@ strobe 宽度由数据宽度自动派生；LEN、SIZE、BURST 和 RESP 等协议
 | AR | `addr`、`id`、`len`、`size`、`burst` |
 | R | `resp`、`data`、`last`、`id` |
 
-例如 `axi.aw_payload.addr` 与 `axi.awvalid` 配套使用。AXI ID 常量是 package 中的
+例如 `axi.aw_payload.addr` 与 `axi.awvalid` 配套使用，握手完成读 `axi.aw_fire`。AXI ID 常量是 package 中的
 整数，在连接具体 interface 时按 `IdWidth` 显式转换，拥有行为的模块同时检查常量
 可表示性。AXI 仲裁器在通道边界整体转移 payload，并按 RID 直接分发读响应。
 

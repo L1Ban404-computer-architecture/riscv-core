@@ -9,7 +9,7 @@ rtl/core/units/      译码、ALU、CSR 等组合或局部单元
 rtl/icache/          阻塞式 I-cache 及其内部协议
 rtl/bus/             公共总线 package、CoreBus 路由/适配和 AXI4 仲裁
 rtl/peripheral/      核心本地外设
-rtl/common/          ready/valid 基础单元和公共 assertion 宏
+rtl/common/          ready/valid 基础单元、行为级 SRAM 原语和公共 assertion 宏
 .slang/              SystemVerilog 文件列表
 ```
 
@@ -45,6 +45,14 @@ package → interface → module 的编译顺序。interface 不拥有时钟、�
 - `packed struct` 是 CoreBus、AXI 和核心流水 interface 的正式 payload 类型，也可用于
   模块内部状态或 FIFO payload。握手信号始终独立于 payload；同一 payload 几何的边界
   使用整体赋值，只有协议类型转换才逐字段显式映射。
+- ready/valid 通道的原语是 `{payload, valid, ready, fire}`。`fire` 只在拥有该通道的
+  interface 内派生为 `valid && ready`，所有 modport 只读；模块通过 interface 观察握手，
+  不得再对同一对信号做本地 `assign *_fire`。`valid && !ready` 表示背压，不能用 `!fire`
+  代替。没有 ready 的组合读或脉冲接口不提供 fire。
+- 跨模块协议按时序合同分类，而不是按读写拆端口：`stream` 是单向流水（`if_id_if` 等）；
+  `reqrsp` 是 CoreBus 的正向请求加反向响应；`axi` 是五条独立通道捆在 `axi4_if`；
+  `comb`/`pulse` 分别是 GPR/CSR 组合读写和 redirect/commit。读写在 CoreBus 上共用请求
+  通道的 `write` 位；`imem`/`dmem` 是哈佛的两套实例。片外 AXI 才物理分读写通道。
 - ready/valid 在受背压时必须保持 valid 和 payload 稳定。
 - 优先复用 `pipeline_register`、`stream_register`、`fall_through_register` 和 `stream_fifo`。
 
@@ -60,8 +68,8 @@ package → interface → module 的编译顺序。interface 不拥有时钟、�
 `retire_debug` 监视公开流水、提交事件与寄存器接口生成，并用参数化顺序在途队列对齐各级
 延迟，不随功能事务复制，也不观察 CoreBus。
 
-ID/EX、EX/MEM、MEM/WB 的具名流水 interface 由 `RISCV_CORE_PIPELINE_STREAM_IF` 生成协议壳；
-`pipeline_stream_if` 保留为理想泛型，不作为模块端口。这三级边界使用 `pipeline_register`
+ID/EX、EX/MEM、MEM/WB 的具名流水 interface 由 `RISCV_CORE_PIPELINE_STREAM_IF` 生成协议壳，
+并同样派生只读 `fire`；`pipeline_stream_if` 保留为理想泛型，不作为模块端口。这三级边界使用 `pipeline_register`
 保存事务并检查 payload/valid 在背压下保持稳定。
 
 每个自有模块在声明前用一至数句自然语言说明职责；只有确实影响使用方式的关键约束

@@ -195,8 +195,6 @@ module mem_sim
 
   logic queue_has_space;
   logic response_valid;
-  logic request_fire;
-  logic response_fire;
 
   function automatic index_t next_index(input index_t index);
     if (index == index_t'(QueueDepth - 1)) return '0;
@@ -213,9 +211,6 @@ module mem_sim
   assign
       core_bus.rsp_payload.rdata = response_valid && !rsp_write_q[head_q] ? rsp_data_q[head_q] : '0;
   assign core_bus.rsp_payload.error = response_valid ? rsp_error_q[head_q] : 1'b0;
-
-  assign request_fire = core_bus.req_valid && core_bus.req_ready;
-  assign response_fire = core_bus.rsp_valid && core_bus.rsp_ready;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin : mem_sim_state
     int unsigned dpi_rdata;
@@ -234,13 +229,13 @@ module mem_sim
       end
     end else begin
       for (int unsigned i = 0; i < QueueDepth; i++) begin
-        if (rsp_slot_valid_q[i] && !(request_fire && (tail_q == index_t'(i))) &&
+        if (rsp_slot_valid_q[i] && !(core_bus.req_fire && (tail_q == index_t'(i))) &&
             (rsp_delay_q[i] != '0)) begin
           rsp_delay_q[i] <= rsp_delay_q[i] - delay_t'(1);
         end
       end
 
-      if (response_fire) begin
+      if (core_bus.rsp_fire) begin
         rsp_slot_valid_q[head_q] <= 1'b0;
         head_q <= next_index(head_q);
       end
@@ -248,7 +243,7 @@ module mem_sim
       // DPI-C is deliberately called only for an accepted request and only on
       // the clock edge that accepts it. The returned value is queued with the
       // request, so combinational response logic never touches the DPI model.
-      if (request_fire) begin
+      if (core_bus.req_fire) begin
         dpi_rdata = '0;
         dpi_error = 1'b0;
         if (IsDmem) begin
@@ -270,7 +265,7 @@ module mem_sim
       end
 
       unique case ({
-        request_fire, response_fire
+        core_bus.req_fire, core_bus.rsp_fire
       })
         2'b10: count_q <= count_q + count_t'(1);
         2'b01: count_q <= count_q - count_t'(1);

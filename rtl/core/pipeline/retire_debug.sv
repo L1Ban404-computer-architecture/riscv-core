@@ -45,18 +45,11 @@ module retire_debug
     retire_mem_payload_t mem;
   } mem_sideband_t;
 
-  logic id_ex_fire;
-  logic ex_mem_fire;
-  logic mem_wb_fire;
   ex_sideband_t ex_push;
   ex_sideband_t ex_pop;
   mem_sideband_t mem_push;
   mem_sideband_t mem_pop;
   retire_debug_payload_t debug_payload;
-
-  assign id_ex_fire = id_ex.valid && id_ex.ready;
-  assign ex_mem_fire = ex_mem.valid && ex_mem.ready;
-  assign mem_wb_fire = mem_wb.valid && mem_wb.ready;
 
   ////////////////////////
   // 顺序在途队列       //
@@ -84,9 +77,9 @@ module retire_debug
     .clk_i,
     .rst_ni,
     .flush_i(flush_backend_i),
-    .in_fire_i(id_ex_fire),
+    .in_fire_i(id_ex.fire),
     .in_data_i(ex_push),
-    .out_fire_i(ex_mem_fire),
+    .out_fire_i(ex_mem.fire),
     .out_data_o(ex_pop)
   );
 
@@ -97,9 +90,9 @@ module retire_debug
     .clk_i,
     .rst_ni,
     .flush_i(flush_backend_i),
-    .in_fire_i(ex_mem_fire),
+    .in_fire_i(ex_mem.fire),
     .in_data_i(mem_push),
-    .out_fire_i(mem_wb_fire),
+    .out_fire_i(mem_wb.fire),
     .out_data_o(mem_pop)
   );
 
