@@ -56,11 +56,11 @@ imem/dmem CoreBus 连接到同文件内的 `mem_sim` 模块，通过 `IsDmem` �
 
 ```systemverilog
 void dpi_imem_read_sim(addr, rdata, error)
-void dpi_dmem_access_sim(addr, write, wdata, wstrb, rdata, error)
+void dpi_dmem_access_sim(addr, write, size, wdata, wstrb, rdata, error)
 ```
 
-错误信号会随响应进入 `CoreBus.rsp_payload.error`；数据写请求按 `wstrb` 调用 DPI-C，
-写响应的数据固定为零。
+CoreBus 请求携带 `write` 与 `size`；`mem_sim` 调用 DPI-C 时据此推导 `wstrb`。
+错误信号会随响应进入 `CoreBus.rsp_payload.error`；写响应的数据固定为零。
 
 ## 构建
 

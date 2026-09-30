@@ -201,6 +201,15 @@ module mem_sim
     return index + index_t'(1);
   endfunction
 
+  function automatic byte unsigned dpi_wstrb_from_size_addr(
+      input byte unsigned size, input logic [1:0] addr_offset);
+    unique case (size[1:0])
+      2'd0: return byte unsigned'(4'b0001 << addr_offset);
+      2'd1: return byte unsigned'(4'b0011 << addr_offset);
+      default: return byte unsigned'(4'b1111);
+    endcase
+  endfunction
+
   assign queue_has_space = count_q < count_t'(QueueDepth);
   assign
       response_valid = (count_q != '0) && rsp_slot_valid_q[head_q] && (rsp_delay_q[head_q] == '0);
@@ -248,8 +257,11 @@ module mem_sim
         dpi_error = 1'b0;
         if (IsDmem) begin
           dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write, {
-                              6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata, {
-                              4'b0, core_bus.req_payload.wstrb}, dpi_rdata, dpi_error);
+                              6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata,
+                              core_bus.req_payload.write ?
+                                  dpi_wstrb_from_size_addr({6'b0, core_bus.req_payload.size},
+                                      core_bus.req_payload.addr[1:0]) :
+                                  8'd0, dpi_rdata, dpi_error);
         end else begin
           dpi_imem_read_sim(core_bus.req_payload.addr, dpi_rdata, dpi_error);
         end

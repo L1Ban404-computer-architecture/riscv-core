@@ -1,0 +1,20 @@
+-Irtl
+-Wno-UNUSEDPARAM
+--top cache_pip_lint
+rtl/bus/riscv_bus_pkg.sv
+rtl/cache_pip/icache_pip_pkg.sv
+rtl/icache/icache_pkg.sv
+rtl/bus/riscv_bus_if.sv
+rtl/icache/icache_if.sv
+rtl/cache_pip/cache_pip_if.sv
+rtl/common/mem_1rw.sv
+rtl/common/stream_fifo.sv
+rtl/common/stream_register.sv
+rtl/cache_pip/cache_replacement_policy.sv
+rtl/cache_pip/cache_array.sv
+rtl/cache_pip/cache_rsp.sv
+rtl/cache_pip/cache_miss.sv
+rtl/cache_pip/cache_invalidate.sv
+rtl/cache_pip/cache_pip_performance_stats.sv
+rtl/cache_pip/cache_pip.sv
+rtl/cache_pip/cache_pip_lint.sv

@@ -323,7 +323,7 @@ module icache_control
           core_bus.req_valid |-> !core_bus.req_payload.write &&
               (core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
               (core_bus.req_payload.addr[1:0] == 2'b00) &&
-              (core_bus.req_payload.wdata == '0) && (core_bus.req_payload.wstrb == '0),
+              (core_bus.req_payload.wdata == '0),
           clk_i, !rst_ni, "ICache only accepts aligned word reads.")
   `ASSERT_STABLE(ICacheCoreBusRequestStable, core_bus.req_valid, core_bus.req_ready,
                  core_bus.req_payload, '0, clk_i, !rst_ni,

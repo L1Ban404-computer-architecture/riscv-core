@@ -4,8 +4,8 @@
 // CoreBus 和 AXI4 使用的协议常量与编码。
 package riscv_bus_pkg;
 
-  // CoreBus 每拍传输的有效字节数。编码等于 log2(字节数)，便于总线适配器扩展为
-  // AXI AxSIZE；该类型属于 CoreBus ABI，与核心内部的访存操作枚举相互独立。
+  // CoreBus 每拍传输宽度，编码等于 log2(字节数)，与 AXI AxSIZE 一致。
+  // 该类型属于 CoreBus ABI，与核心内部的 mem_size_e 相互独立。
   typedef enum logic [1:0] {
     CORE_BUS_SIZE_BYTE = 2'd0,
     CORE_BUS_SIZE_HALF = 2'd1,

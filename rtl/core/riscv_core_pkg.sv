@@ -29,8 +29,8 @@ package riscv_core_pkg;
   // 指令编码与执行操作 //
   ////////////////////////
 
-  // 核心内部的访存操作宽度。编码等于 log2(访问字节数)，但它描述的是 RISC-V
-  // load/store 执行语义，不与 CoreBus size 字段共享类型所有权。
+  // 核心内部的访存操作宽度。编码等于 log2(访问字节数)，描述 RISC-V load/store
+  // 执行语义，与 CoreBus 的 core_bus_size_e 相互独立。
   typedef enum logic [1:0] {
     MEM_SIZE_BYTE = 2'd0,
     MEM_SIZE_HALF = 2'd1,

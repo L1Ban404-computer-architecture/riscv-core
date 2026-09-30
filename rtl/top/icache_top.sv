@@ -31,7 +31,6 @@ module icache_top
   input logic req_write_i,
   input logic [1:0] req_size_i,
   input logic [DataWidth-1:0] req_wdata_i,
-  input logic [StrbWidth-1:0] req_wstrb_i,
   output logic rsp_valid_o,
   input logic rsp_ready_i,
   output logic [DataWidth-1:0] rsp_rdata_o,
@@ -90,7 +89,6 @@ module icache_top
   assign core_bus.req_payload.write = req_write_i;
   assign core_bus.req_payload.size = core_bus_size_e'(req_size_i);
   assign core_bus.req_payload.wdata = req_wdata_i;
-  assign core_bus.req_payload.wstrb = req_wstrb_i;
   assign core_bus.rsp_ready = rsp_ready_i;
   assign req_ready_o = core_bus.req_ready;
   assign rsp_valid_o = core_bus.rsp_valid;

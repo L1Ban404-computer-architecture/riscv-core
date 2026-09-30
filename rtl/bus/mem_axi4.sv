@@ -13,7 +13,8 @@ module mem_axi4
   parameter int unsigned AddrWidth = 32,
   parameter int unsigned DataWidth = 32,
   parameter int unsigned IdWidth = 4,
-  parameter int unsigned AxiId = MEM_AXI_ID
+  parameter int unsigned AxiId = MEM_AXI_ID,
+  localparam int unsigned StrbWidth = DataWidth / 8
 ) (
   // 全局控制
   input logic clk_i,
@@ -42,10 +43,27 @@ module mem_axi4
   logic write_request_complete;
   logic active_read_response;
   logic active_write_response;
+  logic [2:0] axi_size;
+  logic [StrbWidth-1:0] write_strb;
 
+  // CoreBus 不携带 wstrb；写掩码由 size 与地址低位还原，并保留原始 byte 地址，
+  // 以便 UART 等按 paddr 低位译码的 MMIO 正确。
+  function automatic logic [StrbWidth-1:0] wstrb_from_size_addr(
+      input core_bus_size_e size, input logic [1:0] addr_offset);
+    unique case (size)
+      CORE_BUS_SIZE_BYTE: return StrbWidth'(4'b0001 << addr_offset);
+      CORE_BUS_SIZE_HALF: return StrbWidth'(4'b0011 << addr_offset);
+      default: return '1;
+    endcase
+  endfunction
+
+  assign axi_size = {1'b0, core_bus.req_payload.size};
+  assign write_strb =
+      wstrb_from_size_addr(core_bus.req_payload.size, core_bus.req_payload.addr[1:0]);
   assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q &&
       core_bus.req_valid && !core_bus.req_payload.write;
-  assign write_request = (state_q == StateIdle) && core_bus.req_valid && core_bus.req_payload.write;
+  assign write_request =
+      (state_q == StateIdle) && core_bus.req_valid && core_bus.req_payload.write;
 
   assign write_request_complete =
       write_request && (aw_sent_q || axi.aw_fire) && (w_sent_q || axi.w_fire);
@@ -63,18 +81,18 @@ module mem_axi4
     axi.aw_payload.addr = core_bus.req_payload.addr;
     axi.aw_payload.id = IdWidth'(AxiId);
     axi.aw_payload.len = 8'd0;
-    axi.aw_payload.size = {1'b0, core_bus.req_payload.size};
+    axi.aw_payload.size = axi_size;
     axi.aw_payload.burst = AXI4_BURST_INCR;
     axi.wvalid = write_request && !w_sent_q;
     axi.w_payload.data = core_bus.req_payload.wdata;
-    axi.w_payload.strb = core_bus.req_payload.wstrb;
+    axi.w_payload.strb = write_strb;
     axi.w_payload.last = 1'b1;
     axi.bready = active_write_response && core_bus.rsp_ready;
     axi.arvalid = read_request;
     axi.ar_payload.addr = core_bus.req_payload.addr;
     axi.ar_payload.id = IdWidth'(AxiId);
     axi.ar_payload.len = 8'd0;
-    axi.ar_payload.size = {1'b0, core_bus.req_payload.size};
+    axi.ar_payload.size = axi_size;
     axi.ar_payload.burst = AXI4_BURST_INCR;
     axi.rready = active_read_response && core_bus.rsp_ready;
 
@@ -82,7 +100,8 @@ module mem_axi4
     core_bus.rsp_valid = 1'b0;
     core_bus.rsp_payload = '0;
     if (state_q == StateIdle) begin
-      core_bus.req_ready = core_bus.req_payload.write ? write_request_complete : axi.arready;
+      core_bus.req_ready =
+          core_bus.req_payload.write ? write_request_complete : axi.arready;
     end
 
     if (active_read_response) begin

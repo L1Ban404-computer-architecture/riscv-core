@@ -3,7 +3,7 @@
 
 // 超小型 I-cache 阵列。
 //
-// 每路 tag 与 data 各一块 `sram_1rw`；valid 仍为带复位寄存器，以便复位和
+// 每路 tag 与 data 各一块 `mem_1rw`；valid 仍为带复位寄存器，以便复位和
 // FENCE.I 全失效。读延迟一拍：查询当拍启动 SRAM，下一拍用 `rdata_o` 与 valid
 // 比较。refill 开始时先使牺牲路无效并全宽写入新 tag，随后每个 AXI R beat 全宽
 // 写目标 data word；只有完整且无错误的 burst 才重新置 valid。
@@ -161,49 +161,38 @@ module icache_array
   // 每路 tag / data SRAM //
   //////////////////////
 
-  // tag 写地址与查询地址在 miss 当拍相同（CoreBus 地址保持），因此 begin 不必
-  // 另切 tag 口；data 只在 beat 时改地址，beat 不依赖 lookup.hit。
+  // tag 写地址用回填 begin 的 set；查询读走独立读口。data 写地址来自 beat。
   for (genvar way = 0; way < WayCount; way++) begin : gen_way_sram
     logic way_begin;
     logic way_beat;
-    logic tag_en;
-    logic tag_we;
-    logic data_en;
-    logic data_we;
-    data_addr_t data_addr;
 
     assign way_begin = refill.begin_valid && (refill.begin_payload.way == way_index_t'(way));
     assign way_beat = refill.beat_valid && (refill.beat_payload.way == way_index_t'(way));
-    assign tag_we = way_begin;
-    assign data_we = way_beat;
-    assign tag_en = way_begin || lookup_read;
-    assign data_en = way_beat || lookup_read;
-    assign data_addr =
-        way_beat ? data_addr_from(refill.beat_payload.set, refill.beat_payload.word) :
-        data_addr_from(lookup_set, lookup_word);
 
-    sram_1rw #(
+    mem_1rw #(
       .Width(TagW),
       .Depth(SetCount)
     ) u_tag (
       .clk_i,
-      .en_i(tag_en),
-      .we_i(tag_we),
-      .addr_i(lookup_set),
-      .wdata_i(refill_begin_tag),
-      .rdata_o(tag_rdata[way])
+      .ren_i(lookup_read),
+      .raddr_i(lookup_set),
+      .rdata_o(tag_rdata[way]),
+      .wen_i(way_begin),
+      .waddr_i(refill_begin_set),
+      .wdata_i(refill_begin_tag)
     );
 
-    sram_1rw #(
+    mem_1rw #(
       .Width(DataWidth),
       .Depth(DataDepth)
     ) u_data (
       .clk_i,
-      .en_i(data_en),
-      .we_i(data_we),
-      .addr_i(data_addr),
-      .wdata_i(refill.beat_payload.data),
-      .rdata_o(data_rdata[way])
+      .ren_i(lookup_read),
+      .raddr_i(data_addr_from(lookup_set, lookup_word)),
+      .rdata_o(data_rdata[way]),
+      .wen_i(way_beat),
+      .waddr_i(data_addr_from(refill.beat_payload.set, refill.beat_payload.word)),
+      .wdata_i(refill.beat_payload.data)
     );
   end
 

@@ -36,6 +36,7 @@ module mem_stage
 
   word_t aligned_store_data;
   byte_en_t store_byte_en;
+  logic unused_store_strb;
   word_t loaded_data;
 
   ex_mem_payload_t ex_mem_payload;
@@ -63,8 +64,7 @@ module mem_stage
   // 事务转换与数据整理 //
   ////////////////////////
 
-  // 这里是核心访存语义与 CoreBus ABI 的唯一宽度转换边界。两侧枚举目前编码一致，
-  // 仍逐项映射以避免未来任一侧扩展时形成未经审查的隐式协议变化。
+  // 核心访存宽度与 CoreBus size 的唯一转换边界。
   function automatic core_bus_size_e toCoreBusSize(input mem_size_e size);
     unique case (size)
       MEM_SIZE_BYTE: return CORE_BUS_SIZE_BYTE;
@@ -83,15 +83,17 @@ module mem_stage
     .wstrb_o(store_byte_en)
   );
 
+  assign unused_store_strb = |store_byte_en;
+
   assign memory_instruction = ex_mem_payload.mem_req.valid;
 
   // EX/MEM 本身已经满足严格 ready/valid 保持规则，因此 CoreBus 请求可以
   // 直接由它驱动；请求握手后仍保持背压，直到响应进入 MEM/WB。
+  // CoreBus 携带 write/size；写字节掩码由下游适配器按 size 与地址低位推导。
   assign dmem.req_payload.addr = ex_mem_payload.mem_req.addr;
   assign dmem.req_payload.write = ex_mem_payload.mem_req.write;
   assign dmem.req_payload.size = toCoreBusSize(ex_mem_payload.mem_req.size);
   assign dmem.req_payload.wdata = ex_mem_payload.mem_req.write ? aligned_store_data : '0;
-  assign dmem.req_payload.wstrb = ex_mem_payload.mem_req.write ? store_byte_en : '0;
   // 请求端只依赖寄存状态及更老事务的阻塞，不依赖当前响应或下游容量。
   assign request_blocked = flush_i || side_effect_block_i;
   assign dmem_req_valid = ex_mem.valid && memory_instruction && !inflight_q && !request_blocked;

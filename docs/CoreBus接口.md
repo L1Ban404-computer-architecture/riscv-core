@@ -26,11 +26,12 @@ core_bus.rsp_valid, core_bus.rsp_ready, core_bus.rsp_fire
 
 | payload | 字段 |
 | --- | --- |
-| `req_payload_t` | `addr`、`write`、`size`、`wdata`、`wstrb` |
+| `req_payload_t` | `addr`、`write`、`size`、`wdata` |
 | `rsp_payload_t` | `rdata`、`error` |
 
 接口参数决定 payload 内字段宽度；请求或响应整体赋值适用于同一几何的总线连接。
-只有在 `mem_size_e` 与 `core_bus_size_e` 等不同协议类型之间才保留显式字段转换。
+核心内部访存宽度使用 `mem_size_e`；MEM stage 在产生数据请求时转换为
+`core_bus_size_e`。写字节掩码不在 CoreBus 上传递，由适配器用 `size` 与地址低位推导。
 
 ## 信号方向
 
@@ -54,14 +55,13 @@ core_bus.rsp_valid, core_bus.rsp_ready, core_bus.rsp_fire
 ## 编码
 
 读写共用同一请求通道：`write=0` 表示读，`write=1` 表示写。`imem` 与 `dmem` 是哈佛
-结构下的两套 CoreBus 实例，不是读/写 interface。`size` 使用固定 2-bit 的 `core_bus_size_e`，分别
-表示 byte、halfword、word 和 doubleword，编码与 AXI `AxSIZE` 一致。该类型属于
-CoreBus ABI，与核心内部
-`mem_size_e` 相互独立；MEM stage 在产生数据请求时逐项完成两者转换。地址必须保留
-byte offset，并按访问宽度自然对齐。
+结构下的两套 CoreBus 实例，不是读/写 interface。`size` 使用固定 2-bit 的
+`core_bus_size_e`，分别表示 byte、halfword、word 和 doubleword，编码与 AXI
+`AxSIZE` 一致。该类型属于 CoreBus ABI，与核心内部 `mem_size_e` 相互独立。地址必须
+保留 byte offset，并按访问宽度自然对齐。
 
-读请求的 `wdata` 和 `wstrb` 必须为零。写请求的 `wdata` 按地址低位移动到目标
-lane，`wstrb` 标识有效 byte。写响应的 `rdata` 为零；`error=1` 表示访问失败。
+读请求的 `wdata` 必须为零。写请求的 `wdata` 按地址低位移动到目标 lane；下游在转为
+AXI 时用 `size` 与地址低位生成 `WSTRB`。写响应的 `rdata` 为零；`error=1` 表示访问失败。
 
 ## 核心内使用
 

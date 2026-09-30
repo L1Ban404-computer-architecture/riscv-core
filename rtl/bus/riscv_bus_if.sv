@@ -15,15 +15,14 @@
 
 interface core_bus_if #(
   parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
-  localparam int unsigned StrbWidth = DataWidth / 8
+  parameter int unsigned DataWidth = 32
 );
+  // write 区分读写；size 为 AxSIZE 编码。写字节掩码由下游用 size 与地址低位推导。
   typedef struct packed {
     logic [AddrWidth-1:0] addr;
     logic write;
     riscv_bus_pkg::core_bus_size_e size;
     logic [DataWidth-1:0] wdata;
-    logic [StrbWidth-1:0] wstrb;
   } req_payload_t;
 
   typedef struct packed {
@@ -52,6 +51,9 @@ interface core_bus_if #(
       input req_payload, req_valid, rsp_ready, req_fire, rsp_fire, output req_ready, rsp_payload,
           rsp_valid
   );
+  // 请求接收与响应发送可以分属不同模块。输出与 slave 重叠，同一实例只连接其中一组驱动。
+  modport req_slave(input req_payload, req_valid, req_fire, output req_ready);
+  modport rsp_source(input rsp_ready, rsp_fire, output rsp_payload, rsp_valid);
   modport monitor(
       input req_payload, req_valid, req_ready, req_fire, rsp_payload, rsp_valid, rsp_ready, rsp_fire
   );

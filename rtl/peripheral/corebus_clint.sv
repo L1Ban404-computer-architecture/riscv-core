@@ -32,11 +32,15 @@ module corebus_clint
   logic [DataWidth-1:0] rsp_rdata_q;
   logic rsp_error_q;
   logic mtime_addr_hit;
-  logic unused_write_payload;
+  logic word_read;
+  logic unused_wdata;
 
   assign mtime_addr_hit = (core_bus.req_payload.addr == MtimeAddr) ||
       (core_bus.req_payload.addr == (MtimeAddr + AddrWidth'(4)));
-  assign unused_write_payload = ^{core_bus.req_payload.wdata, core_bus.req_payload.wstrb};
+  assign word_read = !core_bus.req_payload.write &&
+      (core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
+      (core_bus.req_payload.addr[1:0] == 2'b00);
+  assign unused_wdata = ^core_bus.req_payload.wdata;
 
   assign core_bus.req_ready = !rsp_valid_q;
   assign core_bus.rsp_payload.rdata = rsp_rdata_q;
@@ -60,10 +64,8 @@ module corebus_clint
 
       if (core_bus.req_fire) begin
         rsp_valid_q <= 1'b1;
-        rsp_error_q <= core_bus.req_payload.write ||
-            (core_bus.req_payload.size != CORE_BUS_SIZE_WORD) || !mtime_addr_hit;
-        if (!core_bus.req_payload.write && (core_bus.req_payload.size == CORE_BUS_SIZE_WORD) &&
-            mtime_addr_hit)
+        rsp_error_q <= !word_read || !mtime_addr_hit;
+        if (word_read && mtime_addr_hit)
           rsp_rdata_q <= (core_bus.req_payload.addr == MtimeAddr) ? mtime_q[31:0] : mtime_q[63:32];
         else rsp_rdata_q <= '0;
       end

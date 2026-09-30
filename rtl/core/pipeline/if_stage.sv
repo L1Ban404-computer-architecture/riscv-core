@@ -103,7 +103,6 @@ module if_stage
   assign imem.req_payload.write = 1'b0;
   assign imem.req_payload.size = CORE_BUS_SIZE_WORD;
   assign imem.req_payload.wdata = '0;
-  assign imem.req_payload.wstrb = '0;
   // 不依赖响应 FIFO ready；这是切断 I-cache hit 路径组合环的关键。
   assign imem.req_valid = req_hold_valid && !request_outstanding_q;
 
