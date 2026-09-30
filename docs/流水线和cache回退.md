@@ -26,25 +26,17 @@
 
 ## I-cache 现状
 
-`ysyx_25080230` 取指路径已实例化 `icache`（每路 tag/data 各一块读延迟 1 的 `sram_1rw`），`icache_invalidate_o` 接到
-`invalidate_i`。仿真下 cache 性能计数经 `icache_performance_debug_if` 拆平为
-`debug_perf_icache_*`。数据侧 `u_mem_axi4`、仲裁器和 AXI ID 保持原样。
+`ysyx_25080230` 取指路径实例化流水线 `icache`。阵列组合读出后打入 lookup，命中下一拍回应，缺失经 AXI burst 回填后再回应。`icache_invalidate_o` 接到 `invalidate_i`。仿真下 cache 性能计数经 `icache_performance_debug_if` 拆平为 `debug_perf_icache_*`。先前的阻塞式实现留在 `rtl/icache_old/`。数据侧 `u_mem_axi4`、仲裁器和 AXI ID 保持原样。
 `riscv_core_sim` 仍直连 DPI 存储器，不覆盖 cache/AXI 通路。
 
 ## 验证
 
 ```sh
-make check sim-lint
+make check
 make -C ../mini-soc lint build
 ```
 
-回退流水线后，应在仿真中确认多条指令重叠执行。若本机 Verilator 对原版本
-报告既有 `SYNCASYNCNET` 告警，可用：
-
-```sh
-make check sim-lint \
-    VERILATOR_WARNINGS="-Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR -Wno-SYNCASYNCNET"
-```
+回退流水线后，应在仿真中确认多条指令重叠执行。
 
 cache 通路通过 SoC 顶层验证：重复访问应命中，FENCE.I 后重新取指。mini-soc 不覆盖
 cache/AXI 通路。差分使用 runner 和 NEMU 共同支持的指令；当前 NEMU 不支持 FENCE.I，

@@ -65,12 +65,12 @@ AXI 时用 `size` 与地址低位生成 `WSTRB`。写响应的 `rdata` 为零；
 
 ## 核心内使用
 
-- IF 只发送对齐的 word 读请求。当前 I-cache 为阻塞式实现，IF 固定只保留一笔
-  已接受且待响应的请求元数据；已返回指令进入独立的响应 FIFO。
+- IF 只发送对齐的 word 读请求。I-cache 流水返回，IF 固定只保留一笔已接受且待响应的
+  请求元数据；已返回指令进入独立的响应 FIFO。
 - EX 完成地址对齐检查；MEM 生成 store lane，背压 EX/MEM 保存请求及 load 元数据，
   直到响应和元数据一起写入 MEM/WB。MEM 只寄存单比特在途标志，不另存事务。
 - `corebus_addr_router` 在数据侧适配器前按地址选择内部设备或外部存储路径。
-- `icache` 处理阻塞式指令查询和 burst refill；`mem_axi4` 将数据侧 CoreBus
+- `icache` 处理流水线指令查询和 burst refill；`mem_axi4` 将数据侧 CoreBus
   事务转换为单拍 AXI4 事务。
 - `axi4_burst_splitter` 将 I-cache 的一笔 burst refill 临时转换为多个单拍 AXI4
   读请求，逐拍直通 R 数据，避免外部 endpoint 需要实现突发缓存。

@@ -1,19 +1,26 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 超小型 I-cache 阵列。
+// 流水线式 I-cache 阵列。
 //
-// 每路 tag 与 data 各一块 `mem_1rw`；valid 仍为带复位寄存器，以便复位和
-// FENCE.I 全失效。读延迟一拍：查询当拍启动 SRAM，下一拍用 `rdata_o` 与 valid
-// 比较。refill 开始时先使牺牲路无效并全宽写入新 tag，随后每个 AXI R beat 全宽
-// 写目标 data word；只有完整且无错误的 burst 才重新置 valid。
+// CPU 侧以 CoreBus req_slave 接受查询；组合读 `mem_1rw` 当拍得到 tag/data 并做
+// 命中比较，结果经 `stream_register` 送到 `icache_lookup_if`。背压时由 stream
+// 寄存器保持 payload，不再依赖读口重发或单独的 addr 锁存。
+//
+// 回填经 `icache_refill_if` 地址/数据双通道突发写入。地址在整次 burst 期间保持
+// valid，阵列不保存地址副本，只在 last 数据握手当拍拉高 addr_ready；set/tag 由
+// 组合译码得到。last 且 commit 才置有效位。约定数据首拍至少晚于地址首拍一拍，
+// 故牺牲路与 line offset 在写数据前已锁存。
+//
+// 后端约定：miss 时同一时刻只服务该笔事务；lookup 保持背压直到 CPU 回应与
+// 对应 refill 全部结束。在此约束下阵列不再处理 lookup 与 refill 的并发冲突。
 `include "common/assertions.svh"
 
 module icache_array
   import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth,
   parameter int unsigned BlockBytes = ICacheBlockBytes,
   parameter int unsigned SetCount = ICacheSetCount,
   parameter int unsigned WayCount = ICacheWayCount,
@@ -33,9 +40,10 @@ module icache_array
   input logic rst_ni,
   input logic invalidate_apply_i,
 
-  // 控制器查询与回填事务
-  icache_lookup_if.array lookup,
-  icache_refill_if.array refill
+  // CPU 请求、读结果与回填
+  core_bus_if.req_slave core_bus,
+  icache_lookup_if.producer lookup,
+  icache_refill_if.slave refill
 );
 
   //////////////////////
@@ -43,32 +51,50 @@ module icache_array
   //////////////////////
 
   typedef logic [SetIndexW-1:0] set_index_t;
-  typedef logic [WayIndexW-1:0] way_index_t;
   typedef logic [WordIndexW-1:0] word_index_t;
+  typedef logic [WayIndexW-1:0] way_index_t;
   typedef logic [TagW-1:0] tag_t;
   typedef logic [DataAddrW-1:0] data_addr_t;
+  typedef struct packed {
+    logic [AddrWidth-1:0] addr;
+    logic [DataWidth-1:0] rdata;
+    logic hit;
+  } lookup_payload_t;
 
-  // valid 需要复位和整阵列失效；SRAM 不复位，valid=0 时其内容不可见。
+  // valid 需要复位和整阵列失效；存储阵列不复位，valid=0 时其内容不可见。
   logic valid_q[WayCount][SetCount];
   tag_t tag_rdata[WayCount];
   logic [DataWidth-1:0] data_rdata[WayCount];
 
   set_index_t lookup_set;
-  word_index_t lookup_word;
   tag_t lookup_tag;
-  set_index_t refill_begin_set;
-  tag_t refill_begin_tag;
-  logic lookup_read;
-  logic read_valid_q;
-  logic [WayCount-1:0] lookup_valid_vector;
-  logic [WayCount-1:0] lookup_hit_vector;
-  way_index_t lookup_hit_way;
+  word_index_t lookup_word;
+  logic [WayCount-1:0] lookup_hit_oh;
+  logic lookup_hit;
+  logic [DataWidth-1:0] lookup_rdata;
+  lookup_payload_t lookup_push_payload;
+  lookup_payload_t lookup_stream_payload;
+  logic lookup_stream_ready;
+  logic lookup_push;
+
+  set_index_t refill_set;
+  tag_t refill_tag;
+  word_index_t refill_addr_word;
+  logic [WayCount-1:0] refill_select_valid;
+  way_index_t refill_victim_combo;
+  way_index_t refill_way_q;
+  word_index_t refill_line_offset_q;
+  logic refill_way_locked_q;
+  logic refill_victim_select;
+  logic refill_last_fire;
+  logic refill_tag_we;
+  logic refill_data_we;
 
   ////////////////////
   // 地址拆分辅助函数 //
   ////////////////////
 
-  // 地址布局为 {tag, set, line offset}，data SRAM 按 {set, word} 线性编址。
+  // 地址布局为 {tag, set, line offset}，data 阵列按 {set, word} 线性编址。
   function automatic set_index_t set_from_addr(input logic [AddrWidth-1:0] address);
     set_index_t result;
 
@@ -85,52 +111,100 @@ module icache_array
     return result;
   endfunction
 
+  function automatic tag_t tag_from_addr(input logic [AddrWidth-1:0] address);
+    return tag_t'(address >> (BlockOffsetW + SetIndexBits));
+  endfunction
+
   function automatic data_addr_t data_addr_from(input set_index_t set, input word_index_t word);
     int unsigned index;
 
-    index = 0;
-    if (SetCount > 1) index = int'(set) * WordCount;
-    if (WordCount > 1) index += int'(word);
+    index = '0;
+    if (SetCount > 1) index = unsigned'(int'(set)) * WordCount;
+    if (WordCount > 1) index += unsigned'(int'(word));
     return data_addr_t'(index);
   endfunction
 
-  //////////////////////
-  // 组合地址译码与查询 //
-  //////////////////////
+  //////////////////////////////////////
+  // Lookup：组合读 + stream_register //
+  //////////////////////////////////////
 
-  assign lookup_set = set_from_addr(lookup.req_payload.addr);
-  assign lookup_word = word_from_addr(lookup.req_payload.addr);
-  assign lookup_tag = tag_t'(lookup.req_payload.addr >> (BlockOffsetW + SetIndexBits));
-  assign refill_begin_set = set_from_addr(refill.begin_payload.addr);
-  assign refill_begin_tag =
-      tag_t'(refill.begin_payload.addr >> (BlockOffsetW + SetIndexBits));
-  // 回填写优先占用单口；否则 lookup.req_valid 启动各路并行读。
-  assign lookup_read = lookup.req_valid && !refill.begin_valid && !refill.beat_valid;
+  // 请求地址直通组合读口；命中结果推进 stream，背压时由寄存器保持。
+  assign lookup_set = set_from_addr(core_bus.req_payload.addr);
+  assign lookup_tag = tag_from_addr(core_bus.req_payload.addr);
+  assign lookup_word = word_from_addr(core_bus.req_payload.addr);
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) read_valid_q <= 1'b0;
-    else if (lookup_read) read_valid_q <= 1'b1;
-    else if (refill.begin_valid || refill.beat_valid) read_valid_q <= 1'b0;
+  always_comb begin
+    for (int unsigned way = 0; way < WayCount; way++) begin
+      lookup_hit_oh[way] = core_bus.req_valid && valid_q[way][lookup_set] &&
+          (tag_rdata[way] == lookup_tag);
+    end
   end
 
-  // 并行比较上一拍读出的 tag 与 valid。正常情况下至多一路命中；若元数据异常
-  // 导致多路命中，数据选择仍固定取最低编号路，同时由下方 onehot0 assertion
-  // 报告错误。控制器只在 Lookup 状态采样该结果。
   always_comb begin
-    lookup.rsp_payload.hit = 1'b0;
-    lookup.rsp_payload.rdata = '0;
-    lookup_hit_way = '0;
-    lookup_valid_vector = '0;
-    lookup_hit_vector = '0;
+    lookup_rdata = '0;
     for (int unsigned way = 0; way < WayCount; way++) begin
-      lookup_valid_vector[way] = valid_q[way][lookup_set];
-      lookup_hit_vector[way] = read_valid_q && valid_q[way][lookup_set] &&
-          (tag_rdata[way] == lookup_tag);
-      if (lookup.req_valid && !lookup.rsp_payload.hit && lookup_hit_vector[way]) begin
-        lookup.rsp_payload.hit = 1'b1;
-        lookup_hit_way = way_index_t'(way);
-        lookup.rsp_payload.rdata = data_rdata[way];
-      end
+      lookup_rdata |= {DataWidth{lookup_hit_oh[way]}} & data_rdata[way];
+    end
+  end
+
+  assign lookup_hit = |lookup_hit_oh;
+  assign lookup_push_payload.addr = core_bus.req_payload.addr;
+  assign lookup_push_payload.rdata = lookup_rdata;
+  assign lookup_push_payload.hit = lookup_hit;
+  assign core_bus.req_ready = lookup_stream_ready;
+  assign lookup_push = core_bus.req_valid && lookup_stream_ready;
+
+  stream_register #(
+    .T(lookup_payload_t)
+  ) u_lookup_stream (
+    .clk_i,
+    .rst_ni,
+    .flush_i(1'b0),
+    .valid_i(core_bus.req_valid),
+    .ready_o(lookup_stream_ready),
+    .data_i(lookup_push_payload),
+    .valid_o(lookup.valid),
+    .ready_i(lookup.ready),
+    .data_o(lookup_stream_payload)
+  );
+
+  assign lookup.payload = lookup_stream_payload;
+
+  //////////////////////////
+  // Refill 地址/数据双通道 //
+  //////////////////////////
+
+  // 地址保持 valid 直至 last 数据握手；不锁存地址，组合译码 set/tag/起始 word。
+  // 约定：数据通道首拍 valid 比地址首拍至少晚一拍，因此 way / line_offset 在首拍
+  // 数据前已锁存，写通路直接使用寄存器，无需再与组合译码结果二选一。
+  assign refill_set = set_from_addr(refill.addr_payload.addr);
+  assign refill_tag = tag_from_addr(refill.addr_payload.addr);
+  assign refill_addr_word = word_from_addr(refill.addr_payload.addr);
+  assign refill_last_fire = refill.data_fire && refill.data_payload.last;
+  assign refill.addr_ready = refill_last_fire;
+  assign refill.data_ready = refill.addr_valid;
+  assign refill_tag_we = refill.addr_valid && refill_way_locked_q;
+  assign refill_data_we = refill.data_fire;
+  assign refill_victim_select = refill.addr_valid && !refill_way_locked_q;
+
+  always_comb begin
+    for (int unsigned way = 0; way < WayCount; way++)
+      refill_select_valid[way] = valid_q[way][refill_set];
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      refill_way_locked_q <= 1'b0;
+      refill_way_q <= '0;
+      refill_line_offset_q <= '0;
+    end else if (refill.addr_fire) begin
+      refill_way_locked_q <= 1'b0;
+    end else if (refill.data_fire) begin
+      refill_line_offset_q <= refill_line_offset_q + word_index_t'(1);
+    end else if (refill_victim_select) begin
+      refill_way_q <= refill_victim_combo;
+      refill_way_locked_q <= 1'b1;
+      refill_line_offset_q <= refill_addr_word;
     end
   end
 
@@ -138,7 +212,7 @@ module icache_array
   // 牺牲路选择与更新 //
   //////////////////
 
-  // hit 只在 CoreBus 原子握手时更新；fill 只在无错误回填最终提交时更新。
+  // 命中在推进 stream 时更新；独热向量取自当拍组合比较。
   icache_replacement_policy #(
     .SetCount(SetCount),
     .WayCount(WayCount),
@@ -146,53 +220,55 @@ module icache_array
   ) u_replacement_policy (
     .clk_i,
     .rst_ni,
-    .select_set_i(lookup_set),
-    .select_valid_i(lookup_valid_vector),
-    .victim_way_o(lookup.rsp_payload.victim_way),
-    .hit_valid_i(lookup.commit),
+    .select_set_i(refill_set),
+    .select_valid_i(refill_select_valid),
+    .select_en_i(refill_victim_select),
+    .victim_way_o(refill_victim_combo),
+    .hit_valid_i(lookup_push && lookup_hit),
     .hit_set_i(lookup_set),
-    .hit_way_i(lookup_hit_way),
-    .fill_valid_i(refill.beat_valid && refill.beat_payload.commit),
-    .fill_set_i(refill.beat_payload.set),
-    .fill_way_i(refill.beat_payload.way)
+    .hit_oh_i(lookup_hit_oh)
   );
 
   //////////////////////
-  // 每路 tag / data SRAM //
+  // 每路 tag / data 存储 //
   //////////////////////
 
-  // tag 写地址用回填 begin 的 set；查询读走独立读口。data 写地址来自 beat。
-  for (genvar way = 0; way < WayCount; way++) begin : gen_way_sram
-    logic way_begin;
-    logic way_beat;
+  // 组合读；读地址来自 CPU 请求，写地址来自 refill。
+  for (genvar way = 0; way < WayCount; way++) begin : gen_way_mem
+    logic way_refill;
+    logic tag_we;
+    logic data_we;
 
-    assign way_begin = refill.begin_valid && (refill.begin_payload.way == way_index_t'(way));
-    assign way_beat = refill.beat_valid && (refill.beat_payload.way == way_index_t'(way));
+    assign way_refill = refill_way_locked_q && (refill_way_q == way_index_t'(way));
+    assign tag_we = way_refill && refill_tag_we;
+    assign data_we = way_refill && refill_data_we;
 
     mem_1rw #(
       .Width(TagW),
-      .Depth(SetCount)
+      .Depth(SetCount),
+      .CombRead(1'b1)
     ) u_tag (
       .clk_i,
-      .ren_i(lookup_read),
+      .ren_i(1'b1),
       .raddr_i(lookup_set),
       .rdata_o(tag_rdata[way]),
-      .wen_i(way_begin),
-      .waddr_i(refill_begin_set),
-      .wdata_i(refill_begin_tag)
+      .wen_i(tag_we),
+      .waddr_i(refill_set),
+      .wdata_i(refill_tag)
     );
 
     mem_1rw #(
       .Width(DataWidth),
-      .Depth(DataDepth)
+      .Depth(DataDepth),
+      .CombRead(1'b1)
     ) u_data (
       .clk_i,
-      .ren_i(lookup_read),
+      .ren_i(1'b1),
       .raddr_i(data_addr_from(lookup_set, lookup_word)),
       .rdata_o(data_rdata[way]),
-      .wen_i(way_beat),
-      .waddr_i(data_addr_from(refill.beat_payload.set, refill.beat_payload.word)),
-      .wdata_i(refill.beat_payload.data)
+      .wen_i(data_we),
+      .waddr_i(data_addr_from(refill_set, refill_line_offset_q)),
+      .wdata_i(refill.data_payload.data)
     );
   end
 
@@ -200,8 +276,8 @@ module icache_array
   // 有效位写入          //
   ////////////////////////
 
-  // 优先级为全阵列失效 > refill 开始/提交。控制器只会在事务排空后产生
-  // invalidate_apply_i，因此正常协议下失效不会截断正在进行的 refill。
+  // 优先级为全阵列失效 > 成功 last 提交置位 > refill 开始清零。失败的 last
+  // 不置位，开始时清掉的有效位保持为 0。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       for (int unsigned way = 0; way < WayCount; way++) begin
@@ -211,34 +287,50 @@ module icache_array
       for (int unsigned way = 0; way < WayCount; way++) begin
         for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
       end
-    end else begin
-      if (refill.begin_valid)
-        // AR handshake 后立即占用牺牲路；回填结束前该路不可被查询命中。
-        valid_q[refill.begin_payload.way][refill_begin_set] <= 1'b0;
-      if (refill.beat_valid && refill.beat_payload.commit)
-        // commit 只可能出现在校验通过的最后一拍，原子地使整行对查询可见。
-        valid_q[refill.beat_payload.way][refill.beat_payload.set] <= 1'b1;
+    end else if (refill_last_fire && refill.data_payload.commit) begin
+      valid_q[refill_way_q][refill_set] <= 1'b1;
+    end else if (refill_victim_select) begin
+      valid_q[refill_victim_combo][refill_set] <= 1'b0;
     end
   end
 
   //////////////////
-  // 协议与索引断言 //
+  // 协议与几何断言 //
   //////////////////
 
-  `ASSERT(ICacheArrayHitUnique, $onehot0(lookup_hit_vector), clk_i, !rst_ni)
-  `ASSERT(ICacheArrayRefillBeginWayValid,
-          refill.begin_valid |-> (int'(refill.begin_payload.way) < WayCount), clk_i, !rst_ni)
-  `ASSERT(ICacheArrayRefillBeginAfterLookup,
-          refill.begin_valid |-> read_valid_q, clk_i, !rst_ni)
-  `ASSERT(ICacheArrayRefillIndicesValid,
-          refill.beat_valid |->
-              (int'(refill.beat_payload.set) < SetCount) &&
-                  (int'(refill.beat_payload.way) < WayCount) &&
-                  (int'(refill.beat_payload.word) < WordCount), clk_i, !rst_ni)
+  `ASSERT_INIT(ICacheArrayBlockBytesPowerOfTwo, icache_is_power_of_two(BlockBytes))
+  `ASSERT_INIT(ICacheArraySetCountPowerOfTwo, icache_is_power_of_two(SetCount))
+  `ASSERT_INIT(ICacheArrayWayCountPowerOfTwo, icache_is_power_of_two(WayCount))
+  `ASSERT_INIT(ICacheArrayBlockCoversDataWidth, BlockBytes >= (DataWidth / 8))
+  `ASSERT_INIT(ICacheArrayTagWidthPositive, TagW > 0)
+
+  `ASSERT(ICacheArrayHitUnique, $onehot0(lookup_hit_oh), clk_i, !rst_ni)
+  `ASSERT(ICacheArrayLookupValidStable, lookup.valid && !lookup.ready |=> lookup.valid, clk_i,
+          !rst_ni)
+  `ASSERT_STABLE(ICacheArrayLookupPayloadStable, lookup.valid, lookup.ready, lookup.payload, '0,
+                 clk_i, !rst_ni,
+                 "Lookup payload must remain stable while valid is waiting for ready.")
+  `ASSERT(ICacheArrayCoreBusReadOnly,
+          core_bus.req_valid |-> !core_bus.req_payload.write &&
+              (core_bus.req_payload.size == riscv_bus_pkg::CORE_BUS_SIZE_WORD) &&
+              (core_bus.req_payload.addr[1:0] == 2'b00) && (core_bus.req_payload.wdata == '0),
+          clk_i, !rst_ni)
+  `ASSERT(ICacheArrayRefillNeedsAddr, refill.data_valid |-> refill.addr_valid, clk_i, !rst_ni)
+  `ASSERT(ICacheArrayRefillDataAfterAddr,
+          refill.data_valid |-> refill_way_locked_q, clk_i, !rst_ni,
+          "Refill data must arrive at least one cycle after the address becomes valid.")
+  `ASSERT_STABLE(ICacheArrayRefillAddrStable, refill.addr_valid, refill.addr_ready,
+                 refill.addr_payload, '0, clk_i, !rst_ni,
+                 "Refill address must remain stable until the last data beat is accepted.")
+  `ASSERT(ICacheArrayRefillAddrValidStable,
+          refill.addr_valid && !refill.addr_ready |=> refill.addr_valid, clk_i, !rst_ni)
+  `ASSERT_STABLE(ICacheArrayRefillDataStable, refill.data_valid, refill.data_ready,
+                 refill.data_payload, '0, clk_i, !rst_ni,
+                 "Refill data must remain stable while backpressured.")
   for (genvar way = 0; way < WayCount; way++) begin : gen_invalidate_assertion
     for (genvar set = 0; set < SetCount; set++) begin : gen_set
-      `ASSERT(ICacheArrayInvalidateClearsValid,
-              invalidate_apply_i |=> !valid_q[way][set], clk_i, !rst_ni)
+      `ASSERT(ICacheArrayInvalidateClearsValid, invalidate_apply_i |=> !valid_q[way][set], clk_i,
+              !rst_ni)
     end
   end
 

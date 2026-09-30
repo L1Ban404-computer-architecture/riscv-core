@@ -15,15 +15,15 @@
 // 才交给 miss 总线。这样 CPU 回应不会在 refill 仍占用阵列时释放 lookup。
 `include "common/assertions.svh"
 
-module cache_miss
+module icache_miss
   import riscv_bus_pkg::*;
-  import icache_pip_pkg::*;
+  import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = ICachePipAddrWidth,
-  parameter int unsigned DataWidth = ICachePipDataWidth,
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = ICACHE_AXI_ID,
-  parameter int unsigned BlockBytes = ICachePipBlockBytes,
+  parameter int unsigned BlockBytes = ICacheBlockBytes,
   localparam int unsigned BeatBytes = DataWidth / 8,
   localparam int unsigned BlockOffsetW = $clog2(BlockBytes),
   localparam int unsigned WordCount = BlockBytes / BeatBytes,
@@ -34,8 +34,8 @@ module cache_miss
   input logic rst_ni,
 
   // 缺失事务、阵列回填与下级存储
-  cache_miss_if.slave miss,
-  cache_refill_if.master refill,
+  icache_miss_if.slave miss,
+  icache_refill_if.master refill,
   axi4_if.master axi
 );
 
@@ -195,28 +195,28 @@ module cache_miss
   // 协议与参数断言
   ////////////////////
 
-  `ASSERT_INIT(CacheMissBlockBytesValid,
-               icache_pip_is_power_of_two(BlockBytes) && (BlockBytes >= 4))
-  `ASSERT_INIT(CacheMissDataWidthValid,
-               icache_pip_is_power_of_two(DataWidth) && (DataWidth >= 8) &&
+  `ASSERT_INIT(ICacheMissBlockBytesValid,
+               icache_is_power_of_two(BlockBytes) && (BlockBytes >= 4))
+  `ASSERT_INIT(ICacheMissDataWidthValid,
+               icache_is_power_of_two(DataWidth) && (DataWidth >= 8) &&
                    (BlockBytes >= BeatBytes) && (WordCount <= 256))
-  `ASSERT_INIT(CacheMissAxiIdFits, (AxiId >> IdWidth) == 0)
+  `ASSERT_INIT(ICacheMissAxiIdFits, (AxiId >> IdWidth) == 0)
 
-  `ASSERT(CacheMissRspAfterRefill, miss.rsp_valid |-> !refill.addr_valid && !refill.data_valid,
+  `ASSERT(ICacheMissRspAfterRefill, miss.rsp_valid |-> !refill.addr_valid && !refill.data_valid,
           clk_i, !rst_ni, "Miss response must wait until the refill write has retired.")
-  `ASSERT(CacheMissNeverWrites, !axi.awvalid && !axi.wvalid && !axi.bready, clk_i, !rst_ni,
+  `ASSERT(ICacheMissNeverWrites, !axi.awvalid && !axi.wvalid && !axi.bready, clk_i, !rst_ni,
           "ICache miss unit must not drive AXI write channels.")
-  `ASSERT(CacheMissPushAccepted, rsp_push |-> rsp_stream_ready, clk_i, !rst_ni,
+  `ASSERT(ICacheMissPushAccepted, rsp_push |-> rsp_stream_ready, clk_i, !rst_ni,
           "The response word must be accepted into the stream register.")
-  `ASSERT_STABLE(CacheMissArStable, axi.arvalid, axi.arready, axi.ar_payload, '0, clk_i, !rst_ni,
+  `ASSERT_STABLE(ICacheMissArStable, axi.arvalid, axi.arready, axi.ar_payload, '0, clk_i, !rst_ni,
                  "AXI AR must remain stable while stalled.")
-  `ASSERT_STABLE(CacheMissRefillAddrStable, refill.addr_valid, refill.addr_ready,
+  `ASSERT_STABLE(ICacheMissRefillAddrStable, refill.addr_valid, refill.addr_ready,
                  refill.addr_payload, '0, clk_i, !rst_ni,
                  "Refill address must remain stable until the last data beat.")
-  `ASSERT_STABLE(CacheMissRefillDataStable, refill.data_valid, refill.data_ready,
+  `ASSERT_STABLE(ICacheMissRefillDataStable, refill.data_valid, refill.data_ready,
                  refill.data_payload, '0, clk_i, !rst_ni,
                  "Refill data must remain stable while backpressured.")
-  `ASSERT_STABLE(CacheMissResponseStable, miss.rsp_valid, miss.rsp_ready, miss.rsp_payload, '0,
+  `ASSERT_STABLE(ICacheMissResponseStable, miss.rsp_valid, miss.rsp_ready, miss.rsp_payload, '0,
                  clk_i, !rst_ni, "Miss response must remain stable while backpressured.")
 
 endmodule

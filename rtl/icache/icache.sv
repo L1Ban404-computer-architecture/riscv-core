@@ -1,43 +1,40 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 参数化超小型 I-cache 顶层。
+// 流水线式 I-cache。
 //
-// 默认几何由 icache_pkg 给出。控制器只允许一笔 miss 在途；命中由阵列一拍 SRAM
-// 读出后判定，miss 的 AXI R beat 直接写入阵列，目标 word 旁路到 CoreBus 响应，
-// 不保存请求副本或完整缓存行。
+// 阵列完成组合读并把结果打入 lookup。组合响应级命中时直接回应 CPU，缺失时把
+// 请求保持给缺失处理器；处理器取回整行后，在写回提交的下一拍回应 CPU。请求与
+// 响应分属 core_bus_if 的 req_slave 和 rsp_source。
 //
-// invalidate_i 是电平请求：先排空已经对外展示或已经握手的事务，再清除全部 valid；
-// 信号保持为高时持续阻止新请求进入。
+// 失效控制器只锁存 invalidate 并在空闲时清除有效位。已经进入 lookup 的请求照常
+// 回应，不因失效改写其数据。
 `include "common/assertions.svh"
 
 module icache
   import riscv_bus_pkg::*;
   import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = ICACHE_AXI_ID,
   parameter int unsigned BlockBytes = ICacheBlockBytes,
   parameter int unsigned SetCount = ICacheSetCount,
   parameter int unsigned WayCount = ICacheWayCount,
-  parameter icache_replacement_policy_e ReplacementPolicy = ICacheReplacementPolicy,
-  localparam int unsigned BlockOffsetW = $clog2(BlockBytes),
-  localparam int unsigned SetIndexBits = $clog2(SetCount),
-  localparam int unsigned TagW = AddrWidth - BlockOffsetW - SetIndexBits
+  parameter icache_replacement_policy_e ReplacementPolicy = ICacheReplacementPolicy
 ) (
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
   input logic invalidate_i,
 
-  // 指令请求与下级存储访问
-  // 连接层保留完整 CoreBus，供控制器以 slave、观察模块以 monitor 视图使用。
+  // 指令请求与下级存储访问。失效逻辑可以挡住新请求；响应级直接驱动回应。
   core_bus_if core_bus,
   axi4_if.master axi
 `ifndef SYNTHESIS
   ,
+  // 仿真期性能计数。
   icache_performance_debug_if.producer performance
 `endif
 );
@@ -48,57 +45,40 @@ module icache
 
   icache_lookup_if #(
     .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .WayCount(WayCount)
+    .DataWidth(DataWidth)
   ) lookup ();
+  icache_miss_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) miss ();
   icache_refill_if #(
     .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .BlockBytes(BlockBytes),
-    .SetCount(SetCount),
-    .WayCount(WayCount)
+    .DataWidth(DataWidth)
   ) refill ();
 
-  // 控制器确认在途事务全部完成后，通过该使能通知阵列清除有效位。
+  // 失效只消费 lookup/refill 的占用标志，并门控尚未握手的请求。
+  logic block_req;
   logic invalidate_apply;
 
-  //////////////////////
-  // 控制器与 SRAM 阵列 //
-  //////////////////////
-
-  icache_control #(
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .IdWidth(IdWidth),
-    .AxiId(AxiId),
-    .BlockBytes(BlockBytes),
-    .SetCount(SetCount),
-    .WayCount(WayCount)
-  ) u_control (
+  icache_invalidate u_invalidate (
     .clk_i,
     .rst_ni,
-    .core_bus,
-    .axi,
-    .lookup,
-    .refill,
     .invalidate_i,
+    .lookup_valid_i(lookup.valid),
+    .refill_addr_valid_i(refill.addr_valid),
+    .block_req_o(block_req),
     .invalidate_apply_o(invalidate_apply)
   );
 
-  icache_array #(
+  // 阵列看到的是放行后的请求。外部 ready 在 block 时为低，已握手的查询留在 lookup。
+  core_bus_if #(
     .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .BlockBytes(BlockBytes),
-    .SetCount(SetCount),
-    .WayCount(WayCount),
-    .ReplacementPolicy(ReplacementPolicy)
-  ) u_array (
-    .clk_i,
-    .rst_ni,
-    .lookup,
-    .refill,
-    .invalidate_apply_i(invalidate_apply)
-  );
+    .DataWidth(DataWidth)
+  ) array_req ();
+
+  assign array_req.req_valid = core_bus.req_valid && !block_req;
+  assign array_req.req_payload = core_bus.req_payload;
+  assign core_bus.req_ready = array_req.req_ready && !block_req;
 
 `ifndef SYNTHESIS
   icache_performance_stats u_performance_stats (
@@ -111,15 +91,58 @@ module icache
   );
 `endif
 
-  ////////////////////
-  // 参数与接口断言 //
-  ////////////////////
+  //////////////////////
+  // 阵列、响应与缺失 //
+  //////////////////////
+
+  icache_array #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .BlockBytes(BlockBytes),
+    .SetCount(SetCount),
+    .WayCount(WayCount),
+    .ReplacementPolicy(ReplacementPolicy)
+  ) u_array (
+    .clk_i,
+    .rst_ni,
+    .invalidate_apply_i(invalidate_apply),
+    .core_bus(array_req),
+    .lookup,
+    .refill
+  );
+
+  icache_rsp #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) u_rsp (
+    .clk_i,
+    .rst_ni,
+    .lookup,
+    .miss,
+    .core_bus
+  );
+
+  icache_miss #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth),
+    .AxiId(AxiId),
+    .BlockBytes(BlockBytes)
+  ) u_miss (
+    .clk_i,
+    .rst_ni,
+    .miss,
+    .refill,
+    .axi
+  );
+
+  `ASSERT(ICacheInvalidateBlocksRequest, block_req |-> !core_bus.req_ready, clk_i, !rst_ni,
+          "A new request must not be accepted while invalidate is blocking admission.")
 
   `ASSERT_INIT(ICacheCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(ICacheCoreBusDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
+  `ASSERT_INIT(ICacheCoreBusDataWidth, $bits(core_bus.rsp_payload.rdata) == DataWidth)
   `ASSERT_INIT(ICacheAxiAddrWidth, $bits(axi.ar_payload.addr) == AddrWidth)
   `ASSERT_INIT(ICacheAxiDataWidth, $bits(axi.r_payload.data) == DataWidth)
   `ASSERT_INIT(ICacheAxiIdWidth, $bits(axi.ar_payload.id) == IdWidth)
-  `ASSERT_INIT(ICacheTagWidthValid, TagW > 0)
 
 endmodule

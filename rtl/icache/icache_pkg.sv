@@ -1,13 +1,14 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 超小型 I-cache 公共定义。
+// I-cache 公共定义。
 //
-// 默认几何只在本 package 中给出。`icache` 及其子模块、内部 interface 的实例参数
-// 以此为默认值；`ysyx_25080230` 不覆盖，因此改这里即改 SoC 取指 cache。
-// 替换策略作为 elaboration-time 参数使用，未选择的实现会由 generate 消除。
+// 默认位宽与几何只在本 package 中给出。`icache` 及其子模块、内部 interface
+// 的实例参数以此为默认值。`ysyx_25080230` 不覆盖几何参数。
 package icache_pkg;
 
+  parameter int unsigned ICacheAddrWidth = 32;
+  parameter int unsigned ICacheDataWidth = 32;
   parameter int unsigned ICacheBlockBytes = 4;
   parameter int unsigned ICacheSetCount = 16;
   parameter int unsigned ICacheWayCount = 1;
@@ -28,7 +29,7 @@ package icache_pkg;
   endfunction
 
 `ifndef SYNTHESIS
-  // 仅供仿真观测。命中由 lookup 查询结果分类，请求与响应独立计时。
+  // 仅供仿真观测。请求与响应分别累计周期和，缺失次数由请求数减命中数得到。
   typedef struct packed {
     logic [63:0] request_count;
     logic [63:0] hit_count;

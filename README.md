@@ -1,7 +1,7 @@
 # riscv-core：RV32E/RV32I 五级流水线 RTL
 
 本项目以可综合 RTL 子集实现单发射、顺序执行/退休的 RV32E/RV32I 核心，并包含最小
-M-mode 精确同步异常、Zicsr 与 Zifencei 支持。仓库提供 Verilator lint、模型构建，以及
+M-mode 精确同步异常、Zicsr 与 Zifencei 支持。仓库提供 Verilator 模型构建，以及
 基于开源工具的 ASIC 综合和布局前 STA 估算；尚未建立布局布线、CDC/RDC 与门级签核流程。
 
 ```text
@@ -33,7 +33,7 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 - `mstatus/mtvec/mepc/mcause/mtval` 及精确同步异常；
 - 只读 64 位 CLINT `mtime`，每周期递增；
 - CoreBus 零延迟响应及请求/响应背压；
-- 单 outstanding 的数据 CoreBus 到 AXI4 转换；指令侧为阻塞式 I-cache；
+- 单 outstanding 的数据 CoreBus 到 AXI4 转换；指令侧为流水线 I-cache；
 - 暂不支持中断、其他特权级、M/C/F/A 扩展、MMU、D-cache 或分支预测。
 
 `riscv_core_impl` 在 FENCE.I 精确退休当拍输出单周期 `icache_invalidate_o`，并从
@@ -42,8 +42,8 @@ IF/ID 队列；ID 负责译码、立即数和寄存器读取；EX 执行 ALU、�
 仿真专用顶层 `rtl/top/riscv_core_sim.sv` 与 `ysyx_25080230` 并列，直接将核心的
 imem/dmem CoreBus 连接到同文件内的 `mem_sim` 模块，通过 `IsDmem` 参数分别选择
 `dpi_imem_read_sim` 或 `dpi_dmem_access_sim`。具体内存内容和地址映射由仿真环境提供。
-退休调试和性能接口已展开为顶层标量及分类计数数组端口。对应的检查和 Verilator 生成入口为
-`make sim-lint`、`make sim-parameter-lint` 与 `make sim-verilator`。
+退休调试和性能接口已展开为顶层标量及分类计数数组端口。仿真模型由 mini-soc
+和 ysyx-soc 按各自 filelist 生成。
 
 性能日志报告 IPC、退休指令数、周期数、分类局部阻塞均值和 imem/dmem 延迟、请求和响应
 背压指标；ysyx-soc 额外报告 I-cache 命中率与命中/缺失延迟。统计口径见[性能计数器](docs/性能计数器.md)。
@@ -65,11 +65,8 @@ CoreBus 请求携带 `write` 与 `size`；`mem_sim` 调用 DPI-C 时据此推导
 ## 构建
 
 ```bash
-make lint       # Verilator 静态检查（包含 RTL 仿真 assertion）
-make verilator  # 构建 ysyx_25080230 C++ 模型
-make yosys-slang # 默认核心和 cache elaboration/synthesis
-make check      # lint + synthesis-lint + verilator + yosys-slang
-make perf       # 调用 yosys-sta，生成标准单元面积和时序报告
+make check # 用 yosys-slang 展开顶层，做综合语义检查
+make perf  # 调用 yosys-sta，生成标准单元面积和时序报告
 ```
 
 `make perf` 使用 [OSCPU/yosys-sta](https://github.com/OSCPU/yosys-sta) 的原生
@@ -98,7 +95,7 @@ Makefile 只做两步：用 slang 显式传入 `-D SYNTHESIS` 读取固定的 `.
 SystemVerilog 降低，并用 `bwmuxmap` 展开内部位选择单元，导出 `build/perf/rtl.v`；
 再调用上游 `make sta` 完成综合和时序分析。
 每次运行都重新转换，并用 `make -B` 强制上游重新综合、分析。
-参数沿用上游名称：`DESIGN=ysyx_25080230`、`CLK_PORT_NAME=clock`、
+参数为 `TOP=ysyx_25080230`、`CLK_PORT_NAME=clock`、
 `CLK_FREQ_MHZ=5000`、`PDK=nangate45`；它们不改变固定文件列表所展开的 CPU。
 第一版不提供任意模块评估接口，不再使用旧的 `PERF_*` 参数。
 
@@ -127,20 +124,19 @@ SystemVerilog 降低，并用 `bwmuxmap` 展开内部位选择单元，导出 `b
 退休访存和改道记录、CSR 调试快照，以及全部流水线和访存性能计数器。
 PC、译码及异常处理需要的指令字、真实 CSR 状态和 CLINT `mtime` 保留。
 
-`make perf` 和 `make yosys-slang` 在读取原始 RTL 时显式定义该宏，因此
+`make check` 和 `make perf` 在读取原始 RTL 时显式定义该宏，因此
 `build/perf/rtl.v` 已不包含上述观测逻辑，不依赖后续综合优化删除它们。
-仿真文件列表不定义该宏；手动检查裁剪模式可运行 `make synthesis-lint`。
-仿真专用顶层即使裁剪观测端口，仍含 DPI 存储器模型，不能作为硬件综合顶层。
+仿真文件列表不定义该宏。仿真专用顶层即使裁剪观测端口，仍含 DPI 存储器模型，不能作为硬件综合顶层。
 
-`make check` 执行普通及综合模式 lint、Verilator 模型构建和 Yosys-Slang
-综合语义检查。运行验证通过 AM 工作负载和 runner 差分完成，流程见工作台根目录 README。
+`make check` 执行 Yosys-Slang 综合语义检查。运行验证通过 AM 工作负载和 runner
+差分完成，流程见工作台根目录 README。仿真模型由 mini-soc 与 ysyx-soc 构建。
 
 ## RV32E / RV32I 选择
 
 默认 RV32E。独立构建用 `make check RVE=1` 或 `make check RVE=0`；外部 RTL
-构建用 `-DRISCV_CORE_RVE=1` 或 `=0`，省略宏时默认 1。lint、综合、仿真和 perf
+构建用 `-DRISCV_CORE_RVE=1` 或 `=0`，省略宏时默认 1。综合、仿真和 perf
 使用同一选择；mini-soc、ysyx-soc 从 runner 契约推导该宏。
 
 指令寄存器编码保持 5 位，E 模式只实现 x1–x15，x0 硬连零。实际操作数引用
 x16–x31 时产生非法指令异常，mtval 保存原指令；CSR zimm、移位量和 FENCE
-保留字段不受寄存器数量限制。`check` 对所选模式执行静态检查和模型构建。
+保留字段不受寄存器数量限制。`check` 对所选模式执行综合语义检查。

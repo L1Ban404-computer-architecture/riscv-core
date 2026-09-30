@@ -77,7 +77,7 @@ AMT          = (1 - hit_rate) * miss_penalty
 
 ## 与 RTL 性能计数器的口径差异
 
-RTL `icache_performance_stats` 按 CoreBus `req_fire` 计数，包含五级流水在重定向
+RTL `icache_performance_stats` 按 CoreBus 请求接受计数，包含五级流水在重定向
 后已经发出、随后被丢弃的取指。cachesim 回放的是退休 PC，因此命中率适合比较
 参数变化趋势，不能与 ysyx-soc `*-perf.log` 的 icache 行逐条相等。cachesim 也不
 识别 `FENCE.I`，自修改代码场景会和冲刷整 cache 的 RTL 行为分叉。

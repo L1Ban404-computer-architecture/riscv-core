@@ -9,94 +9,32 @@ ISA_FLAGS := -DRISCV_CORE_RVE=$(RVE)
 # Copyright (c) 2026
 # SPDX-License-Identifier: Apache-2.0
 
-# 工具、输出目录及全局告警配置；变量均可由命令行覆盖，便于接入不同环境。
-VERILATOR ?= verilator
+# 工具与综合参数；变量均可由命令行覆盖，便于接入不同环境。
 YOSYS ?= yosys
 YOSYS_STA_HOME ?= $(HOME)/.local/yosys-sta
-DESIGN ?= ysyx_25080230
+# 综合顶层。文件列表不写 --top；可改为 icache_top 或 riscv_core_sim。
+TOP ?= ysyx_25080230
+# SoC 顶层时钟叫 clock，其余模块遵循 clk_i。命令行传入的值优先。
+ifeq ($(TOP),ysyx_25080230)
 CLK_PORT_NAME ?= clock
+else
+CLK_PORT_NAME ?= clk_i
+endif
 CLK_FREQ_MHZ ?= 5000
-VERILATOR_BUILD_DIR ?= build/verilator
-VERILATOR_PREFIX ?= core
-VERILATOR_WARNINGS := -Wno-PINCONNECTEMPTY -Wno-IMPORTSTAR
-ICACHE_WARNINGS := $(VERILATOR_WARNINGS) -Wno-TIMESCALEMOD -Wno-WIDTHTRUNC -Wno-SYNCASYNCNET
-# 综合会移除参数断言；FIFO 数据写使能仍使用同步复位条件。
-SYNTHESIS_WARNINGS := $(VERILATOR_WARNINGS) -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET
-SIM_WARNINGS := $(VERILATOR_WARNINGS) -Wno-UNUSEDPARAM
+PDK ?= nangate45
 
-# 对外目标分为顶层检查和 I-cache 参数化 lint 入口。
-.PHONY: lint verilator sim-lint sim-parameter-lint sim-verilator yosys-slang-core yosys-slang check icache-lint
-.PHONY: perf synthesis-lint cachesim
-
-# 核心 RTL 的静态检查、C++ 模型构建与聚合检查入口。
-lint:
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(VERILATOR_WARNINGS) \
-		-f .slang/riscv_core.f
-
-verilator:
-	$(VERILATOR) $(ISA_FLAGS) --cc --build --sv $(VERILATOR_WARNINGS) \
-		--Mdir $(VERILATOR_BUILD_DIR) \
-		--top-module ysyx_25080230 \
-		--prefix $(VERILATOR_PREFIX) \
-		-f .slang/riscv_core.f
-
-# 仿真专用核心顶层。DPI-C 函数由上层仿真环境提供实现。
-sim-lint: sim-parameter-lint
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(SIM_WARNINGS) \
-		-f .slang/riscv_core_sim.f
-
-sim-parameter-lint:
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(SIM_WARNINGS) \
-		-GImemResponseLatency=1 -GImemMaxOutstanding=2 \
-		-GDmemResponseLatency=3 -GDmemMaxOutstanding=4 \
-		-f .slang/riscv_core_sim.f
-
-sim-verilator:
-	$(VERILATOR) $(ISA_FLAGS) --cc --sv $(VERILATOR_WARNINGS) \
-		--Mdir build/verilator-sim \
-		--top-module riscv_core_sim \
-		--prefix core_sim \
-		-f .slang/riscv_core_sim.f
-
-check: lint synthesis-lint verilator yosys-slang
-
-cachesim:
-	$(MAKE) -C cachesim BUILD_DIR=$(abspath build)
-
-# I-cache 参数化配置的独立编译入口。
-icache-lint:
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
-		-f rtl/icache/icache.f
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
-		-GBlockBytes=16 -GSetCount=1 -GWayCount=1 \
-		-f rtl/icache/icache.f
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
-		-GReplacementPolicy=0 -f rtl/icache/icache.f
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(ICACHE_WARNINGS) \
-		-GWayCount=4 -GReplacementPolicy=2 -f rtl/icache/icache.f
+# 综合语义检查与面积/时序分析。仿真模型由 mini-soc、ysyx-soc 自行 Verilate。
+.PHONY: check perf
 
 # 通过 slang 前端展开顶层，覆盖综合语义检查。
-yosys-slang-core:
-	$(YOSYS) -p 'plugin -i slang; read_slang $(ISA_FLAGS) -D SYNTHESIS --single-unit -f .slang/riscv_core.f'
-
-yosys-slang: yosys-slang-core
+check:
+	$(YOSYS) -p 'plugin -i slang; read_slang $(ISA_FLAGS) -D SYNTHESIS --single-unit --top $(TOP) -f .slang/riscv_core.f'
 
 # slang 只降低 SystemVerilog；工艺映射与 STA 交给上游 yosys-sta。
 # 面积预算按讲义使用 nangate45；可覆盖 PDK=icsprout55 做对照。
-PDK ?= nangate45
-
 perf:
-	@test -f "$(YOSYS_STA_HOME)/Makefile" && test -x "$(YOSYS_STA_HOME)/bin/iEDA" || \
-		{ echo '请先安装 yosys-sta，并设置 YOSYS_STA_HOME（见 README.md）。' >&2; exit 1; }
-	@test -d "$(YOSYS_STA_HOME)/pdk/$(PDK)" || \
-		{ echo "缺少工艺库 $(YOSYS_STA_HOME)/pdk/$(PDK)（nangate45 见 README.md）。" >&2; exit 1; }
 	mkdir -p build/perf
-	$(YOSYS) -Q -T -p 'plugin -i slang; read_slang $(ISA_FLAGS) -D SYNTHESIS --single-unit --ignore-assertions -f .slang/riscv_core.f; proc; bwmuxmap; write_verilog build/perf/rtl.v'
+	$(YOSYS) -Q -T -p 'plugin -i slang; read_slang $(ISA_FLAGS) -D SYNTHESIS --single-unit --ignore-assertions --top $(TOP) -f .slang/riscv_core.f; proc; bwmuxmap; write_verilog build/perf/rtl.v'
 	$(MAKE) -B -C "$(YOSYS_STA_HOME)" sta \
-		DESIGN="$(DESIGN)" CLK_PORT_NAME="$(CLK_PORT_NAME)" CLK_FREQ_MHZ="$(CLK_FREQ_MHZ)" \
+		DESIGN="$(TOP)" CLK_PORT_NAME="$(CLK_PORT_NAME)" CLK_FREQ_MHZ="$(CLK_FREQ_MHZ)" \
 		PDK="$(PDK)" RTL_FILES="$(abspath build/perf/rtl.v)" O="$(abspath build/perf)"
-
-# 同时检查裁剪后的硬件顶层和仿真包装端口。
-synthesis-lint:
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(SYNTHESIS_WARNINGS) -DSYNTHESIS -f .slang/riscv_core.f
-	$(VERILATOR) $(ISA_FLAGS) --lint-only --sv --Wall $(SYNTHESIS_WARNINGS) -DSYNTHESIS -f .slang/riscv_core_sim.f

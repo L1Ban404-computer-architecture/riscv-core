@@ -9,7 +9,7 @@
 // pending 不释放，新请求继续被挡住。
 `include "common/assertions.svh"
 
-module cache_invalidate (
+module icache_invalidate (
   // 全局控制与失效请求
   input logic clk_i,
   input logic rst_ni,
@@ -40,10 +40,10 @@ module cache_invalidate (
     end
   end
 
-  `ASSERT(CacheInvalidateApplyWhenIdle,
+  `ASSERT(ICacheInvalidateApplyWhenIdle,
           invalidate_apply_o |-> !lookup_valid_i && !refill_addr_valid_i, clk_i, !rst_ni,
           "Invalidate clears the array only after the in-flight request responds.")
-  `ASSERT(CacheInvalidatePendingStable, pending_q && !invalidate_apply_o |=> pending_q, clk_i,
+  `ASSERT(ICacheInvalidatePendingStable, pending_q && !invalidate_apply_o |=> pending_q, clk_i,
           !rst_ni, "A latched invalidate stays pending until the array is idle.")
 
 endmodule

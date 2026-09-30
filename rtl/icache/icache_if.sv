@@ -5,87 +5,130 @@
 /* verilator lint_off UNDRIVEN */
 /* verilator lint_off UNUSEDSIGNAL */
 
-// 超小型 I-cache 内部语义接口。
+// 流水线 I-cache 内部语义接口。
 //
-// 封装控制器与阵列之间的一拍查询和 refill 写通路。
-// 不额外引入队列、skid buffer 或完整缓存行缓冲。
+// `icache_lookup_if` 是阵列读结果的单向 stream：SRAM 读延迟一拍后，阵列以
+// ready/valid 交出访问地址、读数据和命中标志。背压期间 valid 与 payload 保持。
+//
+// `icache_miss_if` 是单笔缺失事务。请求没有独立握手，地址随 lookup 保持到 CPU
+// 响应完成；响应数据在 refill 写回提交后的下一拍才有效。
+//
+// `icache_refill_if` 是突发回填的地址/数据双通道，时序与握手约定见该 interface 注释。
 
-//////////////////
-// 阵列查询事务 //
-//////////////////
+//////////////////////
+// 阵列读结果事务   //
+//////////////////////
 
-// req_valid 当拍启动 tag/data SRAM 读，没有 ready 握手。下一拍 rsp_payload
-// 对应该次地址：hit、命中数据和当前牺牲路。控制器只在 Lookup 状态采样结果。commit 仅在命中
-// 请求与 CoreBus 响应同拍完成时置位，用于更新替换状态；反压期间不得更新状态。
 interface icache_lookup_if
   import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
-  parameter int unsigned WayCount = ICacheWayCount,
-  localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2(WayCount) : 1
-);
-  typedef struct packed {logic [AddrWidth-1:0] addr;} req_payload_t;
-  typedef struct packed {
-    logic hit;
-    logic [DataWidth-1:0] rdata;
-    logic [WayIndexW-1:0] victim_way;
-  } rsp_payload_t;
-
-  logic req_valid;
-  req_payload_t req_payload;
-  rsp_payload_t rsp_payload;
-  logic commit;
-
-  modport controller(output req_valid, req_payload, commit, input rsp_payload);
-  modport array(input req_valid, req_payload, commit, output rsp_payload);
-  modport monitor(input req_valid, req_payload, rsp_payload, commit);
-endinterface
-
-//////////////////
-// 缓存行回填事务 //
-//////////////////
-
-// begin 在 AXI AR 握手时占用牺牲路并写入新 tag；beat 对应每次 AXI R 握手，数据
-// 直接写入目标 word。最后一拍仅在整个 burst 无错误时携带 commit，使目标行生效。
-// miss 完成后的 CoreBus 响应由控制器旁路目标 beat，不再从阵列读回。
-interface icache_refill_if
-  import icache_pkg::*;
-#(
-  parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
-  parameter int unsigned BlockBytes = ICacheBlockBytes,
-  parameter int unsigned SetCount = ICacheSetCount,
-  parameter int unsigned WayCount = ICacheWayCount,
-  localparam int unsigned SetIndexW = (SetCount > 1) ? $clog2(SetCount) : 1,
-  localparam int unsigned WordCount = BlockBytes / (DataWidth / 8),
-  localparam int unsigned WordIndexW = (WordCount > 1) ? $clog2(WordCount) : 1,
-  localparam int unsigned WayIndexW = (WayCount > 1) ? $clog2(WayCount) : 1
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth
 );
   typedef struct packed {
     logic [AddrWidth-1:0] addr;
-    logic [WayIndexW-1:0] way;
-  } begin_payload_t;
+    logic [DataWidth-1:0] rdata;
+    logic hit;
+  } payload_t;
+
+  payload_t payload;
+  logic valid;
+  logic ready;
+  logic fire;
+
+  assign fire = valid && ready;
+
+  modport producer(output payload, valid, input ready, fire);
+  modport consumer(input payload, valid, fire, output ready);
+  modport monitor(input payload, valid, ready, fire);
+endinterface
+
+//////////////////////
+// 缺失取数事务     //
+//////////////////////
+
+// 请求在整段缺失期间保持 valid 与 CPU 字地址，不设 req_ready。响应 valid 只能在
+// refill 最后一拍写回的下一拍拉高，payload 保持到 rsp_ready。响应握手当拍请求
+// 仍然有效；lookup 在该拍弹出，请求下一拍才撤销。处理器据此只在空闲时启动一次
+// AXI 读，不能把持续为高的 req_valid 直接当作 AR。
+interface icache_miss_if
+  import icache_pkg::*;
+#(
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth
+);
+  typedef struct packed {logic [AddrWidth-1:0] addr;} req_payload_t;
   typedef struct packed {
-    logic [SetIndexW-1:0] set;
-    logic [WayIndexW-1:0] way;
-    logic [WordIndexW-1:0] word;
+    logic [DataWidth-1:0] rdata;
+    logic error;
+  } rsp_payload_t;
+
+  req_payload_t req_payload;
+  logic req_valid;
+
+  rsp_payload_t rsp_payload;
+  logic rsp_valid;
+  logic rsp_ready;
+  logic rsp_fire;
+
+  assign rsp_fire = rsp_valid && rsp_ready;
+
+  modport master(output req_payload, req_valid, rsp_ready, input rsp_payload, rsp_valid, rsp_fire);
+  modport slave(input req_payload, req_valid, rsp_ready, rsp_fire, output rsp_payload, rsp_valid);
+  modport monitor(input req_payload, req_valid, rsp_payload, rsp_valid, rsp_ready, rsp_fire);
+endinterface
+
+//////////////////////
+// 缓存行回填事务   //
+//////////////////////
+
+// 地址/数据双通道突发回填。地址在整次 burst 期间保持 valid 与 payload，阵列不
+// 锁存地址副本，仅在最后一拍数据握手时拉高 addr_ready。数据通道带 last 与
+// commit：last 结束 burst 并解锁牺牲路，last 且 commit 才把该行标为有效。
+// 时序要求：数据通道第一拍 valid 必须比地址通道第一拍 valid 至少晚一个周期，
+// 以便阵列先锁存牺牲路与起始 line offset。
+interface icache_refill_if
+  import icache_pkg::*;
+#(
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth
+);
+  typedef struct packed {logic [AddrWidth-1:0] addr;} addr_payload_t;
+  typedef struct packed {
     logic [DataWidth-1:0] data;
+    logic last;
     logic commit;
-  } beat_payload_t;
+  } data_payload_t;
 
-  logic begin_valid;
-  begin_payload_t begin_payload;
-  logic beat_valid;
-  beat_payload_t beat_payload;
+  addr_payload_t addr_payload;
+  logic addr_valid;
+  logic addr_ready;
+  logic addr_fire;
 
-  modport controller(output begin_valid, begin_payload, beat_valid, beat_payload);
-  modport array(input begin_valid, begin_payload, beat_valid, beat_payload);
-  modport monitor(input begin_valid, begin_payload, beat_valid, beat_payload);
+  data_payload_t data_payload;
+  logic data_valid;
+  logic data_ready;
+  logic data_fire;
+
+  assign addr_fire = addr_valid && addr_ready;
+  assign data_fire = data_valid && data_ready;
+
+  modport master(
+      output addr_payload, addr_valid, data_payload, data_valid, input addr_ready, addr_fire,
+          data_ready, data_fire
+  );
+  modport slave(
+      input addr_payload, addr_valid, addr_fire, data_payload, data_valid, data_fire,
+      output addr_ready, data_ready
+  );
+  modport monitor(
+      input addr_payload, addr_valid, addr_ready, addr_fire, data_payload, data_valid, data_ready,
+          data_fire
+  );
 endinterface
 
 `ifndef SYNTHESIS
-// 实时 I-cache 性能计数快照。计数器只供仿真分析，不参与功能控制。
+// 仿真期 I-cache 性能计数快照。计数不参与功能控制。
 interface icache_performance_debug_if;
   icache_pkg::icache_performance_payload_t payload;
   modport producer(output payload);
@@ -94,4 +137,6 @@ interface icache_performance_debug_if;
 endinterface
 `endif
 
+/* verilator lint_on UNUSEDSIGNAL */
+/* verilator lint_on UNDRIVEN */
 /* verilator lint_on DECLFILENAME */

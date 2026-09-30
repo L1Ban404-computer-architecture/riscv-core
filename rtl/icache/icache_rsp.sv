@@ -8,11 +8,11 @@
 // lookup.ready 等于这次响应握手，等待缺失期间阵列不再接收下一次查询。
 `include "common/assertions.svh"
 
-module cache_rsp
-  import icache_pip_pkg::*;
+module icache_rsp
+  import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = ICachePipAddrWidth,
-  parameter int unsigned DataWidth = ICachePipDataWidth
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth
 ) (
   // 断言时钟。本级没有寄存器；综合会裁掉断言，因此时钟在综合下不被读取。
 `ifdef SYNTHESIS
@@ -25,8 +25,8 @@ module cache_rsp
 `endif
 
   // 查询结果、缺失事务与 CPU 响应
-  cache_lookup_if.consumer lookup,
-  cache_miss_if.master miss,
+  icache_lookup_if.consumer lookup,
+  icache_miss_if.master miss,
   core_bus_if.rsp_source core_bus
 );
 
@@ -45,20 +45,20 @@ module cache_rsp
   assign lookup.ready = core_bus.rsp_fire;
   assign miss.rsp_ready = core_bus.rsp_ready;
 
-  `ASSERT_INIT(CacheRspLookupAddrWidth, $bits(lookup.payload.addr) == AddrWidth)
-  `ASSERT_INIT(CacheRspLookupDataWidth, $bits(lookup.payload.rdata) == DataWidth)
-  `ASSERT_INIT(CacheRspMissAddrWidth, $bits(miss.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CacheRspMissDataWidth, $bits(miss.rsp_payload.rdata) == DataWidth)
-  `ASSERT_INIT(CacheRspCoreDataWidth, $bits(core_bus.rsp_payload.rdata) == DataWidth)
+  `ASSERT_INIT(ICacheRspLookupAddrWidth, $bits(lookup.payload.addr) == AddrWidth)
+  `ASSERT_INIT(ICacheRspLookupDataWidth, $bits(lookup.payload.rdata) == DataWidth)
+  `ASSERT_INIT(ICacheRspMissAddrWidth, $bits(miss.req_payload.addr) == AddrWidth)
+  `ASSERT_INIT(ICacheRspMissDataWidth, $bits(miss.rsp_payload.rdata) == DataWidth)
+  `ASSERT_INIT(ICacheRspCoreDataWidth, $bits(core_bus.rsp_payload.rdata) == DataWidth)
 
-  `ASSERT(CacheRspMissResponseHasRequest, miss.rsp_valid |-> miss.req_valid, clk_i, !rst_ni,
+  `ASSERT(ICacheRspMissResponseHasRequest, miss.rsp_valid |-> miss.req_valid, clk_i, !rst_ni,
           "A miss response can only belong to the lookup that is still requesting it.")
-  `ASSERT_STABLE(CacheRspMissRequestStable, miss.req_valid, lookup.ready, miss.req_payload, '0,
+  `ASSERT_STABLE(ICacheRspMissRequestStable, miss.req_valid, lookup.ready, miss.req_payload, '0,
                  clk_i, !rst_ni,
                  "Miss request address must stay stable until the CPU response completes.")
-  `ASSERT_STABLE(CacheRspMissResponseStable, miss.rsp_valid, miss.rsp_ready, miss.rsp_payload, '0,
+  `ASSERT_STABLE(ICacheRspMissResponseStable, miss.rsp_valid, miss.rsp_ready, miss.rsp_payload, '0,
                  clk_i, !rst_ni, "Miss response must remain stable while the CPU is stalling.")
-  `ASSERT_STABLE(CacheRspCoreResponseStable, core_bus.rsp_valid, core_bus.rsp_ready,
+  `ASSERT_STABLE(ICacheRspCoreResponseStable, core_bus.rsp_valid, core_bus.rsp_ready,
                  core_bus.rsp_payload, '0, clk_i, !rst_ni,
                  "CoreBus response must remain stable while stalled.")
 

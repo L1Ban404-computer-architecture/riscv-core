@@ -6,9 +6,9 @@
 // 指令取指级。
 //
 // 当前 I-cache 最多接受一笔未完成请求，因此 IF 使用单笔 pending 元数据寄存器，
-// 而非可支持多 outstanding 的 PC FIFO。I-cache 用一拍 SRAM 查询后再与 CoreBus
-// 同拍握手：响应写入非 fall-through 指令 FIFO 后，于下一周期对 ID 有效。该
-// 寄存器边界切断 ID/I-cache ready 到请求 valid 的组合回路。
+// 而非可支持多 outstanding 的 PC FIFO。命中回应至少晚请求接受一拍；响应写入非
+// fall-through 指令 FIFO 后，于下一周期对 ID 有效。该寄存器边界切断
+// ID/I-cache ready 到请求 valid 的组合回路。
 //
 // 已向 CoreBus 声明 valid 的请求不可撤销。redirect 会立即清空已返回指令、
 // 更新 PC，并将已发出或已展示的旧路径请求标记为 stale；旧响应返回后握手并丢弃。
@@ -17,7 +17,7 @@ module if_stage
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 #(
-  // 保留参数接口兼容性；当前阻塞式 I-cache 要求该值固定为 1。
+  // 保留参数接口兼容性；当前 I-cache 要求该值固定为 1。
   parameter int unsigned FetchOutstandingDepth = 1,
   // 已返回指令队列深度。
   parameter int unsigned IfIdQueueDepth = 2

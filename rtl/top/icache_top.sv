@@ -9,8 +9,8 @@ module icache_top
   import riscv_bus_pkg::*;
   import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
+  parameter int unsigned AddrWidth = ICacheAddrWidth,
+  parameter int unsigned DataWidth = ICacheDataWidth,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = ICACHE_AXI_ID,
   parameter int unsigned BlockBytes = ICacheBlockBytes,

@@ -6,7 +6,8 @@
 rtl/top/             公开 SoC 顶层
 rtl/core/pipeline/   五级流水模块
 rtl/core/units/      译码、ALU、CSR 等组合或局部单元
-rtl/icache/          阻塞式 I-cache 及其内部协议
+rtl/icache/          流水线 I-cache 及其内部协议
+rtl/icache_old/      阻塞式 I-cache，不再接入 SoC
 rtl/bus/             公共总线 package、CoreBus 路由/适配和 AXI4 仲裁
 rtl/peripheral/      核心本地外设
 rtl/common/          ready/valid 基础单元、行为级 SRAM 原语和公共 assertion 宏
@@ -89,16 +90,15 @@ ID/EX、EX/MEM、MEM/WB 的具名流水 interface 由 `RISCV_CORE_PIPELINE_STREA
 
 ## 构建
 
-确保 GNU Make、C++ 工具链、Verilator、Yosys 和 yosys-slang 插件可从 `PATH` 访问。
-编辑器诊断可选用 slang-server；编译入口由 `.slang/riscv_core.f` 维护。
+确保 GNU Make、Yosys 和 yosys-slang 插件可从 `PATH` 访问。编辑器诊断可选用
+slang-server；综合入口由 `.slang/riscv_core.f` 维护。仿真模型由 mini-soc 与
+ysyx-soc 用 Verilator 生成。
 
 ```bash
-make lint       # SystemVerilog lint
-make verilator  # 构建 ysyx_25080230 C++ 模型
-make yosys-slang # 检查顶层综合入口
-make check      # 执行 lint、synthesis-lint、Verilator 和 yosys-slang 检查
+make check # 用 yosys-slang 检查顶层综合入口
+make perf  # 生成标准单元面积和时序报告
 ```
 
-yosys-slang 检查使用 `--single-unit`。仿真 assertion 在 `SYNTHESIS` 下自动移除。
+`make check` 使用 `--single-unit`。仿真 assertion 在 `SYNTHESIS` 下自动移除。
 
 生成文件统一写入 `build/`，不应手工修改或提交。

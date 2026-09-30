@@ -17,6 +17,7 @@
         "rtl/core/pipeline",
         "rtl/core/units",
         "rtl/icache",
+        "rtl/icache_old",
         "rtl/peripheral",
         "rtl/top"
       ],
