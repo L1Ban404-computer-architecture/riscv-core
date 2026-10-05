@@ -29,10 +29,11 @@ AREA_RE = re.compile(
 )
 
 CORE_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_CACHESIM = CORE_DIR / "build" / "cachesim" / "cachesim"
-DEFAULT_WORK_ROOT = CORE_DIR / "build" / "cachesim" / "dse"
-DEFAULT_OUTPUT = CORE_DIR / "build" / "cachesim" / "dse.csv"
-DEFAULT_PLOT = CORE_DIR / "build" / "cachesim" / "dse.svg"
+CACHESIM_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_CACHESIM = CACHESIM_DIR / "build" / "cachesim"
+DEFAULT_WORK_ROOT = CACHESIM_DIR / "build" / "dse"
+DEFAULT_OUTPUT = CACHESIM_DIR / "build" / "dse.csv"
+DEFAULT_PLOT = CACHESIM_DIR / "build" / "dse.svg"
 DEFAULT_YOSYS_STA_HOME = Path(
     os.environ.get("YOSYS_STA_HOME", str(Path.home() / ".local" / "yosys-sta"))
 )

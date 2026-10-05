@@ -14,12 +14,16 @@ cover: smtbmc bitwuzla
 
 [script]
 plugin -i slang
-read_slang --no-synthesis-define --single-unit --top fv_icache_fetch -f .slang/icache_fetch.f
+read_slang --no-synthesis-define --single-unit --top fv_icache_fetch -f formal/icache/icache_fetch.f
 prep -top fv_icache_fetch
 
 [files]
-.slang/icache_fetch.f .slang/icache_fetch.f
+formal/icache/icache_fetch.f formal/icache/icache_fetch.f
 rtl/bus rtl/bus
 rtl/common rtl/common
 rtl/icache rtl/icache
-formal/icache formal/icache
+formal/icache/fv_axi_rom.sv formal/icache/fv_axi_rom.sv
+formal/icache/fv_cpu_fetch.sv formal/icache/fv_cpu_fetch.sv
+formal/icache/fv_icache_fetch.sv formal/icache/fv_icache_fetch.sv
+formal/icache/fv_imem.sv formal/icache/fv_imem.sv
+formal/icache/fv_scoreboard.sv formal/icache/fv_scoreboard.sv

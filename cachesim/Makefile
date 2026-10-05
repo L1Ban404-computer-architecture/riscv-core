@@ -1,12 +1,12 @@
 # Copyright (c) 2026
 # SPDX-License-Identifier: Apache-2.0
 
-# 产物都落在 $(BUILD_DIR)/cachesim/：可执行文件、PC 轨迹和仿真报告。
+# 产物都落在 build/：可执行文件、目标文件、PC 轨迹和仿真报告。
 CXX ?= g++
 PYTHON ?= python3
-BUILD_DIR ?= ../build
-OUT_DIR := $(BUILD_DIR)/cachesim
-OBJ_DIR := $(BUILD_DIR)/obj/cachesim
+BUILD_DIR ?= build
+OUT_DIR := $(BUILD_DIR)
+OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(OUT_DIR)/cachesim
 PCTRACE := $(OUT_DIR)/microbench.pc
 SIM_REPORT := $(OUT_DIR)/sim.log
@@ -79,8 +79,7 @@ $(PCTRACE):
 	  PCTRACE="$(abspath $@)" run
 
 clean:
-	-rm -rf $(OUT_DIR) $(OBJ_DIR)
-	-rm -f $(BUILD_DIR)/cachesim
+	-rm -rf $(BUILD_DIR)
 
 -include $(DEPS)
 

@@ -1,9 +1,0 @@
--Irtl
-rtl/*.sv
-rtl/*.svh
-rtl/*/*.sv
-rtl/*/*.svh
-rtl/*/*/*.sv
-rtl/*/*/*.svh
-rtl/*/*/*/*.sv
-rtl/*/*/*/*.svh
