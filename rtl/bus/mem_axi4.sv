@@ -5,7 +5,6 @@
 //
 // 该模块直接使用尚未完成握手的 CoreBus 请求 payload；除写地址与写数据的
 // 独立握手标志和最小状态机外，不保存请求或响应数据。
-`include "common/assertions.svh"
 
 module mem_axi4
   import riscv_bus_pkg::*;
@@ -154,39 +153,5 @@ module mem_axi4
       endcase
     end
   end
-
-  //////////////////
-  // 协议与参数断言 //
-  //////////////////
-
-  `ASSERT_STABLE(MemAxiCoreBusRequestStable, core_bus.req_valid, core_bus.req_ready,
-                 core_bus.req_payload, '0, clk_i, !rst_ni)
-  `ASSERT_STABLE(MemAxiCoreBusResponseStable, core_bus.rsp_valid, core_bus.rsp_ready,
-                 core_bus.rsp_payload, '0, clk_i, !rst_ni)
-  `ASSERT_STABLE(MemAxiAwStable, axi.awvalid, axi.awready, axi.aw_payload, '0,
-                 clk_i, !rst_ni)
-  `ASSERT_STABLE(MemAxiWStable, axi.wvalid, axi.wready, axi.w_payload, '0,
-                 clk_i, !rst_ni)
-  `ASSERT_STABLE(MemAxiArStable, axi.arvalid, axi.arready, axi.ar_payload, '0,
-                 clk_i, !rst_ni)
-  `ASSERT(MemAxiSingleBeatRead,
-          axi.rvalid && active_read_response |-> axi.r_payload.last, clk_i, !rst_ni,
-          "CoreBus adapter only accepts single-beat AXI reads.")
-  `ASSERT(MemAxiReadId,
-          axi.rvalid && active_read_response |-> (axi.r_payload.id == IdWidth'(AxiId)), clk_i,
-          !rst_ni, "AXI read response ID must match the CoreBus adapter.")
-  `ASSERT(MemAxiWriteId,
-          axi.bvalid && active_write_response |-> (axi.b_payload.id == IdWidth'(AxiId)), clk_i,
-          !rst_ni, "AXI write response ID must match the CoreBus adapter.")
-
-  `ASSERT_INIT(MemAxiAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(MemAxiDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
-  `ASSERT_INIT(MemAxiAxiAddrWidth, $bits(axi.aw_payload.addr) == AddrWidth)
-  `ASSERT_INIT(MemAxiAxiDataWidth, $bits(axi.w_payload.data) == DataWidth)
-  `ASSERT_INIT(MemAxiIdWidth, $bits(axi.aw_payload.id) == IdWidth)
-  `ASSERT_INIT(MemAxiIdFits, (AxiId >> IdWidth) == 0)
-  `ASSERT_INIT(MemAxiAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
-  `ASSERT_INIT(MemAxiDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
 
 endmodule

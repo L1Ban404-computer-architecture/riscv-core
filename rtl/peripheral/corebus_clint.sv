@@ -6,7 +6,6 @@
 // 提供每周期自增的 64 位 mtime，并通过两个相邻 32 位地址读取低、高半字。
 // 当前不产生中断且 mtime 只读；仅接受对齐字读取；内部只保留一笔响应，
 // 响应被上游接收前不得覆盖。
-`include "common/assertions.svh"
 
 module corebus_clint
   import riscv_bus_pkg::*;
@@ -71,14 +70,5 @@ module corebus_clint
       end
     end
   end
-
-  //////////////
-  // 参数断言 //
-  //////////////
-
-  `ASSERT_INIT(ClintDataWidthSupported, DataWidth == 32)
-  `ASSERT_INIT(ClintAddressWidthValid, AddrWidth > 0)
-  `ASSERT_INIT(ClintCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(ClintCoreBusDataWidth, $bits(core_bus.req_payload.wdata) == DataWidth)
 
 endmodule

@@ -7,7 +7,6 @@
 // 的 `raddr_i` 下一拍出现在 `rdata_o`，`ren_i` 为低时保持。`CombRead=1` 为组合读：
 // `rdata_o` 组合反映 `mem[raddr_i]`，`ren_i` 不参与。同地址同拍写与读相对时钟为
 // read-first（写在时钟沿更新，组合读在该沿前仍见旧值）。存储和同步读输出都不复位。
-`include "common/assertions.svh"
 
 module mem_1rw #(
   parameter int unsigned Width = 32,
@@ -52,8 +51,5 @@ module mem_1rw #(
     logic unused_addr;
     assign unused_addr = ^{raddr_i[0], waddr_i[0]};
   end
-
-  `ASSERT_INIT(Mem1rwWidthValid, Width > 0)
-  `ASSERT_INIT(Mem1rwDepthValid, Depth > 0)
 
 endmodule

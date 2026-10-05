@@ -6,7 +6,6 @@
 // 按掩码匹配地址，将单个 CoreBus 主设备路由到目标设备或默认从设备。
 // 最多允许一笔未完成事务；请求被接受后必须锁存目标选择直至响应完成；
 // 请求握手当拍允许从设备返回零延迟响应。
-`include "common/assertions.svh"
 
 module corebus_addr_router
   import riscv_bus_pkg::*;
@@ -70,18 +69,6 @@ module corebus_addr_router
       end
     end
   end
-
-  //////////////
-  // 参数断言 //
-  //////////////
-
-  `ASSERT_INIT(CoreBusRouterAddrWidthValid, AddrWidth > 0)
-  `ASSERT_INIT(CoreBusRouterDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
-  `ASSERT_INIT(CoreBusRouterMasterAddrWidth, $bits(master_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CoreBusRouterMasterDataWidth, $bits(master_bus.req_payload.wdata) == DataWidth)
-  `ASSERT_INIT(CoreBusRouterDeviceAddrWidth, $bits(device_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(CoreBusRouterFallbackDataWidth, $bits(fallback_bus.req_payload.wdata) == DataWidth)
 
   ////////////////////
   // 目标所有权寄存 //

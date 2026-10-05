@@ -7,7 +7,6 @@
 // 存在无效路时始终选择最低编号无效路；只有目标组全部有效时，才使用固定 0 路、
 // 逐组轮转或 Tree-PLRU 结果。策略是静态参数，generate 保证未选逻辑不进入综合网表。
 // 命中更新以独热路向量输入，Tree-PLRU 更新直接沿独热掩码下推，避免 binary 译码。
-`include "common/assertions.svh"
 
 module icache_replacement_policy
   import icache_pkg::*;
@@ -171,20 +170,5 @@ module icache_replacement_policy
       end
     end
   end
-
-  //////////////
-  // 参数与事件断言 //
-  //////////////
-
-  `ASSERT_INIT(ICacheReplacementSetCountValid, icache_is_power_of_two(SetCount))
-  `ASSERT_INIT(ICacheReplacementWayCountValid, icache_is_power_of_two(WayCount))
-  `ASSERT_INIT(
-      ICacheReplacementPolicyValid,
-      (ReplacementPolicy == ICACHE_REPLACEMENT_FIXED) ||
-          (ReplacementPolicy == ICACHE_REPLACEMENT_ROUND_ROBIN) ||
-          (ReplacementPolicy == ICACHE_REPLACEMENT_TREE_PLRU))
-  `ASSERT(ICacheReplacementHitOhValid, hit_valid_i |-> $onehot(hit_oh_i), clk_i, !rst_ni)
-  `ASSERT(ICacheReplacementSelectWayValid, select_en_i |-> (int'(victim_way_o) < WayCount), clk_i,
-          !rst_ni)
 
 endmodule

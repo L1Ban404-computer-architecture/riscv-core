@@ -1,0 +1,25 @@
+[tasks]
+bmc
+cover
+
+[options]
+bmc: mode bmc
+bmc: depth 20
+cover: mode cover
+cover: depth 20
+
+[engines]
+bmc: smtbmc bitwuzla
+cover: smtbmc bitwuzla
+
+[script]
+plugin -i slang
+read_slang --no-synthesis-define --single-unit --top fv_icache_fetch -f .slang/icache_fetch.f
+prep -top fv_icache_fetch
+
+[files]
+.slang/icache_fetch.f .slang/icache_fetch.f
+rtl/bus rtl/bus
+rtl/common rtl/common
+rtl/icache rtl/icache
+formal/icache formal/icache

@@ -80,10 +80,12 @@ ID/EX、EX/MEM、MEM/WB 的具名流水 interface 由 `RISCV_CORE_PIPELINE_STREA
 
 注释应解释协议假设、优先级和非直观状态转换，并放在对应 RTL 附近；不要在文档
 中复制实现过程，也不要写仅重复代码表面的注释。关键握手和状态约束使用
-`rtl/common/assertions.svh` 中的仿真 assertion 宏。使用这些宏的每个 `.sv` 文件都必须
-在自身文件头显式 `` `include "common/assertions.svh" ``；宏属于预处理器命名空间，
-不属于 package，也不会由 package import 传递。文件列表仍应保持 common package 最先
-编译，以满足基础类型 package 的依赖顺序。
+`rtl/common/assertions.svh` 里的 `CHECK`。性质是同拍布尔式，蕴含写成 `!条件 || 结论`，
+不使用 `|->`、`|=>`、`$stable` 或 `$bits`。需要看上一拍时，在 `` `ifndef SYNTHESIS ``
+里加一位采样寄存器。使用该宏的每个 `.sv` 文件都必须在自身文件头显式
+`` `include "common/assertions.svh" ``；宏属于预处理器命名空间，不属于 package，
+也不会由 package import 传递。文件列表仍应保持 common package 最先编译，以满足
+基础类型 package 的依赖顺序。
 
 第三方代码保持上游格式。项目自有 RTL 可参考 lowRISC Verilog Coding Style，避免
 把纯格式调整和功能修改混在同一次变更中。

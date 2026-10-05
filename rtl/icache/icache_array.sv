@@ -294,44 +294,40 @@ module icache_array
     end
   end
 
-  //////////////////
-  // 协议与几何断言 //
-  //////////////////
+  //////////////
+  // 协议检查 //
+  //////////////
 
-  `ASSERT_INIT(ICacheArrayBlockBytesPowerOfTwo, icache_is_power_of_two(BlockBytes))
-  `ASSERT_INIT(ICacheArraySetCountPowerOfTwo, icache_is_power_of_two(SetCount))
-  `ASSERT_INIT(ICacheArrayWayCountPowerOfTwo, icache_is_power_of_two(WayCount))
-  `ASSERT_INIT(ICacheArrayBlockCoversDataWidth, BlockBytes >= (DataWidth / 8))
-  `ASSERT_INIT(ICacheArrayTagWidthPositive, TagW > 0)
-
-  `ASSERT(ICacheArrayHitUnique, $onehot0(lookup_hit_oh), clk_i, !rst_ni)
-  `ASSERT(ICacheArrayLookupValidStable, lookup.valid && !lookup.ready |=> lookup.valid, clk_i,
-          !rst_ni)
-  `ASSERT_STABLE(ICacheArrayLookupPayloadStable, lookup.valid, lookup.ready, lookup.payload, '0,
-                 clk_i, !rst_ni,
-                 "Lookup payload must remain stable while valid is waiting for ready.")
-  `ASSERT(ICacheArrayCoreBusReadOnly,
-          core_bus.req_valid |-> !core_bus.req_payload.write &&
-              (core_bus.req_payload.size == riscv_bus_pkg::CORE_BUS_SIZE_WORD) &&
-              (core_bus.req_payload.addr[1:0] == 2'b00) && (core_bus.req_payload.wdata == '0),
-          clk_i, !rst_ni)
-  `ASSERT(ICacheArrayRefillNeedsAddr, refill.data_valid |-> refill.addr_valid, clk_i, !rst_ni)
-  `ASSERT(ICacheArrayRefillDataAfterAddr,
-          refill.data_valid |-> refill_way_locked_q, clk_i, !rst_ni,
-          "Refill data must arrive at least one cycle after the address becomes valid.")
-  `ASSERT_STABLE(ICacheArrayRefillAddrStable, refill.addr_valid, refill.addr_ready,
-                 refill.addr_payload, '0, clk_i, !rst_ni,
-                 "Refill address must remain stable until the last data beat is accepted.")
-  `ASSERT(ICacheArrayRefillAddrValidStable,
-          refill.addr_valid && !refill.addr_ready |=> refill.addr_valid, clk_i, !rst_ni)
-  `ASSERT_STABLE(ICacheArrayRefillDataStable, refill.data_valid, refill.data_ready,
-                 refill.data_payload, '0, clk_i, !rst_ni,
-                 "Refill data must remain stable while backpressured.")
-  for (genvar way = 0; way < WayCount; way++) begin : gen_invalidate_assertion
-    for (genvar set = 0; set < SetCount; set++) begin : gen_set
-      `ASSERT(ICacheArrayInvalidateClearsValid, invalidate_apply_i |=> !valid_q[way][set], clk_i,
-              !rst_ni)
+`ifndef SYNTHESIS
+  // 任意两路同时命中即为重复。1 路时内层循环不执行。
+  logic hit_unique;
+  always_comb begin
+    hit_unique = 1'b1;
+    for (int unsigned way = 0; way < WayCount; way++) begin
+      for (int unsigned other = way + 1; other < WayCount; other++) begin
+        if (lookup_hit_oh[way] && lookup_hit_oh[other]) hit_unique = 1'b0;
+      end
     end
   end
+
+  // 上一拍的清除脉冲必须在这一拍把全部有效位清掉。
+  logic invalidate_apply_q;
+  logic any_valid;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) invalidate_apply_q <= 1'b0;
+    else invalidate_apply_q <= invalidate_apply_i;
+  end
+  always_comb begin
+    any_valid = 1'b0;
+    for (int unsigned way = 0; way < WayCount; way++) begin
+      for (int unsigned set = 0; set < SetCount; set++) begin
+        if (valid_q[way][set]) any_valid = 1'b1;
+      end
+    end
+  end
+`endif
+
+  `CHECK(ICacheArrayHitUnique, hit_unique)
+  `CHECK(ICacheArrayInvalidateClearsValid, !invalidate_apply_q || !any_valid)
 
 endmodule

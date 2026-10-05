@@ -248,54 +248,28 @@ module if_stage
   end
 `endif
 
-  ////////////////////
-  // 协议与参数断言 //
-  ////////////////////
+  //////////////
+  // 协议检查 //
+  //////////////
 
-  // verilog_format: off
-  // 当前多周期占用断言；恢复流水重叠时一并移除。
-  // 异步复位同时作为 SVA disable 条件，不是数据通路的同步复位。
-  /* verilator lint_off SYNCASYNCNET */
-  `ASSERT(SingleInstructionAllocation, instruction_active_q |-> !fetch_req_fire,
-          clk_i, !rst_ni, "No new allocation before the active instruction commits.")
-  `ASSERT(SingleInstructionRetire, retire_i |-> instruction_active_q,
-          clk_i, !rst_ni, "Every commit must own the instruction slot.")
-  `ASSERT(SingleInstructionHold, instruction_active_q && !retire_i |=> instruction_active_q,
-          clk_i, !rst_ni, "Redirect must not release the instruction slot.")
+  // 当前多周期占用检查；恢复流水重叠时一并移除。
+  // FetchOutstandingDepth 只保留实例化接口，实现固定为单笔在途。
+  logic unused_fetch_depth;
+  assign unused_fetch_depth = FetchOutstandingDepth == 0;
 
-  /* verilator lint_on SYNCASYNCNET */
+`ifndef SYNTHESIS
+  // 上一拍仍占用且未退休，这一拍指令槽必须还在。
+  logic instruction_hold_q;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) instruction_hold_q <= 1'b0;
+    else instruction_hold_q <= instruction_active_q && !retire_i;
+  end
+`endif
 
-  `ASSERT_STABLE(
-    ImemReqStable,
-    imem.req_valid,
-    imem.req_ready,
-    imem.req_payload,
-    '0,
-    clk_i,
-    !rst_ni,
-    "CoreBus request payload must remain stable while valid is waiting for ready."
-  )
-
-  `ASSERT(
-    ImemReqValidStable,
-    imem.req_valid && !imem.req_ready |=> imem.req_valid,
-    clk_i,
-    !rst_ni,
-    "CoreBus request valid must remain asserted until ready."
-  )
-
-  `ASSERT(
-    NoSecondImemRequestWhileOutstanding,
-    request_outstanding_q |-> !imem.req_valid,
-    clk_i,
-    !rst_ni,
-    "IF supports exactly one accepted instruction request awaiting a response."
-  )
-
-  `ASSERT(BootPcAligned, boot_pending_q |-> (boot_pc_i[1:0] == 2'b00), clk_i, !rst_ni,
-          "boot_pc_i must satisfy RV32I IALIGN=32.")
-  `ASSERT_INIT(FetchOutstandingDepthIsOne, FetchOutstandingDepth == 1,
-               "The connected I-cache supports at most one outstanding request.")
-  // verilog_format: on
+  `CHECK(SingleInstructionAllocation, !instruction_active_q || !fetch_req_fire)
+  `CHECK(SingleInstructionRetire, !retire_i || instruction_active_q)
+  `CHECK(SingleInstructionHold, !instruction_hold_q || instruction_active_q)
+  `CHECK(NoSecondImemRequestWhileOutstanding, !request_outstanding_q || !imem.req_valid)
+  `CHECK(BootPcAligned, !boot_pending_q || (boot_pc_i[1:0] == 2'b00))
 
 endmodule

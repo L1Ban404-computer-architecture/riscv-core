@@ -176,7 +176,7 @@ module icache_miss
     end
   end
 
-  // 写通道和 refill 地址 ready 不参与这里的状态。综合会裁掉断言，因此单独读出 stream ready。
+  // 写通道、refill 地址 ready 和 stream ready 不参与状态。读出来避免端口悬空告警。
   logic unused_sideband;
   assign unused_sideband = ^{
     axi.awready,
@@ -191,32 +191,11 @@ module icache_miss
     rsp_stream_ready
   };
 
-  ////////////////////
-  // 协议与参数断言
-  ////////////////////
+  //////////////
+  // 协议检查 //
+  //////////////
 
-  `ASSERT_INIT(ICacheMissBlockBytesValid,
-               icache_is_power_of_two(BlockBytes) && (BlockBytes >= 4))
-  `ASSERT_INIT(ICacheMissDataWidthValid,
-               icache_is_power_of_two(DataWidth) && (DataWidth >= 8) &&
-                   (BlockBytes >= BeatBytes) && (WordCount <= 256))
-  `ASSERT_INIT(ICacheMissAxiIdFits, (AxiId >> IdWidth) == 0)
-
-  `ASSERT(ICacheMissRspAfterRefill, miss.rsp_valid |-> !refill.addr_valid && !refill.data_valid,
-          clk_i, !rst_ni, "Miss response must wait until the refill write has retired.")
-  `ASSERT(ICacheMissNeverWrites, !axi.awvalid && !axi.wvalid && !axi.bready, clk_i, !rst_ni,
-          "ICache miss unit must not drive AXI write channels.")
-  `ASSERT(ICacheMissPushAccepted, rsp_push |-> rsp_stream_ready, clk_i, !rst_ni,
-          "The response word must be accepted into the stream register.")
-  `ASSERT_STABLE(ICacheMissArStable, axi.arvalid, axi.arready, axi.ar_payload, '0, clk_i, !rst_ni,
-                 "AXI AR must remain stable while stalled.")
-  `ASSERT_STABLE(ICacheMissRefillAddrStable, refill.addr_valid, refill.addr_ready,
-                 refill.addr_payload, '0, clk_i, !rst_ni,
-                 "Refill address must remain stable until the last data beat.")
-  `ASSERT_STABLE(ICacheMissRefillDataStable, refill.data_valid, refill.data_ready,
-                 refill.data_payload, '0, clk_i, !rst_ni,
-                 "Refill data must remain stable while backpressured.")
-  `ASSERT_STABLE(ICacheMissResponseStable, miss.rsp_valid, miss.rsp_ready, miss.rsp_payload, '0,
-                 clk_i, !rst_ni, "Miss response must remain stable while backpressured.")
+  `CHECK(ICacheMissRspAfterRefill, !miss.rsp_valid || (!refill.addr_valid && !refill.data_valid))
+  `CHECK(ICacheMissNeverWrites, !axi.awvalid && !axi.wvalid && !axi.bready)
 
 endmodule

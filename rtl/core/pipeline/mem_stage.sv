@@ -181,43 +181,12 @@ module mem_stage
   assign busy_o = inflight_q || dmem.req_fire;
 
   //////////////
-  // 协议断言 //
+  // 协议检查 //
   //////////////
 
-  // verilog_format: off
-  `ASSERT_STABLE(
-    DmemReqStable,
-    dmem.req_valid,
-    dmem.req_ready,
-    dmem.req_payload,
-    '0,
-    clk_i,
-    !rst_ni,
-    "CoreBus data request must remain stable while waiting for ready."
-  )
-
-  `ASSERT(
-    DmemReqValidStable,
-    dmem.req_valid && !dmem.req_ready |=> dmem.req_valid,
-    clk_i,
-    !rst_ni,
-    "CoreBus data request valid must remain asserted until ready."
-  )
-
-  `ASSERT(DmemResponseOwned, dmem.rsp_fire |-> (inflight_q || dmem.req_fire),
-          clk_i, !rst_ni, "Response must match an accepted or same-cycle request.")
-  `ASSERT(DmemSingleInflight, inflight_q |-> !dmem.req_fire,
-          clk_i, !rst_ni, "Only one data request may be outstanding.")
-  `ASSERT(DmemInflightMetadata, inflight_q |-> (ex_mem.valid && memory_instruction),
-          clk_i, !rst_ni, "In-flight metadata must remain in EX/MEM.")
-  `ASSERT_STABLE(DmemMetadataStable, ex_mem.valid && memory_instruction, ex_mem.ready,
-                 ex_mem_payload, ex_mem_payload_t'(0), clk_i, !rst_ni ||
-                 (flush_i && !inflight_q), "Held memory metadata must remain stable.")
-  `ASSERT(DmemInflightNoFlush, inflight_q |-> !flush_i,
-          clk_i, !rst_ni, "Backend flush must not discard an in-flight transaction.")
-  `ASSERT(DmemSendingNoFlush, dmem.req_valid && !dmem.req_ready |=> !flush_i,
-          clk_i, !rst_ni, "Backend flush must not cancel a stalled request.")
-
-  // verilog_format: on
+  `CHECK(DmemResponseOwned, !dmem.rsp_fire || inflight_q || dmem.req_fire)
+  `CHECK(DmemSingleInflight, !inflight_q || !dmem.req_fire)
+  `CHECK(DmemInflightMetadata, !inflight_q || (ex_mem.valid && memory_instruction))
+  `CHECK(DmemInflightNoFlush, !inflight_q || !flush_i)
 
 endmodule

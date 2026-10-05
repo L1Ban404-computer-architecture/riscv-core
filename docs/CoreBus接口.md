@@ -81,9 +81,9 @@ AXI 时用 `size` 与地址低位生成 `WSTRB`。写响应的 `rdata` 为零；
 响应仍按顺序匹配。MEM 的响应 ready 只取决于 EX/MEM 有效访存、MEM/WB 输入
 容量和 flush，不依赖请求 ready；断言检查响应握手对应已有或同拍接受的请求。
 请求发出后至响应完成前，后端不得冲刷保存元数据的 EX/MEM。当前数据侧与取指侧深度均固定为 1；IF 的
-`FetchOutstandingDepth` 参数仅为接口兼容性保留，并由 assertion 约束为 1。
+`FetchOutstandingDepth` 参数仅为接口兼容性保留，实现只支持 1。
 
-RTL 中保留请求、响应稳定性和关键编码约束的仿真 assertion。
+RTL 里只留少量同拍布尔检查，蕴含写成 `!条件 || 结论`。
 
 ## AXI4 interface
 

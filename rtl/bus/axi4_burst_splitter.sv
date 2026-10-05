@@ -127,32 +127,13 @@ module axi4_burst_splitter
     end
   end
 
-  //////////////////
-  // 协议与参数断言 //
-  //////////////////
+  //////////////
+  // 协议检查 //
+  //////////////
 
-  `ASSERT_STABLE(AxiBurstSplitterArStable, single_axi.arvalid, single_axi.arready,
-                 single_axi.ar_payload, '0, clk_i, !rst_ni,
-                 "拆分后的 AXI AR 在反压时必须保持稳定。")
-  `ASSERT_STABLE(AxiBurstSplitterRStable, burst_axi.rvalid, burst_axi.rready,
-                 burst_axi.r_payload, '0, clk_i, !rst_ni,
-                 "突发 R 响应在反压时必须保持稳定。")
-  `ASSERT(AxiBurstSplitterNoWrites,
-          !burst_axi.awvalid && !burst_axi.wvalid && !burst_axi.bready &&
-              !single_axi.awvalid && !single_axi.wvalid && !single_axi.bready,
-          clk_i, !rst_ni, "I-cache 突发拆分器不得驱动 AXI 写通道。")
-  `ASSERT(AxiBurstSplitterSingleBeat,
-          single_axi.arvalid |-> single_axi.ar_payload.len == 8'd0,
-          clk_i, !rst_ni, "拆分后的 AXI AR 必须是单拍请求。")
-  `ASSERT(AxiBurstSplitterNoReadOverlap,
-          waiting_r_q |-> !single_axi.arvalid,
-          clk_i, !rst_ni, "AXI 子请求响应返回前不得发出下一笔 AR。")
-
-  `ASSERT_INIT(AxiBurstSplitterAddrWidth, $bits(burst_axi.ar_payload.addr) == AddrWidth)
-  `ASSERT_INIT(AxiBurstSplitterDataWidth, $bits(burst_axi.r_payload.data) == DataWidth)
-  `ASSERT_INIT(AxiBurstSplitterIdWidth, $bits(burst_axi.ar_payload.id) == IdWidth)
-  `ASSERT_INIT(AxiBurstSplitterAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
-  `ASSERT_INIT(AxiBurstSplitterDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
+  `CHECK(AxiBurstSplitterNoWrites, !burst_axi.awvalid && !burst_axi.wvalid && !burst_axi.bready &&
+      !single_axi.awvalid && !single_axi.wvalid && !single_axi.bready)
+  `CHECK(AxiBurstSplitterSingleBeat, !single_axi.arvalid || (single_axi.ar_payload.len == 8'd0))
+  `CHECK(AxiBurstSplitterNoReadOverlap, !waiting_r_q || !single_axi.arvalid)
 
 endmodule

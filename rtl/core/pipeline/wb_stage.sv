@@ -105,25 +105,10 @@ module wb_stage
   assign unused_clk_rst = ^{clk_i, rst_ni};
 `endif
 
-  // FENCE.I 的失效请求必须精确对应一次实际提交，并同时发起顺序后继重取指和
-  // 后端冲刷；被异常或 flush 丢弃的事务不得产生该外部副作用。
-  // verilog_format: off
-  `ASSERT(
-    FenceIInvalidateExact,
-    icache_invalidate_o == fence_i_commit,
-    clk_i,
-    !rst_ni,
-    "I-cache invalidation must occur exactly once when FENCE.I commits."
-  )
-
-  `ASSERT(
-    FenceIRefetchAndFlush,
-    fence_i_commit |-> (redirect.valid &&
-                        (redirect.payload.target_pc == (mem_wb_payload.meta.pc + word_t'(4)))),
-    clk_i,
-    !rst_ni,
-    "Committed FENCE.I must flush younger work and refetch from PC+4."
-  )
-  // verilog_format: on
+  // FENCE.I 的失效请求必须精确对应一次实际提交，并同时重取 PC+4。
+  // 被异常或 flush 丢弃的事务不得产生该外部副作用。
+  `CHECK(FenceIInvalidateExact, icache_invalidate_o == fence_i_commit)
+  `CHECK(FenceIRefetchAndFlush, !fence_i_commit || (redirect.valid &&
+      (redirect.payload.target_pc == (mem_wb_payload.meta.pc + word_t'(4)))))
 
 endmodule

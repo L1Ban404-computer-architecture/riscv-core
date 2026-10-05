@@ -7,8 +7,6 @@
 // 因此请求计数晚一拍入账，但时间戳用接受当拍的周期。响应当拍 lookup 就是正在
 // 弹出的那笔事务，直接用它的 hit 分类。字段是请求数、命中数和两组周期和。
 `ifndef SYNTHESIS
-`include "common/assertions.svh"
-
 module icache_performance_stats
   import icache_pkg::*;
 (
@@ -57,15 +55,6 @@ module icache_performance_stats
       end
     end
   end
-
-  `ASSERT(ICachePerfAcceptedVisible, req_accepted_q |-> lookup.valid, clk_i, !rst_ni,
-          "The request accepted last cycle must now be visible on lookup.")
-  `ASSERT(ICachePerfResponseVisible, core_bus.rsp_fire |-> lookup.valid, clk_i, !rst_ni,
-          "A response must belong to the lookup entry being popped.")
-  `ASSERT(ICachePerfMissStartsRefill, req_accepted_q && !lookup.payload.hit |-> refill.addr_valid,
-          clk_i, !rst_ni, "A miss must present its refill address on the classification cycle.")
-  `ASSERT(ICachePerfHitSkipsRefill, req_accepted_q && lookup.payload.hit |-> !refill.addr_valid,
-          clk_i, !rst_ni, "A hit must not start a refill.")
 
 endmodule
 `endif

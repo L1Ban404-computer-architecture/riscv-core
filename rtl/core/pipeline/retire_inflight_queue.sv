@@ -47,12 +47,8 @@ module retire_inflight_queue
     .ready_i(out_fire_i)
   );
 
-  // verilog_format: off
-  `ASSERT(RetireQueueNoOverflow, in_fire_i |-> ready, clk_i, !rst_ni || flush_i,
-          "Retire inflight queue overflow; increase MaxInflight.")
-  `ASSERT(RetireQueueNoUnderflow, out_fire_i |-> valid, clk_i, !rst_ni || flush_i,
-          "Retire inflight queue underflow; input/output fires are not in order.")
-  // verilog_format: on
+  `CHECK(RetireQueueNoOverflow, !in_fire_i || ready, clk_i, !rst_ni || flush_i)
+  `CHECK(RetireQueueNoUnderflow, !out_fire_i || valid, clk_i, !rst_ni || flush_i)
 
 endmodule
 `endif

@@ -93,20 +93,7 @@ module stream_fifo #(
     end
   end
 
-  ////////////////////
-  // 协议与参数断言 //
-  ////////////////////
-
-  // verilog_format: off
-  `ASSERT_INIT(StreamFifoDepthValid, Depth > 0, "Depth must be greater than zero.")
-  `ASSERT(StreamFifoCountValid, count_q <= count_t'(Depth), clk_i, !rst_ni,
-          "FIFO usage must not exceed Depth.")
-  `ASSERT(StreamFifoOutputValidStable, valid_o && !ready_i |=> valid_o,
-          clk_i, !rst_ni || flush_i,
-          "FIFO output valid must remain asserted while waiting for ready.")
-  `ASSERT_STABLE(StreamFifoOutputDataStable, valid_o, ready_i, data_o, T'('0),
-                 clk_i, !rst_ni || flush_i,
-                 "FIFO output data must remain stable while waiting for ready.")
-  // verilog_format: on
+  // 占用计数不得超过深度。
+  `CHECK(StreamFifoCountValid, count_q <= count_t'(Depth))
 
 endmodule

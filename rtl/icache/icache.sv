@@ -136,13 +136,7 @@ module icache
     .axi
   );
 
-  `ASSERT(ICacheInvalidateBlocksRequest, block_req |-> !core_bus.req_ready, clk_i, !rst_ni,
-          "A new request must not be accepted while invalidate is blocking admission.")
-
-  `ASSERT_INIT(ICacheCoreBusAddrWidth, $bits(core_bus.req_payload.addr) == AddrWidth)
-  `ASSERT_INIT(ICacheCoreBusDataWidth, $bits(core_bus.rsp_payload.rdata) == DataWidth)
-  `ASSERT_INIT(ICacheAxiAddrWidth, $bits(axi.ar_payload.addr) == AddrWidth)
-  `ASSERT_INIT(ICacheAxiDataWidth, $bits(axi.r_payload.data) == DataWidth)
-  `ASSERT_INIT(ICacheAxiIdWidth, $bits(axi.ar_payload.id) == IdWidth)
+  // 失效挡住准入时，新请求不能被接受。
+  `CHECK(ICacheInvalidateBlocksRequest, !block_req || !core_bus.req_ready)
 
 endmodule

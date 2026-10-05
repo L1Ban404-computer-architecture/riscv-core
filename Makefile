@@ -24,7 +24,9 @@ CLK_FREQ_MHZ ?= 5000
 PDK ?= nangate45
 
 # 综合语义检查与面积/时序分析。仿真模型由 mini-soc、ysyx-soc 自行 Verilate。
-.PHONY: check perf
+SBY ?= sby
+
+.PHONY: check perf formal-icache
 
 # 通过 slang 前端展开顶层，覆盖综合语义检查。
 check:
@@ -38,3 +40,8 @@ perf:
 	$(MAKE) -B -C "$(YOSYS_STA_HOME)" sta \
 		DESIGN="$(TOP)" CLK_PORT_NAME="$(CLK_PORT_NAME)" CLK_FREQ_MHZ="$(CLK_FREQ_MHZ)" \
 		PDK="$(PDK)" RTL_FILES="$(abspath build/perf/rtl.v)" O="$(abspath build/perf)"
+
+# I-cache 取指一致性：复位后 20 拍的有界检查。工作目录在 build/，可重复运行。
+formal-icache:
+	mkdir -p build/formal
+	$(SBY) -f --prefix build/formal/icache_fetch formal/icache/icache_fetch.sby

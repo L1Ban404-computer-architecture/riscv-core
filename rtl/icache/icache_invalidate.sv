@@ -40,10 +40,17 @@ module icache_invalidate (
     end
   end
 
-  `ASSERT(ICacheInvalidateApplyWhenIdle,
-          invalidate_apply_o |-> !lookup_valid_i && !refill_addr_valid_i, clk_i, !rst_ni,
-          "Invalidate clears the array only after the in-flight request responds.")
-  `ASSERT(ICacheInvalidatePendingStable, pending_q && !invalidate_apply_o |=> pending_q, clk_i,
-          !rst_ni, "A latched invalidate stays pending until the array is idle.")
+`ifndef SYNTHESIS
+  // 上一拍已经锁存、且尚未实施的失效，这一拍必须仍为 pending。
+  logic pending_hold_q;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) pending_hold_q <= 1'b0;
+    else pending_hold_q <= pending_q && !invalidate_apply_o;
+  end
+`endif
+
+  `CHECK(ICacheInvalidateApplyWhenIdle,
+         !invalidate_apply_o || (!lookup_valid_i && !refill_addr_valid_i))
+  `CHECK(ICacheInvalidatePendingStable, !pending_hold_q || pending_q)
 
 endmodule

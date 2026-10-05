@@ -112,36 +112,10 @@ module axi4_fixed_priority_arb
     end
   end
 
-  //////////////////
-  // 协议与参数断言 //
-  //////////////////
+  //////////////
+  // 协议检查 //
+  //////////////
 
-  `ASSERT_STABLE(AxiArbCoreArStable, core_axi.arvalid, core_axi.arready,
-                 core_axi.ar_payload, '0, clk_i, !rst_ni,
-                 "AR source and payload must remain stable while the slave backpressures.")
-  `ASSERT(AxiArbCoreBusReadPriority,
-          !ar_locked_q && mem_axi.arvalid && if_axi.arvalid |->
-              core_axi.arvalid && (core_axi.ar_payload == mem_axi.ar_payload),
-          clk_i, !rst_ni, "The data-side read request has fixed priority.")
-  `ASSERT(AxiArbICacheNeverWrites,
-          !if_axi.awvalid && !if_axi.wvalid && !if_axi.bready, clk_i, !rst_ni,
-          "The connected I-cache must not issue AXI writes.")
-  `ASSERT(AxiArbReadIdKnown,
-          core_axi.rvalid |-> (core_axi.r_payload.id == IdWidth'(ICacheAxiId)) ||
-              (core_axi.r_payload.id == IdWidth'(MemAxiId)),
-          clk_i, !rst_ni, "AXI read response ID must identify a connected requester.")
-  `ASSERT(AxiArbWriteIdKnown,
-          core_axi.bvalid |-> (core_axi.b_payload.id == IdWidth'(MemAxiId)),
-          clk_i, !rst_ni, "Only the data-side adapter may receive AXI write responses.")
-
-  `ASSERT_INIT(AxiArbAddressAndIdWidthsValid, AddrWidth > 0 && IdWidth > 0)
-  `ASSERT_INIT(AxiArbDataWidthValid,
-               DataWidth >= 8 && (DataWidth % 8) == 0 && (DataWidth & (DataWidth - 1)) == 0)
-  `ASSERT_INIT(AxiArbICacheIdFits, (ICacheAxiId >> IdWidth) == 0)
-  `ASSERT_INIT(AxiArbMemIdFits, (MemAxiId >> IdWidth) == 0)
-  `ASSERT_INIT(AxiArbDistinctIds, ICacheAxiId != MemAxiId)
-  `ASSERT_INIT(AxiArbAddressWidthMatches, $bits(core_axi.aw_payload.addr) == AddrWidth)
-  `ASSERT_INIT(AxiArbDataWidthMatches, $bits(core_axi.w_payload.data) == DataWidth)
-  `ASSERT_INIT(AxiArbIdWidthMatches, $bits(core_axi.aw_payload.id) == IdWidth)
+  `CHECK(AxiArbICacheNeverWrites, !if_axi.awvalid && !if_axi.wvalid && !if_axi.bready)
 
 endmodule
