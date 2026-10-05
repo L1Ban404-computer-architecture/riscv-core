@@ -1,8 +1,6 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common/assertions.svh"
-
 // 退休观察用的顺序在途队列。
 //
 // 入口/出口 fire 对应被观察阶段的输入/输出握手；不向流水施加反压。
@@ -47,8 +45,10 @@ module retire_inflight_queue
     .ready_i(out_fire_i)
   );
 
-  `CHECK(RetireQueueNoOverflow, !in_fire_i || ready, clk_i, !rst_ni || flush_i)
-  `CHECK(RetireQueueNoUnderflow, !out_fire_i || valid, clk_i, !rst_ni || flush_i)
+  RetireQueueNoOverflow: assert property (@(posedge clk_i) disable iff (!rst_ni || flush_i) (
+      !in_fire_i || ready));
+  RetireQueueNoUnderflow: assert property (@(posedge clk_i) disable iff (!rst_ni || flush_i) (
+      !out_fire_i || valid));
 
 endmodule
 `endif

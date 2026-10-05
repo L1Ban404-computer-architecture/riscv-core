@@ -7,7 +7,6 @@
 // 的请求仍由原响应通路回应，内容保持进入时的结果，不因为失效而重读阵列。lookup
 // 排空且 refill 地址已经撤销后，再向阵列给出一拍清除。`invalidate_i` 保持为高时
 // pending 不释放，新请求继续被挡住。
-`include "common/assertions.svh"
 
 module icache_invalidate (
   // 全局控制与失效请求
@@ -47,10 +46,11 @@ module icache_invalidate (
     if (!rst_ni) pending_hold_q <= 1'b0;
     else pending_hold_q <= pending_q && !invalidate_apply_o;
   end
-`endif
 
-  `CHECK(ICacheInvalidateApplyWhenIdle,
-         !invalidate_apply_o || (!lookup_valid_i && !refill_addr_valid_i))
-  `CHECK(ICacheInvalidatePendingStable, !pending_hold_q || pending_q)
+  ICacheInvalidateApplyWhenIdle: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !invalidate_apply_o || (!lookup_valid_i && !refill_addr_valid_i)));
+  ICacheInvalidatePendingStable: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !pending_hold_q || pending_q));
+`endif
 
 endmodule

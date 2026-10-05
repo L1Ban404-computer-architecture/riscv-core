@@ -6,7 +6,6 @@
 // 提供有序事务缓冲，可选空队列组合旁路和满队列同拍读写。
 // 深度必须大于零；输出在反压期间保持稳定；数据阵列不复位，其无效内容始终
 // 由占用计数屏蔽；flush 只清空指针和计数。
-`include "common/assertions.svh"
 
 module stream_fifo #(
   parameter int unsigned Depth = 2,
@@ -94,6 +93,9 @@ module stream_fifo #(
   end
 
   // 占用计数不得超过深度。
-  `CHECK(StreamFifoCountValid, count_q <= count_t'(Depth))
+`ifndef SYNTHESIS
+  StreamFifoCountValid: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      count_q <= count_t'(Depth)));
+`endif
 
 endmodule

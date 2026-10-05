@@ -5,7 +5,6 @@
 //
 // 数据侧拥有 AR 固定优先级和全部写通道。读响应按固定 AXI ID 直接分路，不设置
 // 响应 FIFO、在途计数或数据寄存器；仅在 AR 反压时保存一位授权来源。
-`include "common/assertions.svh"
 
 module axi4_fixed_priority_arb
   import riscv_bus_pkg::*;
@@ -116,6 +115,9 @@ module axi4_fixed_priority_arb
   // 协议检查 //
   //////////////
 
-  `CHECK(AxiArbICacheNeverWrites, !if_axi.awvalid && !if_axi.wvalid && !if_axi.bready)
+`ifndef SYNTHESIS
+  AxiArbICacheNeverWrites: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !if_axi.awvalid && !if_axi.wvalid && !if_axi.bready));
+`endif
 
 endmodule

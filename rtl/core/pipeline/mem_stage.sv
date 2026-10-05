@@ -1,8 +1,6 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common/assertions.svh"
-
 // 数据访存级。
 //
 // 将处理器 load/store 语义转换为 CoreBus 请求，完成写数据对齐、读数据扩展
@@ -184,9 +182,15 @@ module mem_stage
   // 协议检查 //
   //////////////
 
-  `CHECK(DmemResponseOwned, !dmem.rsp_fire || inflight_q || dmem.req_fire)
-  `CHECK(DmemSingleInflight, !inflight_q || !dmem.req_fire)
-  `CHECK(DmemInflightMetadata, !inflight_q || (ex_mem.valid && memory_instruction))
-  `CHECK(DmemInflightNoFlush, !inflight_q || !flush_i)
+`ifndef SYNTHESIS
+  DmemResponseOwned: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !dmem.rsp_fire || inflight_q || dmem.req_fire));
+  DmemSingleInflight: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !inflight_q || !dmem.req_fire));
+  DmemInflightMetadata: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !inflight_q || (ex_mem.valid && memory_instruction)));
+  DmemInflightNoFlush: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !inflight_q || !flush_i));
+`endif
 
 endmodule

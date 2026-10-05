@@ -1,8 +1,6 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common/assertions.svh"
-
 // 写回与架构提交级。
 //
 // 提交 GPR/CSR 写入、trap、MRET 和 FENCE.I，并产生改道与提交事件。
@@ -107,8 +105,12 @@ module wb_stage
 
   // FENCE.I 的失效请求必须精确对应一次实际提交，并同时重取 PC+4。
   // 被异常或 flush 丢弃的事务不得产生该外部副作用。
-  `CHECK(FenceIInvalidateExact, icache_invalidate_o == fence_i_commit)
-  `CHECK(FenceIRefetchAndFlush, !fence_i_commit || (redirect.valid &&
-      (redirect.payload.target_pc == (mem_wb_payload.meta.pc + word_t'(4)))))
+`ifndef SYNTHESIS
+  FenceIInvalidateExact: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      icache_invalidate_o == fence_i_commit));
+  FenceIRefetchAndFlush: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !fence_i_commit || (redirect.valid &&
+      (redirect.payload.target_pc == (mem_wb_payload.meta.pc + word_t'(4))))));
+`endif
 
 endmodule

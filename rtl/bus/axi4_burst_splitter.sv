@@ -6,7 +6,6 @@
 // 临时适配只支持单拍读请求的外部 AXI 从设备：接收一笔 I-cache 突发读，
 // 按 beat 顺序发出多个 ARLEN=0 的递增读请求，R 数据不经过额外缓冲直接返回。
 // 任意时刻仅允许一个子请求在途，不实现写通道或多 outstanding 队列。
-`include "common/assertions.svh"
 
 module axi4_burst_splitter
   import riscv_bus_pkg::*;
@@ -131,9 +130,14 @@ module axi4_burst_splitter
   // 协议检查 //
   //////////////
 
-  `CHECK(AxiBurstSplitterNoWrites, !burst_axi.awvalid && !burst_axi.wvalid && !burst_axi.bready &&
-      !single_axi.awvalid && !single_axi.wvalid && !single_axi.bready)
-  `CHECK(AxiBurstSplitterSingleBeat, !single_axi.arvalid || (single_axi.ar_payload.len == 8'd0))
-  `CHECK(AxiBurstSplitterNoReadOverlap, !waiting_r_q || !single_axi.arvalid)
+`ifndef SYNTHESIS
+  AxiBurstSplitterNoWrites: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !burst_axi.awvalid && !burst_axi.wvalid && !burst_axi.bready &&
+      !single_axi.awvalid && !single_axi.wvalid && !single_axi.bready));
+  AxiBurstSplitterSingleBeat: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !single_axi.arvalid || (single_axi.ar_payload.len == 8'd0)));
+  AxiBurstSplitterNoReadOverlap: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !waiting_r_q || !single_axi.arvalid));
+`endif
 
 endmodule

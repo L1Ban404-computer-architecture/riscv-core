@@ -1,8 +1,6 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-`include "common/assertions.svh"
-
 // 指令取指级。
 //
 // 当前 I-cache 最多接受一笔未完成请求，因此 IF 使用单笔 pending 元数据寄存器，
@@ -264,12 +262,17 @@ module if_stage
     if (!rst_ni) instruction_hold_q <= 1'b0;
     else instruction_hold_q <= instruction_active_q && !retire_i;
   end
-`endif
 
-  `CHECK(SingleInstructionAllocation, !instruction_active_q || !fetch_req_fire)
-  `CHECK(SingleInstructionRetire, !retire_i || instruction_active_q)
-  `CHECK(SingleInstructionHold, !instruction_hold_q || instruction_active_q)
-  `CHECK(NoSecondImemRequestWhileOutstanding, !request_outstanding_q || !imem.req_valid)
-  `CHECK(BootPcAligned, !boot_pending_q || (boot_pc_i[1:0] == 2'b00))
+  SingleInstructionAllocation: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !instruction_active_q || !fetch_req_fire));
+  SingleInstructionRetire: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !retire_i || instruction_active_q));
+  SingleInstructionHold: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !instruction_hold_q || instruction_active_q));
+  NoSecondImemRequestWhileOutstanding: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !request_outstanding_q || !imem.req_valid));
+  BootPcAligned: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !boot_pending_q || (boot_pc_i[1:0] == 2'b00)));
+`endif
 
 endmodule

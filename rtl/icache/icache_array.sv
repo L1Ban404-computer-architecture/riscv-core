@@ -14,7 +14,6 @@
 //
 // 后端约定：miss 时同一时刻只服务该笔事务；lookup 保持背压直到 CPU 回应与
 // 对应 refill 全部结束。在此约束下阵列不再处理 lookup 与 refill 的并发冲突。
-`include "common/assertions.svh"
 
 module icache_array
   import icache_pkg::*;
@@ -325,9 +324,10 @@ module icache_array
       end
     end
   end
-`endif
 
-  `CHECK(ICacheArrayHitUnique, hit_unique)
-  `CHECK(ICacheArrayInvalidateClearsValid, !invalidate_apply_q || !any_valid)
+  ICacheArrayHitUnique: assert property (@(posedge clk_i) disable iff (!rst_ni) (hit_unique));
+  ICacheArrayInvalidateClearsValid: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !invalidate_apply_q || !any_valid));
+`endif
 
 endmodule

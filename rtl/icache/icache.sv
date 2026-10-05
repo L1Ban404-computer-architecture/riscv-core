@@ -9,7 +9,6 @@
 //
 // 失效控制器只锁存 invalidate 并在空闲时清除有效位。已经进入 lookup 的请求照常
 // 回应，不因失效改写其数据。
-`include "common/assertions.svh"
 
 module icache
   import riscv_bus_pkg::*;
@@ -137,6 +136,9 @@ module icache
   );
 
   // 失效挡住准入时，新请求不能被接受。
-  `CHECK(ICacheInvalidateBlocksRequest, !block_req || !core_bus.req_ready)
+`ifndef SYNTHESIS
+  ICacheInvalidateBlocksRequest: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !block_req || !core_bus.req_ready));
+`endif
 
 endmodule

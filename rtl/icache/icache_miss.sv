@@ -13,7 +13,6 @@
 //
 // 匹配 word 可以早于末拍进入 stream，但 miss 响应要等到 line 写回提交的下一拍
 // 才交给 miss 总线。这样 CPU 回应不会在 refill 仍占用阵列时释放 lookup。
-`include "common/assertions.svh"
 
 module icache_miss
   import riscv_bus_pkg::*;
@@ -195,7 +194,11 @@ module icache_miss
   // 协议检查 //
   //////////////
 
-  `CHECK(ICacheMissRspAfterRefill, !miss.rsp_valid || (!refill.addr_valid && !refill.data_valid))
-  `CHECK(ICacheMissNeverWrites, !axi.awvalid && !axi.wvalid && !axi.bready)
+`ifndef SYNTHESIS
+  ICacheMissRspAfterRefill: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !miss.rsp_valid || (!refill.addr_valid && !refill.data_valid)));
+  ICacheMissNeverWrites: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !axi.awvalid && !axi.wvalid && !axi.bready));
+`endif
 
 endmodule

@@ -12,18 +12,4 @@ cover: depth 20
 bmc: smtbmc bitwuzla
 cover: smtbmc bitwuzla
 
-[script]
-plugin -i slang
-read_slang --no-synthesis-define --single-unit --top fv_icache_fetch -f formal/icache/icache_fetch.f
-prep -top fv_icache_fetch
-
-[files]
-formal/icache/icache_fetch.f formal/icache/icache_fetch.f
-rtl/bus rtl/bus
-rtl/common rtl/common
-rtl/icache rtl/icache
-formal/icache/fv_axi_rom.sv formal/icache/fv_axi_rom.sv
-formal/icache/fv_cpu_fetch.sv formal/icache/fv_cpu_fetch.sv
-formal/icache/fv_icache_fetch.sv formal/icache/fv_icache_fetch.sv
-formal/icache/fv_imem.sv formal/icache/fv_imem.sv
-formal/icache/fv_scoreboard.sv formal/icache/fv_scoreboard.sv
+# Makefile 会把 rtl/ 与 fv_*.sv 的搜索结果追加为 [script] 和 [files]。
