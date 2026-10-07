@@ -7,17 +7,8 @@
 // CoreBus 响应；缺失时保持 miss 请求，直到 miss 响应与 CPU 响应同一拍完成。
 // lookup.ready 等于这次响应握手，等待缺失期间阵列不再接收下一次查询。
 
-module icache_rsp
-  import icache_pkg::*;
-#(
-  parameter int unsigned AddrWidth = ICacheAddrWidth,
-  parameter int unsigned DataWidth = ICacheDataWidth
-) (
-  // 本级没有寄存器。时钟和位宽参数留给上层例化接口。
-  input logic clk_i,
-  input logic rst_ni,
-
-  // 查询结果、缺失事务与 CPU 响应
+module icache_rsp (
+  // 查询结果、缺失事务与 CPU 响应。本级没有寄存器。
   icache_lookup_if.consumer lookup,
   icache_miss_if.master miss,
   core_bus_if.rsp_source core_bus
@@ -37,8 +28,5 @@ module icache_rsp
   assign core_bus.rsp_payload.error = lookup_hit ? 1'b0 : miss.rsp_payload.error;
   assign lookup.ready = core_bus.rsp_fire;
   assign miss.rsp_ready = core_bus.rsp_ready;
-
-  logic unused_rsp;
-  assign unused_rsp = clk_i ^ rst_ni ^ (AddrWidth == 0) ^ (DataWidth == 0);
 
 endmodule

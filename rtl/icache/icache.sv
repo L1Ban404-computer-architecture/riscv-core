@@ -7,7 +7,7 @@
 // 请求保持给缺失处理器；处理器取回整行后，在写回提交的下一拍回应 CPU。请求与
 // 响应分属 core_bus_if 的 req_slave 和 rsp_source。
 //
-// 失效控制器只锁存 invalidate 并在空闲时清除有效位。已经进入 lookup 的请求照常
+// 失效控制器在清除期间过滤新请求，并在空闲时清除有效位。已经进入 lookup 的请求照常
 // 回应，不因失效改写其数据。
 
 module icache
@@ -55,9 +55,12 @@ module icache
     .DataWidth(DataWidth)
   ) refill ();
 
-  // 失效只消费 lookup/refill 的占用标志，并门控尚未握手的请求。
-  logic block_req;
+  // 失效模块在清除期间过滤请求，阵列只看到放行后的查询。
   logic invalidate_apply;
+  core_bus_if #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) array_req ();
 
   icache_invalidate u_invalidate (
     .clk_i,
@@ -65,19 +68,10 @@ module icache
     .invalidate_i,
     .lookup_valid_i(lookup.valid),
     .refill_addr_valid_i(refill.addr_valid),
-    .block_req_o(block_req),
+    .core_bus(core_bus),
+    .array_req(array_req),
     .invalidate_apply_o(invalidate_apply)
   );
-
-  // 阵列看到的是放行后的请求。外部 ready 在 block 时为低，已握手的查询留在 lookup。
-  core_bus_if #(
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth)
-  ) array_req ();
-
-  assign array_req.req_valid = core_bus.req_valid && !block_req;
-  assign array_req.req_payload = core_bus.req_payload;
-  assign core_bus.req_ready = array_req.req_ready && !block_req;
 
 `ifndef SYNTHESIS
   icache_performance_stats u_performance_stats (
@@ -85,7 +79,6 @@ module icache
     .rst_ni,
     .core_bus,
     .lookup,
-    .refill,
     .performance
   );
 `endif
@@ -110,12 +103,7 @@ module icache
     .refill
   );
 
-  icache_rsp #(
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth)
-  ) u_rsp (
-    .clk_i,
-    .rst_ni,
+  icache_rsp u_rsp (
     .lookup,
     .miss,
     .core_bus
@@ -134,11 +122,5 @@ module icache
     .refill,
     .axi
   );
-
-  // 失效挡住准入时，新请求不能被接受。
-`ifndef SYNTHESIS
-  ICacheInvalidateBlocksRequest: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !block_req || !core_bus.req_ready));
-`endif
 
 endmodule

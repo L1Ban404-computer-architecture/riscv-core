@@ -8,8 +8,8 @@
 // 请求被重复发出。`beat_q` 从 0 数到行尾，等于字索引的拍写入 stream，等于行尾的
 // 拍结束 burst。
 //
-// 短 burst 或末拍丢失时终止回填并带 error 返回，避免 lookup 一直被压住。失败的
-// last 不带 commit，阵列不把该行标为有效。
+// 短 burst 或末拍丢失时终止回填并带 error 返回，避免 lookup 一直被压住。本拍或
+// 此前拍出错时 refill 的 error 为高，阵列不把该行标为有效。
 //
 // 匹配 word 可以早于末拍进入 stream，但 miss 响应要等到 line 写回提交的下一拍
 // 才交给 miss 总线。这样 CPU 回应不会在 refill 仍占用阵列时释放 lookup。
@@ -111,7 +111,8 @@ module icache_miss
   assign refill.data_valid = axi.rvalid && axi.rready;
   assign refill.data_payload.data = axi.r_payload.data;
   assign refill.data_payload.last = refill.data_valid && burst_terminate;
-  assign refill.data_payload.commit = refill.data_payload.last && !error_q && !beat_error;
+  // beat_error 只在数据拍有效时有意义；此前拍的故障留在 error_q。
+  assign refill.data_payload.error = error_q || (refill.data_valid && beat_error);
 
   ////////////////////
   // miss 响应

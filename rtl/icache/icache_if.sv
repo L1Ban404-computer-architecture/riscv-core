@@ -84,7 +84,8 @@ endinterface
 
 // 地址/数据双通道突发回填。地址在整次 burst 期间保持 valid 与 payload，阵列不
 // 锁存地址副本，仅在最后一拍数据握手时拉高 addr_ready。数据通道带 last 与
-// commit：last 结束 burst 并解锁牺牲路，last 且 commit 才把该行标为有效。
+// error：last 结束 burst 并解锁牺牲路，error 表示本拍或此前拍的回填故障。
+// last 且 error 为低才把该行标为有效。
 // 时序要求：数据通道第一拍 valid 必须比地址通道第一拍 valid 至少晚一个周期，
 // 以便阵列先锁存牺牲路与起始 line offset。
 interface icache_refill_if
@@ -97,7 +98,7 @@ interface icache_refill_if
   typedef struct packed {
     logic [DataWidth-1:0] data;
     logic last;
-    logic commit;
+    logic error;
   } data_payload_t;
 
   addr_payload_t addr_payload;

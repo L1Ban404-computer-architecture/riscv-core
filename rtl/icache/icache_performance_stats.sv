@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 流水线 I-cache 事务统计。只观察 CoreBus、lookup 和 refill，不驱动通路。
+// 流水线 I-cache 事务统计。只观察 CoreBus 和 lookup，不驱动通路。
 //
 // 请求接受当拍 lookup 里仍是上一笔结果，本笔 hit 要到下一拍才出现在 lookup。
 // 因此请求计数晚一拍入账，但时间戳用接受当拍的周期。响应当拍 lookup 就是正在
@@ -14,7 +14,6 @@ module icache_performance_stats
   input logic rst_ni,
   core_bus_if.monitor core_bus,
   icache_lookup_if.monitor lookup,
-  icache_refill_if.monitor refill,
   icache_performance_debug_if.producer performance
 );
 

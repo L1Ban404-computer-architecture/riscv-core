@@ -9,7 +9,7 @@
 //
 // 回填经 `icache_refill_if` 地址/数据双通道突发写入。地址在整次 burst 期间保持
 // valid，阵列不保存地址副本，只在 last 数据握手当拍拉高 addr_ready；set/tag 由
-// 组合译码得到。last 且 commit 才置有效位。约定数据首拍至少晚于地址首拍一拍，
+// 组合译码得到。last 且 error 为低才置有效位。约定数据首拍至少晚于地址首拍一拍，
 // 故牺牲路与 line offset 在写数据前已锁存。
 //
 // 后端约定：miss 时同一时刻只服务该笔事务；lookup 保持背压直到 CPU 回应与
@@ -275,7 +275,7 @@ module icache_array
   // 有效位写入          //
   ////////////////////////
 
-  // 优先级为全阵列失效 > 成功 last 提交置位 > refill 开始清零。失败的 last
+  // 优先级为全阵列失效 > 无错误的 last 置位 > refill 开始清零。带 error 的 last
   // 不置位，开始时清掉的有效位保持为 0。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -286,7 +286,7 @@ module icache_array
       for (int unsigned way = 0; way < WayCount; way++) begin
         for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
       end
-    end else if (refill_last_fire && refill.data_payload.commit) begin
+    end else if (refill_last_fire && !refill.data_payload.error) begin
       valid_q[refill_way_q][refill_set] <= 1'b1;
     end else if (refill_victim_select) begin
       valid_q[refill_victim_combo][refill_set] <= 1'b0;

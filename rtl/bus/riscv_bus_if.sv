@@ -52,6 +52,7 @@ interface core_bus_if #(
           rsp_valid
   );
   // 请求接收与响应发送可以分属不同模块。输出与 slave 重叠，同一实例只连接其中一组驱动。
+  modport req_master(output req_payload, req_valid, input req_ready, req_fire);
   modport req_slave(input req_payload, req_valid, req_fire, output req_ready);
   modport rsp_source(input rsp_ready, rsp_fire, output rsp_payload, rsp_valid);
   modport monitor(
