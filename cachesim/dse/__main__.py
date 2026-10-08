@@ -30,8 +30,8 @@ PLOT = CACHESIM_DIR / "build" / "dse.html"
 # 路数不超过 32：功能模型把一棵 PLRU 树放在一个 uint32 里。
 # 阵列按触发器综合，容量再放大面积会很快超过 nangate45 上留给核心的预算。
 BYTES_MIN = 16
-BYTES_MAX = 32
-POLICIES = ("rr", "plru")
+BYTES_MAX = 64
+POLICIES = ("fixed", "rr", "plru")
 JOBS = 8
 
 _BLOCK_MIN = 4

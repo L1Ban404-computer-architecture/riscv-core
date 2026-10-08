@@ -44,9 +44,10 @@ _PAGE = """\
     margin: 0 auto;
     padding: 16px 20px 32px;
   }
-  #bar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 0 0 12px; }
-  #fields { display: flex; gap: 4px; }
-  #fields button {
+  #bar { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0 0 12px; }
+  .enc { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+  .fields { display: flex; gap: 4px; }
+  .fields button {
     border: 1px solid #e5e7eb;
     background: #fff;
     color: #111827;
@@ -55,13 +56,14 @@ _PAGE = """\
     font: inherit;
     cursor: pointer;
   }
-  #fields button.on { background: #111827; color: #fff; border-color: #111827; }
-  #legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
-  #legend span { display: inline-flex; align-items: center; gap: 6px; }
-  #legend i {
+  .fields button.on { background: #111827; color: #fff; border-color: #111827; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  #color-legend i {
     width: 9px; height: 9px; border-radius: 50%;
     border: 1px solid #111827; display: inline-block;
   }
+  #shape-legend svg { display: block; }
   .frame {
     background: #fff;
     border: 1px solid #e5e7eb;
@@ -69,7 +71,7 @@ _PAGE = """\
     padding: 8px;
   }
   svg { display: block; width: 100%; height: auto; }
-  circle.point { cursor: pointer; }
+  g.point { cursor: pointer; }
   #tip {
     position: fixed;
     z-index: 2;
@@ -91,13 +93,26 @@ _PAGE = """\
 <body>
 <main>
   <div id="bar">
-    <div id="fields">
-      <button type="button" data-field="sets">sets</button>
-      <button type="button" data-field="ways">ways</button>
-      <button type="button" data-field="block_bytes">block_bytes</button>
-      <button type="button" data-field="policy" class="on">policy</button>
+    <div class="enc">
+      <div class="fields" id="color-fields">
+        <button type="button" data-field="sets">sets</button>
+        <button type="button" data-field="ways">ways</button>
+        <button type="button" data-field="block_bytes">block_bytes</button>
+        <button type="button" data-field="bytes">bytes</button>
+        <button type="button" data-field="policy" class="on">policy</button>
+      </div>
+      <div class="legend" id="color-legend">__COLOR_LEGEND__</div>
     </div>
-    <div id="legend">__LEGEND__</div>
+    <div class="enc">
+      <div class="fields" id="shape-fields">
+        <button type="button" data-field="sets" class="on">sets</button>
+        <button type="button" data-field="ways">ways</button>
+        <button type="button" data-field="block_bytes">block_bytes</button>
+        <button type="button" data-field="bytes">bytes</button>
+        <button type="button" data-field="policy">policy</button>
+      </div>
+      <div class="legend" id="shape-legend">__SHAPE_LEGEND__</div>
+    </div>
   </div>
   <div class="frame">__SVG__</div>
 </main>
@@ -105,19 +120,22 @@ _PAGE = """\
 <script id="dse-rows" type="application/json">__ROWS__</script>
 <script>
 const rows = JSON.parse(document.getElementById("dse-rows").textContent);
-const fields = ["sets", "ways", "block_bytes", "policy"];
+const fields = ["sets", "ways", "block_bytes", "bytes", "policy"];
 const policyColors = { rr: "#2563eb", plru: "#d97706", fixed: "#059669" };
 const palette = ["#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#4f46e5"];
-let active = "policy";
+const shapes = ["circle", "square", "triangle", "diamond", "plus", "down"];
+const NS = "http://www.w3.org/2000/svg";
+let colorField = "policy";
+let shapeField = "sets";
 const svg = document.getElementById("plot");
 const tip = document.getElementById("tip");
 const width = 800, height = 560;
-const nodes = [...svg.querySelectorAll("circle.point")];
+const nodes = [...svg.querySelectorAll("g.point")];
 const points = rows.map((row, index) => ({
   row,
   node: nodes[index],
-  cx: Number(nodes[index].getAttribute("cx")),
-  cy: Number(nodes[index].getAttribute("cy")),
+  cx: Number(nodes[index].getAttribute("data-x")),
+  cy: Number(nodes[index].getAttribute("data-y")),
 }));
 
 function fmtNum(value) {
@@ -149,33 +167,99 @@ function colorOf(field, value) {
   return palette[valuesOf(field).indexOf(text) % palette.length];
 }
 
-const legend = document.getElementById("legend");
-const buttons = {};
-for (const button of document.querySelectorAll("#fields button")) {
-  const field = button.dataset.field;
-  buttons[field] = button;
-  button.addEventListener("click", () => setField(field));
+function shapeOf(field, value) {
+  return shapes[valuesOf(field).indexOf(String(value)) % shapes.length];
+}
+
+function shapeNode(kind, fill) {
+  let node;
+  const common = () => {
+    node.setAttribute("fill", fill);
+    node.setAttribute("fill-opacity", "0.85");
+    node.setAttribute("stroke", "#111827");
+    node.setAttribute("stroke-width", "0.6");
+  };
+  if (kind === "circle") {
+    node = document.createElementNS(NS, "circle");
+    node.setAttribute("r", "5");
+  } else if (kind === "square") {
+    node = document.createElementNS(NS, "rect");
+    node.setAttribute("x", "-4.2");
+    node.setAttribute("y", "-4.2");
+    node.setAttribute("width", "8.4");
+    node.setAttribute("height", "8.4");
+  } else if (kind === "triangle") {
+    node = document.createElementNS(NS, "polygon");
+    node.setAttribute("points", "0,-5.2 4.6,4 -4.6,4");
+  } else if (kind === "diamond") {
+    node = document.createElementNS(NS, "polygon");
+    node.setAttribute("points", "0,-5.4 5.4,0 0,5.4 -5.4,0");
+  } else if (kind === "plus") {
+    node = document.createElementNS(NS, "path");
+    node.setAttribute("d", "M-1.4,-5 H1.4 V-1.4 H5 V1.4 H1.4 V5 H-1.4 V1.4 H-5 V-1.4 H-1.4 Z");
+  } else {
+    node = document.createElementNS(NS, "polygon");
+    node.setAttribute("points", "0,5.2 4.6,-4 -4.6,-4");
+  }
+  common();
+  return node;
+}
+
+function place(point, scale) {
+  point.node.setAttribute("transform", `translate(${point.cx} ${point.cy}) scale(${scale})`);
+}
+
+const colorLegend = document.getElementById("color-legend");
+const shapeLegend = document.getElementById("shape-legend");
+const colorButtons = {};
+const shapeButtons = {};
+for (const button of document.querySelectorAll("#color-fields button")) {
+  colorButtons[button.dataset.field] = button;
+  button.addEventListener("click", () => {
+    colorField = button.dataset.field;
+    hideTip();
+    paint();
+  });
+}
+for (const button of document.querySelectorAll("#shape-fields button")) {
+  shapeButtons[button.dataset.field] = button;
+  button.addEventListener("click", () => {
+    shapeField = button.dataset.field;
+    hideTip();
+    paint();
+  });
 }
 
 function paint() {
   for (const point of points) {
-    point.node.setAttribute("fill", colorOf(active, point.row[active]));
+    const fill = colorOf(colorField, point.row[colorField]);
+    const kind = shapeOf(shapeField, point.row[shapeField]);
+    point.node.replaceChildren(shapeNode(kind, fill));
+    place(point, 1);
   }
-  legend.replaceChildren();
-  for (const value of valuesOf(active)) {
+  colorLegend.replaceChildren();
+  for (const value of valuesOf(colorField)) {
     const item = document.createElement("span");
     const swatch = document.createElement("i");
-    swatch.style.background = colorOf(active, value);
+    swatch.style.background = colorOf(colorField, value);
     item.append(swatch, document.createTextNode(value));
-    legend.appendChild(item);
+    colorLegend.appendChild(item);
   }
-  for (const field of fields) buttons[field].classList.toggle("on", field === active);
-}
-
-function setField(field) {
-  active = field;
-  hideTip();
-  paint();
+  shapeLegend.replaceChildren();
+  for (const value of valuesOf(shapeField)) {
+    const item = document.createElement("span");
+    const icon = document.createElementNS(NS, "svg");
+    icon.setAttribute("viewBox", "-7 -7 14 14");
+    icon.setAttribute("width", "12");
+    icon.setAttribute("height", "12");
+    icon.appendChild(shapeNode(shapeOf(shapeField, value), "#111827"));
+    item.append(icon, document.createTextNode(value));
+    shapeLegend.appendChild(item);
+  }
+  for (const field of fields) {
+    colorButtons[field].classList.toggle("on", field === colorField);
+    shapeButtons[field].classList.toggle("on", field === shapeField);
+  }
 }
 
 paint();
@@ -205,6 +289,7 @@ function showTip(hits, event) {
     title.appendChild(strong);
     tip.append(
       title,
+      tipLine("容量", fmtNum(row.bytes) + " B"),
       tipLine("面积", fmtNum(row.synth_area)),
       tipLine("频率", fmtNum(row.synth_freq_mhz) + " MHz"),
       tipLine("命中率", String(row.hit_rate)),
@@ -221,19 +306,12 @@ function showTip(hits, event) {
   tip.style.left = Math.max(8, x) + "px";
   tip.style.top = Math.max(8, y) + "px";
   const chosen = new Set(hits);
-  for (const other of points) {
-    const on = chosen.has(other);
-    other.node.setAttribute("r", on ? 7 : 5);
-    other.node.setAttribute("stroke-width", on ? 1.4 : 0.6);
-  }
+  for (const other of points) place(other, chosen.has(other) ? 1.35 : 1);
 }
 
 function hideTip() {
   tip.style.display = "none";
-  for (const point of points) {
-    point.node.setAttribute("r", 5);
-    point.node.setAttribute("stroke-width", 0.6);
-  }
+  for (const point of points) place(point, 1);
 }
 
 svg.addEventListener("mousemove", (event) => {
@@ -263,6 +341,9 @@ _PLOT_H = 560
 _LEFT, _RIGHT, _TOP, _BOTTOM = 72, 28, 28, 64
 _POLICY_COLORS = {"rr": "#2563eb", "plru": "#d97706", "fixed": "#059669"}
 _POLICY_ORDER = ("fixed", "rr", "plru")
+_SHAPES = ("circle", "square", "triangle", "diamond", "plus", "down")
+_COLOR_FIELD = "policy"
+_SHAPE_FIELD = "sets"
 _PALETTE = (
     "#2563eb",
     "#d97706",
@@ -327,12 +408,59 @@ def _color(field: str, value: str, values: Sequence[str]) -> str:
     return _PALETTE[list(values).index(value) % len(_PALETTE)]
 
 
-def _legend_html(rows: Sequence[Dict[str, object]], field: str = "policy") -> str:
+def _shape_name(field: str, value: str, values: Sequence[str]) -> str:
+    return _SHAPES[list(values).index(value) % len(_SHAPES)]
+
+
+def _shape_body(kind: str, fill: str) -> str:
+    style = f'fill="{fill}" fill-opacity="0.85" stroke="#111827" stroke-width="0.6"'
+    if kind == "circle":
+        return f"<circle r=\"5\" {style}/>"
+    if kind == "square":
+        return f"<rect x=\"-4.2\" y=\"-4.2\" width=\"8.4\" height=\"8.4\" {style}/>"
+    if kind == "triangle":
+        return f"<polygon points=\"0,-5.2 4.6,4 -4.6,4\" {style}/>"
+    if kind == "diamond":
+        return f"<polygon points=\"0,-5.4 5.4,0 0,5.4 -5.4,0\" {style}/>"
+    if kind == "plus":
+        return (
+            f"<path d=\"M-1.4,-5 H1.4 V-1.4 H5 V1.4 H1.4 V5 H-1.4 V1.4 H-5 V-1.4 H-1.4 Z\" {style}/>"
+        )
+    return f"<polygon points=\"0,5.2 4.6,-4 -4.6,-4\" {style}/>"
+
+
+def _color_legend(rows: Sequence[Dict[str, object]], field: str) -> str:
     values = _field_values(rows, field)
     return "".join(
         f'<span><i style="background:{_color(field, value, values)}"></i>{escape(value)}</span>'
         for value in values
     )
+
+
+def _shape_legend(rows: Sequence[Dict[str, object]], field: str) -> str:
+    values = _field_values(rows, field)
+    parts = []
+    for value in values:
+        kind = _shape_name(field, value, values)
+        icon = (
+            '<svg viewBox="-7 -7 14 14" width="12" height="12" aria-hidden="true">'
+            f"{_shape_body(kind, '#111827')}</svg>"
+        )
+        parts.append(f"<span>{icon}{escape(value)}</span>")
+    return "".join(parts)
+
+
+def _pareto(rows: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
+    """面积和 AMT 都更小才算更优。按面积从小到大，只留下把 AMT 再压低的点。"""
+    ordered = sorted(rows, key=lambda row: (float(row["synth_area"]), float(row["amt"])))
+    front: List[Dict[str, object]] = []
+    best_amt = float("inf")
+    for row in ordered:
+        amt_value = float(row["amt"])
+        if amt_value < best_amt:
+            front.append(row)
+            best_amt = amt_value
+    return front
 
 
 def _svg(rows: Sequence[Dict[str, object]]) -> str:
@@ -392,25 +520,49 @@ def _svg(rows: Sequence[Dict[str, object]]) -> str:
         f'<text x="18" y="{_TOP + plot_h / 2:.2f}" text-anchor="middle" font-size="14" '
         f'fill="#111827" transform="rotate(-90 18 {_TOP + plot_h / 2:.2f})">AMT</text>'
     )
-    policy_values = _field_values(rows, "policy")
-    for row in rows:
-        color = _color("policy", str(row["policy"]), policy_values)
+    front = _pareto(rows)
+    if len(front) >= 2:
+        coords = " ".join(
+            f"{sx(float(row['synth_area'])):.2f},{sy(float(row['amt'])):.2f}" for row in front
+        )
         parts.append(
-            f'<circle class="point" cx="{sx(float(row["synth_area"])):.2f}" '
-            f'cy="{sy(float(row["amt"])):.2f}" r="5" fill="{color}" fill-opacity="0.85" '
-            'stroke="#111827" stroke-width="0.6"/>'
+            f'<polyline points="{coords}" fill="none" stroke="#6b7280" stroke-width="1.2" '
+            'stroke-dasharray="5 4" stroke-linejoin="round"/>'
+        )
+    color_values = _field_values(rows, _COLOR_FIELD)
+    shape_values = _field_values(rows, _SHAPE_FIELD)
+    for row in rows:
+        x = sx(float(row["synth_area"]))
+        y = sy(float(row["amt"]))
+        color = _color(_COLOR_FIELD, str(row[_COLOR_FIELD]), color_values)
+        kind = _shape_name(_SHAPE_FIELD, str(row[_SHAPE_FIELD]), shape_values)
+        parts.append(
+            f'<g class="point" data-x="{x:.2f}" data-y="{y:.2f}" '
+            f'transform="translate({x:.2f} {y:.2f})">{_shape_body(kind, color)}</g>'
         )
     parts.append("</svg>")
     return "\n".join(parts)
 
 
+def _with_bytes(rows: Sequence[Dict[str, object]]) -> List[Dict[str, object]]:
+    points = []
+    for row in rows:
+        if str(row["amt"]) == "-":
+            continue
+        item = dict(row)
+        item["bytes"] = int(row["sets"]) * int(row["ways"]) * int(row["block_bytes"])
+        points.append(item)
+    return points
+
+
 def write_plot(path: Path, rows: Sequence[Dict[str, object]]) -> None:
-    points = [row for row in rows if str(row["amt"]) != "-"]
+    points = _with_bytes(rows)
     if not points:
         raise RuntimeError("no points with AMT to plot")
     page = (
         _PAGE.replace("__ROWS__", _embed(points))
         .replace("__SVG__", _svg(points))
-        .replace("__LEGEND__", _legend_html(points))
+        .replace("__COLOR_LEGEND__", _color_legend(points, _COLOR_FIELD))
+        .replace("__SHAPE_LEGEND__", _shape_legend(points, _SHAPE_FIELD))
     )
     path.write_text(page, encoding="utf-8")

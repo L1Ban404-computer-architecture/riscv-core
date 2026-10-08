@@ -210,13 +210,13 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 | --- | --- |
 | `BYTES_MIN` | `16` |
 | `BYTES_MAX` | `256` |
-| `POLICIES` | `rr, plru` |
+| `POLICIES` | `fixed, rr, plru` |
 | `JOBS` | `1` |
 | `TRACE` | `build/microbench.pc` |
 | `CACHESIM` | `build/cachesim` |
 | `OUTPUT` / `PLOT` | `build/dse.csv`、`build/dse.html` |
 
-`fixed` 可以写进 `POLICIES`，只是不在当前扫描里。每个配置做两件独立的事。
+每个配置做两件独立的事。
 
 **功能。** 调 `cachesim` 拿 hit rate。缺失代价按块传输的拍数线性放大：
 
@@ -231,7 +231,7 @@ AMT          = (1 - hit_rate) * miss_penalty
 
 报告在该目录的 `icache_top-1000MHz/` 下。面积取 `synth_stat.txt` 里 `Chip area for module '\icache_top'`，频率取 `icache_top.rpt` 中 `core_clock` / `max` 的 Freq(MHz)。两份报告都能解析时跳过综合，只重跑 cachesim。`YOSYS` 和 `YOSYS_STA_HOME` 也沿用 `rtl/Makefile`。`make perf` 的 Yosys 和 STA 日志不打到终端；综合失败时异常里带着日志结尾。回放失败时，子进程的退出码直接结束这次扫描。
 
-CSV 列是 `sets,ways,block_bytes,policy,synth_area,synth_freq_mhz,hit_rate,amt`。行按 AMT 升序，其次面积，再按几何参数。`build/dse.html` 是同一份结果的散点页：横轴面积、纵轴 AMT。页面上可以选择 `sets`、`ways`、`block_bytes` 或 `policy`，用颜色区分该参数的取值，默认是 `policy`。悬停一个点能看到它的组数、路数、块大小、策略、面积、频率、命中率和 AMT。数据写在页面里，扫描结束后用浏览器打开这个文件即可，不必再跑综合。进度打在标准错误。`JOBS` 大于 1 时每个进程独占自己的几何目录，先综合再回放。
+CSV 列是 `sets,ways,block_bytes,policy,synth_area,synth_freq_mhz,hit_rate,amt`。行按 AMT 升序，其次面积，再按几何参数。`build/dse.html` 是同一份结果的散点页：横轴面积、纵轴 AMT。颜色和形状各自可以选择 `sets`、`ways`、`block_bytes`、`bytes` 或 `policy`。`bytes` 是数据容量 `sets * ways * block_bytes`。默认颜色是 `policy`、形状是 `sets`。灰色虚线是 Pareto 前沿，串起面积和 AMT 不能再被其他点同时改进的配置。悬停一个点能看到它的组数、路数、块大小、容量、策略、面积、频率、命中率和 AMT。数据写在页面里，扫描结束后用浏览器打开这个文件即可，不必再跑综合。进度打在标准错误。`JOBS` 大于 1 时每个进程独占自己的几何目录，先综合再回放。
 
 ## 和 RTL 的对应
 
