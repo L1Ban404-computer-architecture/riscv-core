@@ -12,9 +12,9 @@ class PcTraceReader {
   PcTraceReader &operator=(const PcTraceReader &) = delete;
   ~PcTraceReader();
 
-  bool Open(const std::string &path);
-  /** @brief 读出下一个 PC。到达文件末尾返回 false；长度不是 4 的倍数时失败。 */
-  bool Next(std::uint32_t *pc, std::string *error);
+  void Open(const char *path);
+  /** @brief 读出下一个 PC。文件结束返回 false。 */
+  bool Next(std::uint32_t *pc);
 
  private:
   std::FILE *file_ = nullptr;

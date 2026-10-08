@@ -22,6 +22,11 @@ CLK_PORT_NAME ?= clk_i
 endif
 CLK_FREQ_MHZ ?= 5000
 PDK ?= nangate45
+# 本次综合产物目录。不传时仍是 build/perf；DSE 为每个几何传入独立路径。
+PERF_OUT ?= build/perf
+# 顶层参数覆盖，原样交给 read_slang。例如 -GSetCount=8 -GWayCount=2。
+# ReplacementPolicy 要写 icache_pkg 的枚举名，整数不能隐式转成该枚举。
+SLANG_PARAMS ?=
 
 .PHONY: check perf clean
 
@@ -40,11 +45,11 @@ check:
 # slang 只降低 SystemVerilog；工艺映射与 STA 交给上游 yosys-sta。
 # 面积预算按讲义使用 nangate45；可覆盖 PDK=icsprout55 做对照。
 perf:
-	mkdir -p build/perf
-	$(YOSYS) -Q -T -p 'plugin -i slang; read_slang $(SLANG_FLAGS) --ignore-assertions $(HDL_SRCS); proc; bwmuxmap; write_verilog build/perf/rtl.v'
+	mkdir -p "$(PERF_OUT)"
+	$(YOSYS) -Q -T -p 'plugin -i slang; read_slang $(SLANG_FLAGS) $(SLANG_PARAMS) --ignore-assertions $(HDL_SRCS); proc; bwmuxmap; write_verilog $(abspath $(PERF_OUT)/rtl.v)'
 	$(MAKE) -B -C "$(YOSYS_STA_HOME)" sta \
 		DESIGN="$(TOP)" CLK_PORT_NAME="$(CLK_PORT_NAME)" CLK_FREQ_MHZ="$(CLK_FREQ_MHZ)" \
-		PDK="$(PDK)" RTL_FILES="$(abspath build/perf/rtl.v)" O="$(abspath build/perf)"
+		PDK="$(PDK)" RTL_FILES="$(abspath $(PERF_OUT)/rtl.v)" O="$(abspath $(PERF_OUT))"
 
 clean:
 	rm -rf build

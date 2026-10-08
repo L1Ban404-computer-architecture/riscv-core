@@ -1,147 +1,115 @@
-#include <cerrno>
 #include <cinttypes>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <getopt.h>
-#include <string>
+#include <stdexcept>
 
 #include "cache.hpp"
 #include "trace.hpp"
 
 namespace {
 
-enum LongOption {
-  kOptBlockBytes = 256,
-  kOptSets,
-  kOptWays,
-  kOptPolicy,
-  kOptTrace,
-};
-
-void PrintUsage(const char *prog) {
-  std::printf(
-      "Usage: %s --trace PATH [OPTION...]\n\n"
-      "Replay a little-endian uint32 PC stream against an I-cache metadata model.\n\n"
-      "Options:\n"
-      "  --trace=PATH           binary PC trace from runner --pctrace\n"
-      "  --block-bytes=N        line size, power of two, default 4\n"
-      "  --sets=N               set count, power of two, default 16\n"
-      "  --ways=N               way count, power of two, default 1\n"
-      "  --policy=fixed|rr|plru replacement policy, default rr\n"
-      "  -h, --help             show this help\n",
-      prog);
-}
-
-bool ParseU32(const char *text, std::uint32_t *out) {
-  if (text == nullptr || text[0] == '-' || out == nullptr) return false;
-  errno = 0;
-  char *end = nullptr;
-  const unsigned long value = std::strtoul(text, &end, 0);
-  if (errno != 0 || end == text || *end != '\0' || value > UINT32_MAX) {
-    return false;
-  }
-  *out = static_cast<std::uint32_t>(value);
-  return true;
-}
+const char *ReadArgs(int argc, char **argv, CacheConfig *config);
+Cache MakeCache(const CacheConfig &config);
+void PrintStats(const CacheStats &stats);
 
 }  // namespace
 
+// 读几何和轨迹，逐条 PC 访问，最后打印命中率。
 int main(int argc, char **argv) {
-  static const option long_options[] = {
-      {"block-bytes", required_argument, nullptr, kOptBlockBytes},
-      {"sets", required_argument, nullptr, kOptSets},
-      {"ways", required_argument, nullptr, kOptWays},
-      {"policy", required_argument, nullptr, kOptPolicy},
-      {"trace", required_argument, nullptr, kOptTrace},
-      {"help", no_argument, nullptr, 'h'},
-      {nullptr, 0, nullptr, 0},
-  };
-
   CacheConfig config;
-  std::string trace_path;
-  optind = 1;
-  while (true) {
-    const int opt = getopt_long(argc, argv, "h", long_options, nullptr);
-    if (opt == -1) break;
-    switch (opt) {
-      case kOptBlockBytes:
-        if (!ParseU32(optarg, &config.block_bytes)) {
-          std::fprintf(stderr, "invalid --block-bytes: %s\n", optarg);
-          return 2;
-        }
-        break;
-      case kOptSets:
-        if (!ParseU32(optarg, &config.sets)) {
-          std::fprintf(stderr, "invalid --sets: %s\n", optarg);
-          return 2;
-        }
-        break;
-      case kOptWays:
-        if (!ParseU32(optarg, &config.ways)) {
-          std::fprintf(stderr, "invalid --ways: %s\n", optarg);
-          return 2;
-        }
-        break;
-      case kOptPolicy:
-        if (!ParseReplacementPolicy(optarg, &config.policy)) {
-          std::fprintf(stderr, "invalid --policy: %s\n", optarg);
-          return 2;
-        }
-        break;
-      case kOptTrace:
-        trace_path = optarg;
-        break;
-      case 'h':
-        PrintUsage(argv[0]);
-        return 0;
-      default:
-        PrintUsage(argv[0]);
-        return 2;
+  const char *trace_path = ReadArgs(argc, argv, &config);
+
+  Cache cache = MakeCache(config);
+  PcTraceReader reader;
+  reader.Open(trace_path);
+
+  std::uint32_t pc = 0;
+  while (reader.Next(&pc)) cache.Access(pc);
+
+  PrintStats(cache.stats());
+  return 0;
+}
+
+namespace {
+
+bool Flag(const char *arg, const char *name) {
+  const std::size_t n = std::strlen(name);
+  return std::strncmp(arg, name, n) == 0 && (arg[n] == '\0' || arg[n] == '=');
+}
+
+const char *FlagValue(int argc, char **argv, int *i) {
+  const char *eq = std::strchr(argv[*i], '=');
+  if (eq != nullptr) return eq + 1;
+  if (*i + 1 >= argc) {
+    std::fprintf(stderr, "missing value for %s\n", argv[*i]);
+    std::exit(2);
+  }
+  return argv[++*i];
+}
+
+std::uint32_t Number(const char *text) {
+  return static_cast<std::uint32_t>(std::strtoul(text, nullptr, 0));
+}
+
+// 未写明的几何留在 CacheConfig 的默认值上。两种写法都接受：--sets 16 与 --sets=16。
+const char *ReadArgs(int argc, char **argv, CacheConfig *config) {
+  const char *trace_path = nullptr;
+  for (int i = 1; i < argc; ++i) {
+    const char *arg = argv[i];
+    if (std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
+      std::printf(
+          "Usage: %s --trace PATH [--block-bytes N] [--sets N] [--ways N] "
+          "[--policy fixed|rr|plru]\n",
+          argv[0]);
+      std::exit(0);
+    }
+    if (Flag(arg, "--trace")) {
+      trace_path = FlagValue(argc, argv, &i);
+    } else if (Flag(arg, "--block-bytes")) {
+      config->block_bytes = Number(FlagValue(argc, argv, &i));
+    } else if (Flag(arg, "--sets")) {
+      config->sets = Number(FlagValue(argc, argv, &i));
+    } else if (Flag(arg, "--ways")) {
+      config->ways = Number(FlagValue(argc, argv, &i));
+    } else if (Flag(arg, "--policy")) {
+      if (!ParseReplacementPolicy(FlagValue(argc, argv, &i), &config->policy)) {
+        std::fprintf(stderr, "policy must be fixed, rr, or plru\n");
+        std::exit(2);
+      }
+    } else {
+      std::fprintf(stderr, "unknown argument: %s\n", arg);
+      std::exit(2);
     }
   }
 
-  if (optind < argc) {
-    std::fprintf(stderr, "unexpected positional argument: %s\n", argv[optind]);
-    return 2;
+  if (trace_path == nullptr) {
+    std::fprintf(stderr, "missing --trace\n");
+    std::exit(2);
   }
-  if (trace_path.empty()) {
-    std::fprintf(stderr, "missing required option --trace\n");
-    PrintUsage(argv[0]);
-    return 2;
-  }
+  return trace_path;
+}
 
-  const std::string config_error = ValidateCacheConfig(config);
-  if (!config_error.empty()) {
-    std::fprintf(stderr, "%s\n", config_error.c_str());
-    return 2;
+Cache MakeCache(const CacheConfig &config) {
+  try {
+    return Cache(config);
+  } catch (const std::invalid_argument &err) {
+    std::fprintf(stderr, "%s\n", err.what());
+    std::exit(2);
   }
+}
 
-  PcTraceReader reader;
-  if (!reader.Open(trace_path)) {
-    std::fprintf(stderr, "cannot open trace %s\n", trace_path.c_str());
-    return 1;
-  }
-
-  Cache cache(config);
-  std::uint32_t pc = 0;
-  std::string read_error;
-  while (reader.Next(&pc, &read_error)) cache.Access(pc);
-  if (!read_error.empty()) {
-    std::fprintf(stderr, "%s\n", read_error.c_str());
-    return 1;
-  }
-
-  const CacheStats &stats = cache.stats();
+void PrintStats(const CacheStats &stats) {
   if (stats.accesses == 0) {
     std::printf("accesses=0 hits=0 misses=0 hit_rate=-\n");
-  } else {
-    const double hit_rate =
-        static_cast<double>(stats.hits) / static_cast<double>(stats.accesses);
-    std::printf("accesses=%" PRIu64 " hits=%" PRIu64 " misses=%" PRIu64
-                " hit_rate=%.6f\n",
-                stats.accesses, stats.hits, stats.misses, hit_rate);
+    return;
   }
-  return 0;
+  const double hit_rate =
+      static_cast<double>(stats.hits) / static_cast<double>(stats.accesses);
+  std::printf("accesses=%" PRIu64 " hits=%" PRIu64 " misses=%" PRIu64
+              " hit_rate=%.6f\n",
+              stats.accesses, stats.hits, stats.misses, hit_rate);
 }
+
+}  // namespace

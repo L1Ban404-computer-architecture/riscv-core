@@ -10,7 +10,6 @@ OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(OUT_DIR)/cachesim
 PCTRACE := $(OUT_DIR)/microbench.pc
 SIM_REPORT := $(OUT_DIR)/sim.log
-DSE_REPORT := $(OUT_DIR)/dse.csv
 
 YSYX_HOME ?= $(abspath ../..)
 AM_HOME ?= $(YSYX_HOME)/abstract-machine
@@ -31,7 +30,6 @@ DEPS := $(OBJS:.o=.d)
 CXXFLAGS ?= -O2 -g
 CACHESIM_CPPFLAGS := -Iinclude
 CACHESIM_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -MMD -MP
-DSE_SCRIPT := scripts/dse.py
 
 export AM_HOME
 
@@ -56,8 +54,7 @@ run: $(TARGET) $(PCTRACE)
 	  echo "missing $(PCTRACE); build it with: make $(PCTRACE)" >&2; \
 	  exit 1; \
 	}
-	$(PYTHON) $(DSE_SCRIPT) --trace $(PCTRACE) --cachesim $(TARGET) \
-	  --output $(DSE_REPORT)
+	$(PYTHON) -m dse
 
 $(TARGET): $(OBJS)
 	@echo + LD $@

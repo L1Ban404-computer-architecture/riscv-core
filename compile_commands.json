@@ -1,0 +1,59 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-O2",
+      "-g",
+      "-Iinclude",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-c",
+      "-o",
+      "build/obj/src/cache.o",
+      "src/cache.cpp"
+    ],
+    "directory": "/home/ban/ysyx-workbench/riscv-core/cachesim",
+    "file": "/home/ban/ysyx-workbench/riscv-core/cachesim/src/cache.cpp",
+    "output": "/home/ban/ysyx-workbench/riscv-core/cachesim/build/obj/src/cache.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-O2",
+      "-g",
+      "-Iinclude",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-c",
+      "-o",
+      "build/obj/src/trace.o",
+      "src/trace.cpp"
+    ],
+    "directory": "/home/ban/ysyx-workbench/riscv-core/cachesim",
+    "file": "/home/ban/ysyx-workbench/riscv-core/cachesim/src/trace.cpp",
+    "output": "/home/ban/ysyx-workbench/riscv-core/cachesim/build/obj/src/trace.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/g++",
+      "-O2",
+      "-g",
+      "-Iinclude",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-c",
+      "-o",
+      "build/obj/src/main.o",
+      "src/main.cpp"
+    ],
+    "directory": "/home/ban/ysyx-workbench/riscv-core/cachesim",
+    "file": "/home/ban/ysyx-workbench/riscv-core/cachesim/src/main.cpp",
+    "output": "/home/ban/ysyx-workbench/riscv-core/cachesim/build/obj/src/main.o"
+  }
+]
