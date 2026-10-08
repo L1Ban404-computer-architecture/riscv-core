@@ -204,7 +204,7 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 
 ## 设计空间扫描：`dse/`
 
-`make run` 在本目录下等价于 `python3 -m dse`。脚本不读命令行参数，扫描范围和路径都写在 `dse/__main__.py` 开头。数据容量是 `sets * ways * block_bytes`。`BYTES_MIN` 和 `BYTES_MAX` 给出这个容量的闭区间，脚本在区间里搜索组数、路数、块大小都是 2 的幂的全部组合，再配上 `POLICIES`。块至少 4 字节，路数不超过 32，因为功能模型把一棵 PLRU 树放在一个 `uint32` 里。默认 16–256 字节比原先只列几档组数、路数和块大小的笛卡尔积多出不少点。阵列按触发器综合，把上限调大以后面积会远超 nangate45 上留给核心的预算：
+`make run` 在本目录下等价于 `python3 -m dse`。脚本不读命令行参数，扫描范围和路径都写在 `dse/__main__.py` 开头。数据容量是 `sets * ways * block_bytes`。`BYTES_MIN` 和 `BYTES_MAX` 给出这个容量的闭区间，脚本在区间里搜索组数、路数、块大小都是 2 的幂的全部组合，再配上 `POLICIES`。块至少 4 字节。路数没有单独上限，容量和地址划分合法时可以任意大。默认 16–256 字节比原先只列几档组数、路数和块大小的笛卡尔积多出不少点。阵列按触发器综合，把上限调大以后面积会远超 nangate45 上留给核心的预算：
 
 | 常量 | 取值 |
 | --- | --- |
@@ -221,11 +221,12 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 **功能。** 调 `cachesim` 拿 hit rate。缺失代价按块传输的拍数线性放大：
 
 ```text
-miss_penalty = 68 * (block_bytes / 4)
+words        = block_bytes / 4
+miss_penalty = LAT_HEAD + LAT_BEAT * (words - 1)
 AMT          = (1 - hit_rate) * miss_penalty
 ```
 
-`68` 是脚本里的 `BEAT_LAT`，表示 4 字节块的固定缺失延迟，不是从 RTL 仿真测出来的。空轨迹的 `hit_rate=-` 会使 AMT 记成 `-`。
+`LAT_HEAD` 默认 68，`LAT_BEAT` 默认 43。4 字节块只有一个字，缺失延迟就是 68；块更大时，多出来的每个字再加 43。这两个数都不是从 RTL 仿真测出来的。空轨迹的 `hit_rate=-` 会使 AMT 记成 `-`。
 
 **物理。** 每个几何在 `build/dse/nangate45/s{sets}_w{ways}_b{bytes}_{policy}/` 下调用 `rtl/Makefile` 的 `perf`，顶层是 `icache_top`，目标频率 1000 MHz，时钟端口 `clk_i`，工艺库沿用 `PDK`（默认 `nangate45`）。源文件由 Makefile 自己收集。几何通过 `read_slang -G` 覆盖 `BlockBytes`、`SetCount`、`WayCount` 和 `ReplacementPolicy`。替换策略传 `icache_pkg` 的枚举名，不传整数：`fixed` 是 `ICACHE_REPLACEMENT_FIXED`，`rr` 是 `ICACHE_REPLACEMENT_ROUND_ROBIN`，`plru` 是 `ICACHE_REPLACEMENT_TREE_PLRU`。
 

@@ -15,8 +15,9 @@ from typing import Dict, List, Sequence, Tuple
 from dse.report import write_csv, write_plot
 from dse.synth import PDK, synthesize
 
-# 4 字节块的固定缺失延迟。块更大时按传输拍数线性放大。
-BEAT_LAT = 68.0
+# 缺失延迟 = LAT_HEAD + LAT_BEAT * (字数 - 1)。字数是 block_bytes / 4。
+LAT_HEAD = 68.0
+LAT_BEAT = 43.0
 
 CACHESIM_DIR = Path(__file__).resolve().parents[1]
 CACHESIM = CACHESIM_DIR / "build" / "cachesim"
@@ -27,15 +28,14 @@ PLOT = CACHESIM_DIR / "build" / "dse.html"
 
 # 数据容量 = sets * ways * block_bytes，单位是字节，上下限都包含。
 # 组数、路数、块大小在这个区间里取所有 2 的幂组合。块至少 4 字节。
-# 路数不超过 32：功能模型把一棵 PLRU 树放在一个 uint32 里。
+# 路数没有单独上限，只要容量和地址划分都合法就可以任意大。
 # 阵列按触发器综合，容量再放大面积会很快超过 nangate45 上留给核心的预算。
 BYTES_MIN = 16
-BYTES_MAX = 64
+BYTES_MAX = 128
 POLICIES = ("fixed", "rr", "plru")
 JOBS = 8
 
 _BLOCK_MIN = 4
-_WAYS_MAX = 32
 _ADDR_BITS = 32
 
 _RESULT_RE = re.compile(
@@ -49,7 +49,8 @@ Point = Tuple[int, int, int, str]
 
 
 def miss_penalty(block_bytes: int) -> float:
-    return BEAT_LAT * (block_bytes / 4)
+    words = block_bytes / 4
+    return LAT_HEAD + LAT_BEAT * (words - 1)
 
 
 def amt(hit_rate: float, penalty: float) -> float:
@@ -129,7 +130,7 @@ def geometries(
         if block_bytes < _BLOCK_MIN:
             continue
         offset_bits = block_bytes.bit_length() - 1
-        for ways in _powers_of_two(min(_WAYS_MAX, largest)):
+        for ways in _powers_of_two(largest):
             for sets in _powers_of_two(largest):
                 capacity = sets * ways * block_bytes
                 if capacity < bytes_min or capacity > bytes_max:
