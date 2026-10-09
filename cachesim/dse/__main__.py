@@ -27,15 +27,15 @@ OUTPUT = CACHESIM_DIR / "build" / "dse.csv"
 PLOT = CACHESIM_DIR / "build" / "dse.html"
 
 # 数据容量 = sets * ways * block_bytes，单位是字节，上下限都包含。
-# 组数、路数、块大小在这个区间里取所有 2 的幂组合。块至少 4 字节。
-# 路数没有单独上限，只要容量和地址划分都合法就可以任意大。
+# 组数、路数、块大小在这个区间里取所有 2 的幂组合。块至少 4 字节，路数至多 8。
 # 阵列按触发器综合，容量再放大面积会很快超过 nangate45 上留给核心的预算。
 BYTES_MIN = 16
 BYTES_MAX = 128
 POLICIES = ("fixed", "rr", "plru")
-JOBS = 8
+JOBS = 16
 
 _BLOCK_MIN = 4
+_WAYS_MAX = 8
 _ADDR_BITS = 32
 
 _RESULT_RE = re.compile(
@@ -123,7 +123,7 @@ def _powers_of_two(limit: int) -> List[int]:
 def geometries(
     bytes_min: int, bytes_max: int, policies: Sequence[str]
 ) -> List[Point]:
-    """容量落在区间内、且组/路/块都是 2 的幂的全部组合。"""
+    """容量落在区间内、组/路/块都是 2 的幂、且路数不超过上限的全部组合。"""
     points: List[Point] = []
     largest = max(bytes_max // _BLOCK_MIN, 1)
     for block_bytes in _powers_of_two(bytes_max):
@@ -131,6 +131,8 @@ def geometries(
             continue
         offset_bits = block_bytes.bit_length() - 1
         for ways in _powers_of_two(largest):
+            if ways > _WAYS_MAX:
+                continue
             for sets in _powers_of_two(largest):
                 capacity = sets * ways * block_bytes
                 if capacity < bytes_min or capacity > bytes_max:
