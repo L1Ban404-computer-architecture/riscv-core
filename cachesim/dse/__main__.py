@@ -21,7 +21,7 @@ LAT_BEAT = 43.0
 
 CACHESIM_DIR = Path(__file__).resolve().parents[1]
 CACHESIM = CACHESIM_DIR / "build" / "cachesim"
-TRACE = CACHESIM_DIR / "build" / "microbench.pc"
+TRACE = CACHESIM_DIR / "build" / "runner-pctrace.bin"
 WORK_ROOT = CACHESIM_DIR / "build" / "dse"
 OUTPUT = CACHESIM_DIR / "build" / "dse.csv"
 PLOT = CACHESIM_DIR / "build" / "dse.html"

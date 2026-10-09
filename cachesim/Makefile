@@ -8,7 +8,7 @@ BUILD_DIR ?= build
 OUT_DIR := $(BUILD_DIR)
 OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(OUT_DIR)/cachesim
-PCTRACE := $(OUT_DIR)/microbench.pc
+TRACE_FILE := $(OUT_DIR)/runner-pctrace.bin
 SIM_REPORT := $(OUT_DIR)/sim.log
 
 YSYX_HOME ?= $(abspath ../..)
@@ -36,22 +36,22 @@ export AM_HOME
 .DEFAULT_GOAL := cachesim
 
 cachesim: $(TARGET)
-pctrace: $(PCTRACE)
+pctrace: $(TRACE_FILE)
 
-# 轨迹已存在时只跑 cachesim；缺失时请先构建 $(PCTRACE)。
-sim: $(TARGET) $(PCTRACE)
-	@test -f $(PCTRACE) || { \
-	  echo "missing $(PCTRACE); build it with: make $(PCTRACE)" >&2; \
+# 轨迹已存在时只跑 cachesim；缺失时请先构建 $(TRACE_FILE)。
+sim: $(TARGET) $(TRACE_FILE)
+	@test -f $(TRACE_FILE) || { \
+	  echo "missing $(TRACE_FILE); build it with: make pctrace" >&2; \
 	  exit 1; \
 	}
-	$(TARGET) --trace $(PCTRACE) --sets $(SETS) --ways $(WAYS) \
+	$(TARGET) --trace $(TRACE_FILE) --sets $(SETS) --ways $(WAYS) \
 	  --block-bytes $(BLOCK_BYTES) --policy $(POLICY) > $(SIM_REPORT)
 	@cat $(SIM_REPORT)
 
 # 对同一条轨迹批量扫 cache 几何，报告写入 OUT_DIR。
-run: $(TARGET) $(PCTRACE)
-	@test -f $(PCTRACE) || { \
-	  echo "missing $(PCTRACE); build it with: make $(PCTRACE)" >&2; \
+run: $(TARGET) $(TRACE_FILE)
+	@test -f $(TRACE_FILE) || { \
+	  echo "missing $(TRACE_FILE); build it with: make pctrace" >&2; \
 	  exit 1; \
 	}
 	$(PYTHON) -m dse
@@ -68,12 +68,12 @@ $(OBJ_DIR)/%.o: %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(CACHESIM_CPPFLAGS) $(CACHESIM_CXXFLAGS) -c -o $@ $<
 
 # 在 microbench 目录里 make run，DUT=nemu，默认 mainargs=train。
-$(PCTRACE):
+$(TRACE_FILE):
 	@echo + PCTRACE $@
 	@if [ -e $(OUT_DIR) ] && [ ! -d $(OUT_DIR) ]; then rm -f $(OUT_DIR); fi
 	@mkdir -p $(OUT_DIR)
 	$(MAKE) -C $(MICROBENCH_DIR) ARCH=$(ARCH) DUT=$(DUT) mainargs=$(MAINARGS) \
-	  PCTRACE="$(abspath $@)" run
+	  LOG_DIR="$(abspath $(OUT_DIR))" PCTRACE=1 run
 
 clean:
 	-rm -rf $(BUILD_DIR)

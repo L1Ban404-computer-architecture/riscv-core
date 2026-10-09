@@ -25,7 +25,7 @@
 
 ```sh
 make -C cachesim              # 默认目标，生成 build/cachesim
-make -C cachesim pctrace      # 跑 microbench，写出 build/microbench.pc
+make -C cachesim pctrace      # 跑 microbench，写出 build/runner-pctrace.bin
 make -C cachesim sim          # 用默认几何回放，结果同时打印并写入 build/sim.log
 make -C cachesim run          # 调用 python3 -m dse，写出 build/dse.csv 和 build/dse.html
 make -C cachesim clean
@@ -37,12 +37,12 @@ make -C cachesim clean
 make -C cachesim sim SETS=8 WAYS=2 BLOCK_BYTES=8 POLICY=plru
 ```
 
-`pctrace` 在 `am-kernels/benchmarks/microbench` 里执行 `make run`，默认 `ARCH=runner`、`DUT=nemu`、`mainargs=train`，并把绝对路径通过 `PCTRACE` 传给 runner。工作台根目录由 `YSYX_HOME`（默认是 `riscv-core` 的上两级）决定，`AM_HOME` 默认为 `$YSYX_HOME/abstract-machine`。轨迹文件已存在时，`sim` / `run` 只检查它在不在，不会重新生成；要重采就先 `make pctrace` 或删掉 `build/microbench.pc`。
+`pctrace` 在 `am-kernels/benchmarks/microbench` 里执行 `make run`，默认 `ARCH=runner`、`DUT=nemu`、`mainargs=train`，向 runner 传入 cachesim 的 `build/` 作为 `LOG_DIR` 并用 `PCTRACE=1` 启用轨迹。文件名 `runner-pctrace.bin` 由 runner 固定。工作台根目录由 `YSYX_HOME`（默认是 `riscv-core` 的上两级）决定，`AM_HOME` 默认为 `$YSYX_HOME/abstract-machine`。轨迹文件已存在时，`sim` / `run` 只检查它在不在，不会重新生成；要重采就先删除 `build/runner-pctrace.bin` 再执行 `make pctrace`。
 
 也可以直接调用可执行文件。`--trace` 必填，其余参数有默认值：
 
 ```text
-build/cachesim --trace build/microbench.pc \
+build/cachesim --trace build/runner-pctrace.bin \
   --block-bytes 4 --sets 16 --ways 1 --policy rr
 ```
 
@@ -57,7 +57,7 @@ accesses=123 hits=100 misses=23 hit_rate=0.813008
 ## 数据流
 
 ```text
-runner --pctrace
+runner --log-dir=build --pctrace
         │  小端 uint32 PC 流
         v
 PcTraceReader::Next          src/trace.cpp
@@ -212,7 +212,7 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 | `BYTES_MAX` | `256` |
 | `POLICIES` | `fixed, rr, plru` |
 | `JOBS` | `1` |
-| `TRACE` | `build/microbench.pc` |
+| `TRACE` | `build/runner-pctrace.bin` |
 | `CACHESIM` | `build/cachesim` |
 | `OUTPUT` / `PLOT` | `build/dse.csv`、`build/dse.html` |
 

@@ -10,52 +10,52 @@
 module riscv_core_sim
   import riscv_core_pkg::*;
 #(
-  parameter int unsigned ImemResponseLatency = 1,
-  parameter int unsigned ImemMaxOutstanding = 1,
-  parameter int unsigned DmemResponseLatency = 1,
-  parameter int unsigned DmemMaxOutstanding = 1
+    parameter int unsigned ImemResponseLatency = 1,
+    parameter int unsigned ImemMaxOutstanding  = 1,
+    parameter int unsigned DmemResponseLatency = 1,
+    parameter int unsigned DmemMaxOutstanding  = 1
 ) (
-  input logic clk_i,
-  input logic rst_ni,
+    input logic clk_i,
+    input logic rst_ni,
 `ifndef SYNTHESIS
-  output logic debug_retire_valid,
-  output logic [31:0] debug_retire_pc,
-  output logic [31:0] debug_retire_instr,
-  output logic [63:0] debug_retire_instid,
-  output logic debug_retire_redirect_valid,
-  output logic [31:0] debug_retire_redirect_target,
-  output logic [1:0] debug_retire_mem_op,
-  output logic [1:0] debug_retire_mem_size,
-  output logic [31:0] debug_retire_mem_addr,
-  output logic [31:0] debug_retire_mem_data,
-  output logic debug_retire_gpr_we,
-  output logic [4:0] debug_retire_gpr_waddr,
-  output logic [31:0] debug_retire_gpr_wdata,
-  output logic [31:0] debug_retire_mstatus,
-  output logic [31:0] debug_retire_mtvec,
-  output logic [31:0] debug_retire_mepc,
-  output logic [31:0] debug_retire_mcause,
-  output logic [31:0] debug_retire_mtval,
-  output logic [63:0] performance_cycle_count,
-  output logic [63:0] performance_instret_count,
-  output logic [63:0] performance_if_local_stall_cycle_count,
-  output logic [63:0] performance_class_instret_count [PerfClassCount],
-  output logic [63:0] performance_class_id_local_stall_cycle_count [PerfClassCount],
-  output logic [63:0] performance_class_ex_local_stall_cycle_count [PerfClassCount],
-  output logic [63:0] performance_class_mem_local_stall_cycle_count [PerfClassCount],
-  output logic [63:0] performance_class_wb_local_stall_cycle_count [PerfClassCount],
-  output logic [63:0] performance_imem_transaction_count,
-  output logic [127:0] performance_imem_request_cycle_sum,
-  output logic [127:0] performance_imem_response_cycle_sum,
-  output logic [63:0] performance_imem_request_stall_cycle_count,
-  output logic [63:0] performance_imem_response_stall_cycle_count,
-  output logic [63:0] performance_dmem_transaction_count,
-  output logic [127:0] performance_dmem_request_cycle_sum,
-  output logic [127:0] performance_dmem_response_cycle_sum,
-  output logic [63:0] performance_dmem_request_stall_cycle_count,
-  output logic [63:0] performance_dmem_response_stall_cycle_count,
+    output logic debug_retire_valid,
+    output logic [31:0] debug_retire_pc,
+    output logic [31:0] debug_retire_instr,
+    output logic [63:0] debug_retire_instid,
+    output logic debug_retire_redirect_valid,
+    output logic [31:0] debug_retire_redirect_target,
+    output logic [1:0] debug_retire_mem_op,
+    output logic [1:0] debug_retire_mem_size,
+    output logic [31:0] debug_retire_mem_addr,
+    output logic [31:0] debug_retire_mem_data,
+    output logic debug_retire_gpr_we,
+    output logic [4:0] debug_retire_gpr_waddr,
+    output logic [31:0] debug_retire_gpr_wdata,
+    output logic [31:0] debug_retire_mstatus,
+    output logic [31:0] debug_retire_mtvec,
+    output logic [31:0] debug_retire_mepc,
+    output logic [31:0] debug_retire_mcause,
+    output logic [31:0] debug_retire_mtval,
+    output logic [63:0] performance_cycle_count,
+    output logic [63:0] performance_instret_count,
+    output logic [63:0] performance_if_local_stall_cycle_count,
+    output logic [63:0] performance_class_instret_count[PerfClassCount],
+    output logic [63:0] performance_class_id_local_stall_cycle_count[PerfClassCount],
+    output logic [63:0] performance_class_ex_local_stall_cycle_count[PerfClassCount],
+    output logic [63:0] performance_class_mem_local_stall_cycle_count[PerfClassCount],
+    output logic [63:0] performance_class_wb_local_stall_cycle_count[PerfClassCount],
+    output logic [63:0] performance_imem_transaction_count,
+    output logic [127:0] performance_imem_request_cycle_sum,
+    output logic [127:0] performance_imem_response_cycle_sum,
+    output logic [63:0] performance_imem_request_stall_cycle_count,
+    output logic [63:0] performance_imem_response_stall_cycle_count,
+    output logic [63:0] performance_dmem_transaction_count,
+    output logic [127:0] performance_dmem_request_cycle_sum,
+    output logic [127:0] performance_dmem_response_cycle_sum,
+    output logic [63:0] performance_dmem_request_stall_cycle_count,
+    output logic [63:0] performance_dmem_response_stall_cycle_count,
 `endif
-  input pc_t boot_pc_i
+    input pc_t boot_pc_i
 );
 
   core_bus_if imem_bus ();
@@ -109,36 +109,36 @@ module riscv_core_sim
 `endif
 
   riscv_core_impl u_core_impl (
-    .clk_i,
-    .rst_ni,
-    .boot_pc_i,
-    .imem(imem_bus),
-    .dmem(dmem_bus),
+      .clk_i,
+      .rst_ni,
+      .boot_pc_i,
+      .imem(imem_bus),
+      .dmem(dmem_bus),
 `ifndef SYNTHESIS
-    .debug_retire(retire_debug_int),
-    .performance(performance_int),
+      .debug_retire(retire_debug_int),
+      .performance(performance_int),
 `endif
-    .icache_invalidate_o(unused_icache_invalidate)
+      .icache_invalidate_o(unused_icache_invalidate)
   );
 
   mem_sim #(
-    .IsDmem(1'b0),
-    .ResponseLatency(ImemResponseLatency),
-    .MaxOutstanding(ImemMaxOutstanding)
+      .IsDmem(1'b0),
+      .ResponseLatency(ImemResponseLatency),
+      .MaxOutstanding(ImemMaxOutstanding)
   ) u_imem_sim (
-    .clk_i,
-    .rst_ni,
-    .core_bus(imem_bus)
+      .clk_i,
+      .rst_ni,
+      .core_bus(imem_bus)
   );
 
   mem_sim #(
-    .IsDmem(1'b1),
-    .ResponseLatency(DmemResponseLatency),
-    .MaxOutstanding(DmemMaxOutstanding)
+      .IsDmem(1'b1),
+      .ResponseLatency(DmemResponseLatency),
+      .MaxOutstanding(DmemMaxOutstanding)
   ) u_dmem_sim (
-    .clk_i,
-    .rst_ni,
-    .core_bus(dmem_bus)
+      .clk_i,
+      .rst_ni,
+      .core_bus(dmem_bus)
   );
 
 endmodule
@@ -165,13 +165,13 @@ import "DPI-C" function void dpi_dmem_access_sim(
 module mem_sim
   import riscv_bus_pkg::*;
 #(
-  parameter bit IsDmem = 1'b0,
-  parameter int unsigned ResponseLatency = 1,
-  parameter int unsigned MaxOutstanding = 1
+    parameter bit IsDmem = 1'b0,
+    parameter int unsigned ResponseLatency = 1,
+    parameter int unsigned MaxOutstanding = 1
 ) (
-  input logic clk_i,
-  input logic rst_ni,
-  core_bus_if.slave core_bus
+    input logic clk_i,
+    input logic rst_ni,
+    core_bus_if.slave core_bus
 );
 
   localparam int unsigned QueueDepth = (MaxOutstanding > 0) ? MaxOutstanding : 1;
@@ -201,12 +201,12 @@ module mem_sim
     return index + index_t'(1);
   endfunction
 
-  function automatic byte unsigned dpi_wstrb_from_size_addr(
-      input byte unsigned size, input logic [1:0] addr_offset);
+  function automatic byte unsigned dpi_wstrb_from_size_addr(input byte unsigned size,
+                                                            input logic [1:0] addr_offset);
     unique case (size[1:0])
-      2'd0: return byte unsigned'(4'b0001 << addr_offset);
-      2'd1: return byte unsigned'(4'b0011 << addr_offset);
-      default: return byte unsigned'(4'b1111);
+      2'd0: return 8'h01 << addr_offset;
+      2'd1: return 8'h03 << addr_offset;
+      default: return 8'h0f;
     endcase
   endfunction
 
@@ -226,8 +226,8 @@ module mem_sim
     bit dpi_error;
 
     if (!rst_ni) begin
-      head_q <= '0;
-      tail_q <= '0;
+      head_q  <= '0;
+      tail_q  <= '0;
       count_q <= '0;
       for (int unsigned i = 0; i < QueueDepth; i++) begin
         rsp_data_q[i] <= '0;
@@ -258,10 +258,9 @@ module mem_sim
         if (IsDmem) begin
           dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write, {
                               6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata,
-                              core_bus.req_payload.write ?
-                                  dpi_wstrb_from_size_addr({6'b0, core_bus.req_payload.size},
-                                      core_bus.req_payload.addr[1:0]) :
-                                  8'd0, dpi_rdata, dpi_error);
+                              core_bus.req_payload.write ? dpi_wstrb_from_size_addr(
+                              {6'b0, core_bus.req_payload.size}, core_bus.req_payload.addr[1:0]
+                              ) : 8'd0, dpi_rdata, dpi_error);
         end else begin
           dpi_imem_read_sim(core_bus.req_payload.addr, dpi_rdata, dpi_error);
         end
@@ -279,8 +278,8 @@ module mem_sim
       unique case ({
         core_bus.req_fire, core_bus.rsp_fire
       })
-        2'b10: count_q <= count_q + count_t'(1);
-        2'b01: count_q <= count_q - count_t'(1);
+        2'b10:   count_q <= count_q + count_t'(1);
+        2'b01:   count_q <= count_q - count_t'(1);
         default: ;
       endcase
     end
