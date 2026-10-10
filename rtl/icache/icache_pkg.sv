@@ -9,9 +9,9 @@ package icache_pkg;
 
   parameter int unsigned ICacheAddrWidth = 32;
   parameter int unsigned ICacheDataWidth = 32;
-  parameter int unsigned ICacheBlockBytes = 8;
-  parameter int unsigned ICacheSetCount = 8;
-  parameter int unsigned ICacheWayCount = 1;
+  parameter int unsigned ICacheBlockBytes = 16;
+  parameter int unsigned ICacheSetCount = 4;
+  parameter int unsigned ICacheWayCount = 2;
 
   // 满组时的牺牲路选择方式；存在无效路时三种策略均优先选择最低编号无效路。
   typedef enum logic [1:0] {
