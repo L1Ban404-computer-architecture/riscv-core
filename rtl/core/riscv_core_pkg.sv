@@ -404,6 +404,8 @@ package riscv_core_pkg;
   typedef struct packed {
     logic [63:0] cycle_count;
     logic [63:0] instret_count;
+    // 最终送到 IF 的 redirect 事件总数，包含 EX 改道和 WB trap/MRET/FENCE.I。
+    logic [63:0] redirect_count;
     logic [63:0] if_local_stall_cycle_count;
     class_performance_payload_t [PerfClassCount-1:0] classes;
     memory_performance_payload_t imem;

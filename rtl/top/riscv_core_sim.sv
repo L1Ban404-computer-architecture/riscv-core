@@ -38,6 +38,7 @@ module riscv_core_sim
     output logic [31:0] debug_retire_mtval,
     output logic [63:0] performance_cycle_count,
     output logic [63:0] performance_instret_count,
+    output logic [63:0] performance_redirect_count,
     output logic [63:0] performance_if_local_stall_cycle_count,
     output logic [63:0] performance_class_instret_count[PerfClassCount],
     output logic [63:0] performance_class_id_local_stall_cycle_count[PerfClassCount],
@@ -88,6 +89,7 @@ module riscv_core_sim
   assign debug_retire_mtval = retire_debug_int.payload.csr.mtval;
   assign performance_cycle_count = performance_int.payload.cycle_count;
   assign performance_instret_count = performance_int.payload.instret_count;
+  assign performance_redirect_count = performance_int.payload.redirect_count;
   assign performance_if_local_stall_cycle_count = performance_int.payload.if_local_stall_cycle_count;
   assign performance_imem_transaction_count = performance_int.payload.imem.transaction_count;
   assign performance_imem_request_cycle_sum = performance_int.payload.imem.request_cycle_sum;

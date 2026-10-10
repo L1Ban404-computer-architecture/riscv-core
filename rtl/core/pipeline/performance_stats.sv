@@ -22,8 +22,6 @@ module performance_stats
   mem_wb_if.monitor mem_wb,
   redirect_if.monitor redirect,
   input logic flush_backend_i,
-  // 当前按多周期占用运行：仅在前端负责推进当前指令时统计供给不足。
-  input logic if_local_stall_enable_i,
 
   // 存储器监视
   core_bus_if.monitor imem,
@@ -127,8 +125,7 @@ module performance_stats
   // IF 没有 core 内部的输入握手，因此不能按其他 stage 的入口阻塞方式统计。
   // 这里把“后端愿意接收而 IF/ID 没有事务”定义为 IF 供给不足；redirect 当拍
   // 不计入，但 redirect 后恢复取指导致的空泡仍会自然计入。
-  // 当前按多周期占用运行：后端执行期间的主动停取由使能排除；cycle_count 仍累计。
-  assign if_local_stall = if_local_stall_enable_i && if_id.ready && !if_id.valid && !redirect.valid;
+  assign if_local_stall = if_id.ready && !if_id.valid && !redirect.valid;
 
   // 局部阻塞前沿用于剔除逐级向上传播的背压。某阶段阻挡了入口，而它的出口
   // 边界没有同时阻塞，说明这条背压链在该阶段开始。非相邻阶段可在同一周期
@@ -155,6 +152,11 @@ module performance_stats
       // 沿用调试提交口径，包括异常；并非排除异常的架构 minstret。
       if (mem_wb.fire)
         performance_debug_q.instret_count <= performance_debug_q.instret_count + 64'd1;
+
+      // redirect 是无背压的单周期事件。统计仲裁后实际送到 IF 的事件：EX 与
+      // WB 同拍改道只计一次；WB flush 当拍也必须累计，包含 FENCE.I 重取指。
+      if (redirect.valid)
+        performance_debug_q.redirect_count <= performance_debug_q.redirect_count + 64'd1;
 
       if (mem_wb.fire)
         performance_debug_q.classes[wb_class].instret_count <=

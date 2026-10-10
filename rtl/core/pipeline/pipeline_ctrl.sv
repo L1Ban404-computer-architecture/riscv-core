@@ -4,7 +4,7 @@
 // 流水冒险与提交控制。
 //
 // 根据各级 monitor 视图生成串行化屏障、访存副作用阻塞、改道合并与后端冲刷。
-// 不驱动任何流水 ready/valid；当前多周期单指令锁仍由 IF 的 retire_i 实现。
+// 普通指令通过各级 ready/valid 并行推进，仅 CSR/SYSTEM 和异常形成串行屏障。
 module pipeline_ctrl
   import riscv_core_pkg::*;
 (

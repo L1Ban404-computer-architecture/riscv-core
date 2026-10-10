@@ -116,6 +116,7 @@ module ysyx_25080230
   logic [31:0] debug_retire_mtval  /* verilator public_flat_rd */;
   logic [63:0] debug_perf_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_instret_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_redirect_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_if_local_stall_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_class_instret_count [PerfClassCount] /* verilator public_flat_rd */;
   logic [63:0] debug_perf_class_id_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
@@ -164,6 +165,7 @@ module ysyx_25080230
   assign debug_retire_mtval = retire_debug.payload.csr.mtval;
   assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
   assign debug_perf_instret_count = performance_debug.payload.instret_count;
+  assign debug_perf_redirect_count = performance_debug.payload.redirect_count;
   assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
   assign debug_perf_imem_transaction_count = performance_debug.payload.imem.transaction_count;
   assign debug_perf_imem_request_cycle_sum = performance_debug.payload.imem.request_cycle_sum;

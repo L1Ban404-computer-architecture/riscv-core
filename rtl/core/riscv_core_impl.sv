@@ -11,7 +11,9 @@ module riscv_core_impl
   parameter int unsigned FetchOutstandingDepth = 1,
   parameter int unsigned IfIdQueueDepth = 2,
   parameter int unsigned ExMaxInflight = 1,
-  parameter int unsigned MemMaxInflight = 1
+  parameter int unsigned MemMaxInflight = 1,
+  // 临时 ID RAW 屏障：设为 0 即恢复原有译码行为，EX 数据前递始终保留。
+  parameter bit EnableTemporaryIdGprStall = 1'b1
 ) (
   // 全局控制
   input logic clk_i,
@@ -90,20 +92,22 @@ module riscv_core_impl
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
-    // 当前按多周期占用运行：下一条取指等待本条 WB 提交。流水结构与在途参数保留。
-    .retire_i(mem_wb.fire),
     .redirect(resolved_redirect),
     .imem,
     .if_id
   );
 
-  id_stage u_id_stage (
+  id_stage #(
+    .EnableTemporaryGprStall(EnableTemporaryIdGprStall)
+  ) u_id_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
     .if_id,
     .id_ex,
+    .ex_mem,
+    .mem_wb,
     .gpr_read
   );
 
@@ -172,8 +176,6 @@ module riscv_core_impl
     .flush_backend_i(backend_flush),
     .imem,
     .dmem,
-    // 当前按多周期占用运行：后端执行时主动停取，不属于 IF 供给不足。
-    .if_local_stall_enable_i(!(id_ex.valid || ex_mem.valid || mem_wb.valid || mem_busy)),
     .performance
   );
 

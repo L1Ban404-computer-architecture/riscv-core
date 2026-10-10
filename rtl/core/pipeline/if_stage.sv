@@ -24,8 +24,6 @@ module if_stage
   input logic clk_i,
   input logic rst_ni,
   input pc_t boot_pc_i,
-  // 当前按多周期占用运行：所有 WB 提交（包括异常）释放取指占用。
-  input logic retire_i,
   redirect_if.consumer redirect,
 
   // 取指与流水事务
@@ -52,8 +50,6 @@ module if_stage
   pc_t pc_d;
   logic boot_pending_q;
   logic frontend_flush;
-  // 当前按多周期占用：从请求分配到 WB 提交，包含尚未握手的请求。
-  logic instruction_active_q;
 
   // 请求 holding register 在空闲时组合旁路，在 I-cache 反压时保持请求和 payload。
   // request_outstanding_q 仅在请求已经握手、但响应尚未握手的期间置位。
@@ -93,7 +89,8 @@ module if_stage
 
   // redirect 只禁止向 u_req_hold 分配新 PC，已经锁存并对外展示的请求仍须保持。
   assign frontend_flush = redirect.valid;
-  assign fetch_req_valid = !boot_pending_q && !frontend_flush && !instruction_active_q;
+  // 取指与后端执行并行；请求保持寄存器、单笔 outstanding 和指令 FIFO 负责背压。
+  assign fetch_req_valid = !boot_pending_q && !frontend_flush;
   assign fetch_req_data = '{pc: pc_q};
   assign fetch_req_fire = fetch_req_valid && req_hold_ready;
 
@@ -195,13 +192,6 @@ module if_stage
     end
   end
 
-  // 当前按多周期占用：redirect 只更新 PC，不能提前放行下一条指令。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) instruction_active_q <= 1'b0;
-    else if (retire_i) instruction_active_q <= 1'b0;
-    else if (fetch_req_fire) instruction_active_q <= 1'b1;
-  end
-
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       pc_q <= '0;
@@ -250,25 +240,11 @@ module if_stage
   // 协议检查 //
   //////////////
 
-  // 当前多周期占用检查；恢复流水重叠时一并移除。
   // FetchOutstandingDepth 只保留实例化接口，实现固定为单笔在途。
   logic unused_fetch_depth;
   assign unused_fetch_depth = FetchOutstandingDepth == 0;
 
 `ifndef SYNTHESIS
-  // 上一拍仍占用且未退休，这一拍指令槽必须还在。
-  logic instruction_hold_q;
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) instruction_hold_q <= 1'b0;
-    else instruction_hold_q <= instruction_active_q && !retire_i;
-  end
-
-  SingleInstructionAllocation: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !instruction_active_q || !fetch_req_fire));
-  SingleInstructionRetire: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !retire_i || instruction_active_q));
-  SingleInstructionHold: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !instruction_hold_q || instruction_active_q));
   NoSecondImemRequestWhileOutstanding: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !request_outstanding_q || !imem.req_valid));
   BootPcAligned: assert property (@(posedge clk_i) disable iff (!rst_ni) (

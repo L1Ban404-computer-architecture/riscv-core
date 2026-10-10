@@ -4,12 +4,15 @@
 // 指令译码级。
 //
 // 解析 RV32 指令，生成立即数，经 gpr_read_if 读取寄存器，并形成 ID/EX 事务。
-// IF 已报告的异常优先于本级异常；冲刷或串行化阻塞期间不得接收新事务；
+// IF 已报告的异常优先于本级异常；冲刷、串行化或临时 GPR 冲突阻塞期间不得接收新事务；
 // ID/EX 边界必须满足标准 ready/valid 保持规则。
 module id_stage
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
-(
+#(
+  // 临时 ID 冒险屏障开关；关闭即可恢复仅靠原有 EX 前递/停顿处理数据相关。
+  parameter bit EnableTemporaryGprStall = 1'b1
+) (
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
@@ -19,6 +22,9 @@ module id_stage
   // 流水事务
   if_id_if.consumer if_id,
   id_ex_if.producer id_ex,
+  // 临时屏障的观察输入，不改变较老流水级的推进或前递行为。
+  ex_mem_if.monitor ex_mem,
+  mem_wb_if.monitor mem_wb,
   gpr_read_if.requester gpr_read
 );
 
@@ -33,6 +39,7 @@ module id_stage
 
   id_ex_payload_t decoded_id_ex_bus;
   logic id_ex_input_ready;
+  logic temporary_gpr_stall;
 
   assign if_id_payload = if_id.payload;
   assign id_ex.payload = id_ex_payload;
@@ -84,8 +91,24 @@ module id_stage
   // ID/EX 弹性寄存器 //
   //////////////////////
 
-  // 满载且 EX 就绪时允许同拍弹出和写入，不在连续事务间插入气泡。
-  assign if_id.ready = id_ex_input_ready && !serialize_block_i && !flush_i;
+  // 临时逻辑集中在此：停留在 IF/ID，冲突清除后才锁存 GPR 的组合读结果。
+  // 只阻止新事务进入 ID/EX，不阻止其中的较老事务排空，避免等待写回时死锁。
+  if (EnableTemporaryGprStall) begin : gen_temporary_gpr_stall
+    id_gpr_hazard_guard u_id_gpr_hazard_guard (
+      .transaction_valid_i(if_id.valid && !decoded_id_ex_bus.exception.valid),
+      .sources_i(decoded.reg_addr),
+      .id_ex_valid_i(id_ex.valid),
+      .id_ex_payload_i(id_ex_payload),
+      .ex_mem,
+      .mem_wb,
+      .stall_o(temporary_gpr_stall)
+    );
+  end else begin : gen_no_temporary_gpr_stall
+    assign temporary_gpr_stall = 1'b0;
+  end
+
+  // 无串行化或临时 GPR 冲突时，满载且 EX 就绪允许同拍弹出和写入。
+  assign if_id.ready = id_ex_input_ready && !serialize_block_i && !flush_i && !temporary_gpr_stall;
 
   pipeline_register #(
     .T(id_ex_payload_t)
@@ -93,7 +116,7 @@ module id_stage
     .clk_i,
     .rst_ni,
     .flush_i,
-    .valid_i(if_id.valid && !serialize_block_i && !flush_i),
+    .valid_i(if_id.valid && !serialize_block_i && !flush_i && !temporary_gpr_stall),
     .ready_o(id_ex_input_ready),
     .data_i(decoded_id_ex_bus),
     .valid_o(id_ex.valid),
