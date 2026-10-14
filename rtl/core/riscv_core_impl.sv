@@ -8,8 +8,6 @@ module riscv_core_impl
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 #(
-  parameter int unsigned FetchOutstandingDepth = 1,
-  parameter int unsigned IfIdQueueDepth = 2,
   parameter int unsigned ExMaxInflight = 1,
   parameter int unsigned MemMaxInflight = 1,
   // 临时 ID RAW 屏障：设为 0 即恢复原有译码行为，EX 数据前递始终保留。
@@ -85,10 +83,7 @@ module riscv_core_impl
   // 架构状态、流水级与观察器   //
   ////////////////////////////////
 
-  if_stage #(
-    .FetchOutstandingDepth(FetchOutstandingDepth),
-    .IfIdQueueDepth(IfIdQueueDepth)
-  ) u_if_stage (
+  if_stage u_if_stage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
     .boot_pc_i(boot_pc_i),
