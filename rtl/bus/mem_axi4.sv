@@ -24,9 +24,7 @@ module mem_axi4
   axi4_if.master axi
 );
 
-  ////////////////////////
-  // 事务状态与握手事件 //
-  ////////////////////////
+  // 事务状态与握手事件
 
   typedef enum logic [1:0] {
     StateIdle,
@@ -71,30 +69,28 @@ module mem_axi4
   assign active_read_response = (state_q == StateReadResponse) || axi.ar_fire;
   assign active_write_response = (state_q == StateWriteResponse) || write_request_complete;
 
-  ////////////////////////////
-  // CoreBus 与 AXI4 通道适配 //
-  ////////////////////////////
+  // CoreBus 与 AXI4 通道适配
+
+  assign axi.awvalid = write_request && !aw_sent_q;
+  assign axi.aw_payload.addr = core_bus.req_payload.addr;
+  assign axi.aw_payload.id = IdWidth'(AxiId);
+  assign axi.aw_payload.len = 8'd0;
+  assign axi.aw_payload.size = axi_size;
+  assign axi.aw_payload.burst = AXI4_BURST_INCR;
+  assign axi.wvalid = write_request && !w_sent_q;
+  assign axi.w_payload.data = core_bus.req_payload.wdata;
+  assign axi.w_payload.strb = write_strb;
+  assign axi.w_payload.last = 1'b1;
+  assign axi.bready = active_write_response && core_bus.rsp_ready;
+  assign axi.arvalid = read_request;
+  assign axi.ar_payload.addr = core_bus.req_payload.addr;
+  assign axi.ar_payload.id = IdWidth'(AxiId);
+  assign axi.ar_payload.len = 8'd0;
+  assign axi.ar_payload.size = axi_size;
+  assign axi.ar_payload.burst = AXI4_BURST_INCR;
+  assign axi.rready = active_read_response && core_bus.rsp_ready;
 
   always_comb begin
-    axi.awvalid = write_request && !aw_sent_q;
-    axi.aw_payload.addr = core_bus.req_payload.addr;
-    axi.aw_payload.id = IdWidth'(AxiId);
-    axi.aw_payload.len = 8'd0;
-    axi.aw_payload.size = axi_size;
-    axi.aw_payload.burst = AXI4_BURST_INCR;
-    axi.wvalid = write_request && !w_sent_q;
-    axi.w_payload.data = core_bus.req_payload.wdata;
-    axi.w_payload.strb = write_strb;
-    axi.w_payload.last = 1'b1;
-    axi.bready = active_write_response && core_bus.rsp_ready;
-    axi.arvalid = read_request;
-    axi.ar_payload.addr = core_bus.req_payload.addr;
-    axi.ar_payload.id = IdWidth'(AxiId);
-    axi.ar_payload.len = 8'd0;
-    axi.ar_payload.size = axi_size;
-    axi.ar_payload.burst = AXI4_BURST_INCR;
-    axi.rready = active_read_response && core_bus.rsp_ready;
-
     core_bus.req_ready = 1'b0;
     core_bus.rsp_valid = 1'b0;
     core_bus.rsp_payload = '0;
@@ -115,9 +111,7 @@ module mem_axi4
     end
   end
 
-  //////////////////
-  // 状态更新逻辑 //
-  //////////////////
+  // 状态更新逻辑
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

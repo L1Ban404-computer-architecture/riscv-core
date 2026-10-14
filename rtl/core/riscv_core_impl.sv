@@ -28,13 +28,12 @@ module riscv_core_impl
   performance_debug_if.producer performance,
 `endif
 
-  // 由提交的 FENCE.I 产生的单周期 I-cache 失效请求
+  // 取消旧取指的延迟 redirect，以及 FENCE.I 提交时的缓存失效请求。
+  output logic imem_flush_o,
   output logic icache_invalidate_o
 );
 
-  //////////////////
-  // 流水级间接口 //
-  //////////////////
+  // 流水级间接口
   if_id_if if_id ();
   id_ex_if id_ex ();
   ex_mem_if ex_mem ();
@@ -61,33 +60,14 @@ module riscv_core_impl
   csr_state_if csr_state ();
 `endif
 
-  //////////////////////////
-  // 全局改道与串行化控制 //
-  //////////////////////////
-
-  pipeline_ctrl u_pipeline_ctrl (
-    .id_ex,
-    .ex_mem,
-    .mem_wb,
-    .ex_redirect,
-    .wb_redirect,
-    .mem_busy_i(mem_busy),
-    .serialize_block_o(serialize_block),
-    .serialize_ready_o(serialize_ready),
-    .mem_side_effect_block_o(mem_side_effect_block),
-    .resolved_redirect,
-    .backend_flush_o(backend_flush)
-  );
-
-  ////////////////////////////////
-  // 架构状态、流水级与观察器   //
-  ////////////////////////////////
+  // 流水线按 IF → ID → EX → MEM → WB 排列。
 
   if_stage u_if_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
-    .boot_pc_i(boot_pc_i),
+    .clk_i,
+    .rst_ni,
+    .boot_pc_i,
     .redirect(resolved_redirect),
+    .imem_flush_o,
     .imem,
     .if_id
   );
@@ -95,8 +75,8 @@ module riscv_core_impl
   id_stage #(
     .EnableTemporaryGprStall(EnableTemporaryIdGprStall)
   ) u_id_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
+    .clk_i,
+    .rst_ni,
     .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
     .if_id,
@@ -106,15 +86,9 @@ module riscv_core_impl
     .gpr_read
   );
 
-  regfile u_regfile (
-    .clk_i,
-    .gpr_read,
-    .wb
-  );
-
   ex_stage u_ex_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
+    .clk_i,
+    .rst_ni,
     .flush_i(backend_flush),
     .serialize_ready_i(serialize_ready),
     .id_ex,
@@ -125,8 +99,8 @@ module riscv_core_impl
   );
 
   mem_stage u_mem_stage (
-    .clk_i(clk_i),
-    .rst_ni(rst_ni),
+    .clk_i,
+    .rst_ni,
     .flush_i(backend_flush),
     .side_effect_block_i(mem_side_effect_block),
     .ex_mem,
@@ -148,6 +122,14 @@ module riscv_core_impl
     .wb
   );
 
+  // 架构状态：只接受 WB 提交。
+
+  regfile u_regfile (
+    .clk_i,
+    .gpr_read,
+    .wb
+  );
+
   csr_unit u_csr_unit (
     .clk_i,
     .rst_ni,
@@ -159,6 +141,23 @@ module riscv_core_impl
     .status(csr_status)
   );
 
+  // 改道与串行化控制
+
+  pipeline_ctrl u_pipeline_ctrl (
+    .id_ex,
+    .ex_mem,
+    .mem_wb,
+    .ex_redirect,
+    .wb_redirect,
+    .mem_busy_i(mem_busy),
+    .serialize_block_o(serialize_block),
+    .serialize_ready_o(serialize_ready),
+    .mem_side_effect_block_o(mem_side_effect_block),
+    .resolved_redirect,
+    .backend_flush_o(backend_flush)
+  );
+
+  // 仿真观察器不参与功能控制。
 `ifndef SYNTHESIS
   performance_stats u_performance_stats (
     .clk_i,
@@ -169,6 +168,7 @@ module riscv_core_impl
     .mem_wb,
     .redirect(resolved_redirect),
     .flush_backend_i(backend_flush),
+    .imem_flush_i(imem_flush_o),
     .imem,
     .dmem,
     .performance

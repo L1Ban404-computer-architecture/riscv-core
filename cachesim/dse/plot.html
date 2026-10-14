@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title></title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    background: #f8fafc;
+    color: #111827;
+    font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+  }
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 20px 32px;
+  }
+  #bar { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0 0 12px; }
+  .enc { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+  .fields { display: flex; gap: 4px; }
+  .fields button {
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #111827;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .fields button.on { background: #111827; color: #fff; border-color: #111827; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  #color-legend i {
+    width: 9px; height: 9px; border-radius: 50%;
+    border: 1px solid #111827; display: inline-block;
+  }
+  #shape-legend svg { display: block; }
+  .frame {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 8px;
+  }
+  svg { display: block; width: 100%; height: auto; }
+  g.point { cursor: pointer; }
+  #tip {
+    position: fixed;
+    z-index: 2;
+    display: none;
+    max-width: 280px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #111827;
+    color: #f9fafb;
+    font-size: 12px;
+    line-height: 1.45;
+    pointer-events: none;
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.18);
+  }
+  #tip b { font-weight: 650; }
+  #tip .muted { color: #d1d5db; }
+</style>
+</head>
+<body>
+<main>
+  <div id="bar">
+    <div class="enc">
+      <div class="fields" id="color-fields">
+        <button type="button" data-field="sets">sets</button>
+        <button type="button" data-field="ways">ways</button>
+        <button type="button" data-field="block_bytes">block_bytes</button>
+        <button type="button" data-field="bytes">bytes</button>
+        <button type="button" data-field="policy" class="on">policy</button>
+      </div>
+      <div class="legend" id="color-legend">__COLOR_LEGEND__</div>
+    </div>
+    <div class="enc">
+      <div class="fields" id="shape-fields">
+        <button type="button" data-field="sets" class="on">sets</button>
+        <button type="button" data-field="ways">ways</button>
+        <button type="button" data-field="block_bytes">block_bytes</button>
+        <button type="button" data-field="bytes">bytes</button>
+        <button type="button" data-field="policy">policy</button>
+      </div>
+      <div class="legend" id="shape-legend">__SHAPE_LEGEND__</div>
+    </div>
+  </div>
+  <div class="frame">__SVG__</div>
+</main>
+<div id="tip"></div>
+<script id="dse-rows" type="application/json">__ROWS__</script>
+<script>
+const rows = JSON.parse(document.getElementById("dse-rows").textContent);
+const fields = ["sets", "ways", "block_bytes", "bytes", "policy"];
+const policyColors = { rr: "#2563eb", plru: "#d97706", fixed: "#059669" };
+const palette = ["#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#4f46e5"];
+const shapes = ["circle", "square", "triangle", "diamond", "plus", "down"];
+const NS = "http://www.w3.org/2000/svg";
+let colorField = "policy";
+let shapeField = "sets";
+const svg = document.getElementById("plot");
+const tip = document.getElementById("tip");
+const width = 800, height = 560;
+const nodes = [...svg.querySelectorAll("g.point")];
+const points = rows.map((row, index) => ({
+  row,
+  node: nodes[index],
+  cx: Number(nodes[index].getAttribute("data-x")),
+  cy: Number(nodes[index].getAttribute("data-y")),
+}));
+
+function fmtNum(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  if (Number.isInteger(number)) return String(number);
+  if (Math.abs(number) >= 100) return number.toFixed(2);
+  return String(Number(number.toPrecision(6)));
+}
+
+function valuesOf(field) {
+  const values = [...new Set(points.map((point) => String(point.row[field])))];
+  if (field === "policy") {
+    const order = ["fixed", "rr", "plru"];
+    values.sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    });
+  } else {
+    values.sort((a, b) => Number(a) - Number(b));
+  }
+  return values;
+}
+
+function colorOf(field, value) {
+  const text = String(value);
+  if (field === "policy" && policyColors[text]) return policyColors[text];
+  return palette[valuesOf(field).indexOf(text) % palette.length];
+}
+
+function shapeOf(field, value) {
+  return shapes[valuesOf(field).indexOf(String(value)) % shapes.length];
+}
+
+function shapeNode(kind, fill) {
+  let node;
+  const common = () => {
+    node.setAttribute("fill", fill);
+    node.setAttribute("fill-opacity", "0.85");
+    node.setAttribute("stroke", "#111827");
+    node.setAttribute("stroke-width", "0.6");
+  };
+  if (kind === "circle") {
+    node = document.createElementNS(NS, "circle");
+    node.setAttribute("r", "5");
+  } else if (kind === "square") {
+    node = document.createElementNS(NS, "rect");
+    node.setAttribute("x", "-4.2");
+    node.setAttribute("y", "-4.2");
+    node.setAttribute("width", "8.4");
+    node.setAttribute("height", "8.4");
+  } else if (kind === "triangle") {
+    node = document.createElementNS(NS, "polygon");
+    node.setAttribute("points", "0,-5.2 4.6,4 -4.6,4");
+  } else if (kind === "diamond") {
+    node = document.createElementNS(NS, "polygon");
+    node.setAttribute("points", "0,-5.4 5.4,0 0,5.4 -5.4,0");
+  } else if (kind === "plus") {
+    node = document.createElementNS(NS, "path");
+    node.setAttribute("d", "M-1.4,-5 H1.4 V-1.4 H5 V1.4 H1.4 V5 H-1.4 V1.4 H-5 V-1.4 H-1.4 Z");
+  } else {
+    node = document.createElementNS(NS, "polygon");
+    node.setAttribute("points", "0,5.2 4.6,-4 -4.6,-4");
+  }
+  common();
+  return node;
+}
+
+function place(point, scale) {
+  point.node.setAttribute("transform", `translate(${point.cx} ${point.cy}) scale(${scale})`);
+}
+
+const colorLegend = document.getElementById("color-legend");
+const shapeLegend = document.getElementById("shape-legend");
+const colorButtons = {};
+const shapeButtons = {};
+for (const button of document.querySelectorAll("#color-fields button")) {
+  colorButtons[button.dataset.field] = button;
+  button.addEventListener("click", () => {
+    colorField = button.dataset.field;
+    hideTip();
+    paint();
+  });
+}
+for (const button of document.querySelectorAll("#shape-fields button")) {
+  shapeButtons[button.dataset.field] = button;
+  button.addEventListener("click", () => {
+    shapeField = button.dataset.field;
+    hideTip();
+    paint();
+  });
+}
+
+function paint() {
+  for (const point of points) {
+    const fill = colorOf(colorField, point.row[colorField]);
+    const kind = shapeOf(shapeField, point.row[shapeField]);
+    point.node.replaceChildren(shapeNode(kind, fill));
+    place(point, 1);
+  }
+  colorLegend.replaceChildren();
+  for (const value of valuesOf(colorField)) {
+    const item = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.background = colorOf(colorField, value);
+    item.append(swatch, document.createTextNode(value));
+    colorLegend.appendChild(item);
+  }
+  shapeLegend.replaceChildren();
+  for (const value of valuesOf(shapeField)) {
+    const item = document.createElement("span");
+    const icon = document.createElementNS(NS, "svg");
+    icon.setAttribute("viewBox", "-7 -7 14 14");
+    icon.setAttribute("width", "12");
+    icon.setAttribute("height", "12");
+    icon.appendChild(shapeNode(shapeOf(shapeField, value), "#111827"));
+    item.append(icon, document.createTextNode(value));
+    shapeLegend.appendChild(item);
+  }
+  for (const field of fields) {
+    colorButtons[field].classList.toggle("on", field === colorField);
+    shapeButtons[field].classList.toggle("on", field === shapeField);
+  }
+}
+
+paint();
+
+function tipLine(name, value) {
+  const line = document.createElement("div");
+  const label = document.createElement("span");
+  label.className = "muted";
+  label.textContent = name + " ";
+  line.append(label, document.createTextNode(value));
+  return line;
+}
+
+function showTip(hits, event) {
+  tip.replaceChildren();
+  hits.forEach((point, index) => {
+    if (index) {
+      const rule = document.createElement("div");
+      rule.style.margin = "6px 0";
+      rule.style.borderTop = "1px solid #374151";
+      tip.appendChild(rule);
+    }
+    const row = point.row;
+    const title = document.createElement("div");
+    const strong = document.createElement("b");
+    strong.textContent = row.sets + " 组 · " + row.ways + " 路 · " + row.block_bytes + " B · " + row.policy;
+    title.appendChild(strong);
+    tip.append(
+      title,
+      tipLine("容量", fmtNum(row.bytes) + " B"),
+      tipLine("面积", fmtNum(row.synth_area)),
+      tipLine("频率", fmtNum(row.synth_freq_mhz) + " MHz"),
+      tipLine("命中率", String(row.hit_rate)),
+      tipLine("AMT", fmtNum(row.amt)),
+    );
+  });
+  tip.style.display = "block";
+  const pad = 14;
+  let x = event.clientX + pad;
+  let y = event.clientY + pad;
+  const box = tip.getBoundingClientRect();
+  if (x + box.width > window.innerWidth - 8) x = event.clientX - box.width - pad;
+  if (y + box.height > window.innerHeight - 8) y = event.clientY - box.height - pad;
+  tip.style.left = Math.max(8, x) + "px";
+  tip.style.top = Math.max(8, y) + "px";
+  const chosen = new Set(hits);
+  for (const other of points) place(other, chosen.has(other) ? 1.35 : 1);
+}
+
+function hideTip() {
+  tip.style.display = "none";
+  for (const point of points) place(point, 1);
+}
+
+svg.addEventListener("mousemove", (event) => {
+  const rect = svg.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / rect.width * width;
+  const y = (event.clientY - rect.top) / rect.height * height;
+  const hits = points.filter((point) => Math.hypot(point.cx - x, point.cy - y) < 14);
+  if (hits.length) showTip(hits, event);
+  else hideTip();
+});
+svg.addEventListener("mouseleave", hideTip);
+</script>
+</body>
+</html>

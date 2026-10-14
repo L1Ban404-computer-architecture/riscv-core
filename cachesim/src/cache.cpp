@@ -87,25 +87,17 @@ std::uint32_t Cache::LineIndex(std::uint32_t set, std::uint32_t way) const {
 // 还有空路时用编号最小的无效路。组满了才用固定 0 路、轮转或 Tree-PLRU。
 // 一路时没有替换状态，满组牺牲路保持 0。
 std::uint32_t Cache::SelectVictim(std::uint32_t set) const {
-  std::uint32_t full_victim = 0;
-  if (config_.ways != 1) {
-    switch (config_.policy) {
-      case ReplacementPolicy::kFixed:
-        full_victim = 0;
-        break;
-      case ReplacementPolicy::kRoundRobin:
-        full_victim = rr_next_[set];
-        break;
-      case ReplacementPolicy::kTreePlru:
-        full_victim = SelectPlruWay(set);
-        break;
-    }
-  }
-
   for (std::uint32_t way = 0; way < config_.ways; ++way) {
     if (valid_[LineIndex(set, way)] == 0) return way;
   }
-  return full_victim;
+  if (config_.ways == 1) return 0;
+
+  switch (config_.policy) {
+    case ReplacementPolicy::kFixed: return 0;
+    case ReplacementPolicy::kRoundRobin: return rr_next_[set];
+    case ReplacementPolicy::kTreePlru: return SelectPlruWay(set);
+  }
+  return 0;
 }
 
 // 轮转从实际占用的那一路推进，命中不改它。PLRU 把这次填入也记成一次访问。

@@ -23,9 +23,7 @@ module axi4_burst_splitter
   axi4_if.master single_axi
 );
 
-  //////////////////////////
-  // 最小突发事务上下文 //
-  //////////////////////////
+  // 最小突发事务上下文
 
   logic busy_q;
   logic waiting_r_q;
@@ -44,9 +42,7 @@ module axi4_burst_splitter
   assign downstream_r_error = (single_axi.r_payload.resp != AXI4_RESP_OKAY) ||
       !single_axi.r_payload.last;
 
-  //////////////////////////
-  // AXI 通道组合适配逻辑 //
-  //////////////////////////
+  // AXI 通道组合适配逻辑
 
   always_comb begin
     // 上游 I-cache 只读；写通道保持关闭。
@@ -89,9 +85,7 @@ module axi4_burst_splitter
     single_axi.rready = waiting_r_q && burst_axi.rready;
   end
 
-  //////////////////////////
-  // 突发状态与 beat 计数 //
-  //////////////////////////
+  // 突发状态与 beat 计数
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -126,9 +120,7 @@ module axi4_burst_splitter
     end
   end
 
-  //////////////
-  // 协议检查 //
-  //////////////
+  // 协议检查
 
 `ifndef SYNTHESIS
   AxiBurstSplitterNoWrites: assert property (@(posedge clk_i) disable iff (!rst_ni) (

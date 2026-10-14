@@ -1,11 +1,8 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 核心性能统计。
-//
-// 统计分类退休数、局部背压前沿和 CoreBus 事务性能。
-// 仅观察公开 ready/valid 与全局控制，不读取流水级私有状态；计数不参与功能
-// 控制；各局部阻塞计数允许重叠，不能直接相加解释为总 CPI 损失。
+// 观察分类退休数、局部背压和 CoreBus 延迟，不参与功能控制。
+// 局部阻塞可能重叠，不能相加解释为总 CPI 损失。
 `ifndef SYNTHESIS
 module performance_stats
   import riscv_common_pkg::*;
@@ -22,6 +19,7 @@ module performance_stats
   mem_wb_if.monitor mem_wb,
   redirect_if.monitor redirect,
   input logic flush_backend_i,
+  input logic imem_flush_i,
 
   // 存储器监视
   core_bus_if.monitor imem,
@@ -31,9 +29,7 @@ module performance_stats
   performance_debug_if.producer performance
 );
 
-  ////////////////////////
-  // 内部事件与计数状态 //
-  ////////////////////////
+  // 内部事件与计数状态
 
   logic if_id_stall;
   logic id_ex_stall;
@@ -51,9 +47,7 @@ module performance_stats
   performance_debug_payload_t performance_debug_q;
   memory_performance_payload_t imem_stats, dmem_stats;
 
-  ////////////////////////
-  // 观察器内部指令分类 //
-  ////////////////////////
+  // 观察器内部指令分类
 
   // 只按主 opcode 分组，不重复检查 funct3/funct7 合法性。
   // 取指访问错误没有可信指令；后续执行/访存异常仍按原 opcode 分类。
@@ -84,9 +78,7 @@ module performance_stats
   assign wb_class = classify_opcode(mem_wb.payload.meta.instr[6:0],
       mem_wb.payload.exception.valid && mem_wb.payload.exception.cause == EXC_INST_ACCESS_FAULT);
 
-  ////////////////
-  // 计数器输出 //
-  ////////////////
+  // 计数器输出
 
   always_comb begin
     performance.payload = performance_debug_q;
@@ -96,20 +88,20 @@ module performance_stats
 
   memory_performance_stats u_imem_stats (
     .clk_i, .rst_ni,
+    .flush_i(imem_flush_i),
     .cycle_i(performance_debug_q.cycle_count),
     .bus(imem),
     .stats_o(imem_stats)
   );
   memory_performance_stats u_dmem_stats (
     .clk_i, .rst_ni,
+    .flush_i(1'b0),
     .cycle_i(performance_debug_q.cycle_count),
     .bus(dmem),
     .stats_o(dmem_stats)
   );
 
-  //////////////////////////////
-  // 传输、阻塞与局部背压事件 //
-  //////////////////////////////
+  // 传输、阻塞与局部背压事件
 
   // fire 只表示边界上真实发生的事务传输。它不使用 flush 额外门控：stage 已经
   // 按功能语义决定当拍 valid/ready，统计侧必须保留 trap/MRET 退休等真实握手。
@@ -140,9 +132,7 @@ module performance_stats
   // EX/MEM stall；EX/MEM 握手对访存表示完成交接，不是请求接受。
   // 所有 64 位计数器达到最大值后自然回绕，与 cycle/instret 的现有行为一致。
 
-  ////////////////////
-  // 性能计数器更新 //
-  ////////////////////
+  // 性能计数器更新
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

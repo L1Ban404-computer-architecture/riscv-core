@@ -9,9 +9,7 @@
 //
 // 集中定义参数化协议信号，并通过 modport 区分主设备、从设备和监视端方向。
 
-///////////////////////////
-// CoreBus 请求/响应接口 //
-///////////////////////////
+// CoreBus 请求/响应接口
 
 interface core_bus_if #(
   parameter int unsigned AddrWidth = 32,
@@ -60,9 +58,7 @@ interface core_bus_if #(
   );
 endinterface
 
-/////////////////////
-// AXI4 五通道接口 //
-/////////////////////
+// AXI4 五通道接口
 
 interface axi4_if #(
   parameter int unsigned AddrWidth = 32,

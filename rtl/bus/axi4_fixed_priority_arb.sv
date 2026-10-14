@@ -25,9 +25,7 @@ module axi4_fixed_priority_arb
   axi4_if.master core_axi
 );
 
-  ////////////////////////
-  // AR 选择与所有权保持 //
-  ////////////////////////
+  // AR 选择与所有权保持
 
   logic ar_locked_q;
   logic ar_owner_mem_q;
@@ -37,45 +35,34 @@ module axi4_fixed_priority_arb
   // 改变已经展示给外部总线的请求源。
   assign select_mem = ar_locked_q ? ar_owner_mem_q : mem_axi.arvalid;
 
-  //////////////////////
-  // AXI 通道组合仲裁 //
-  //////////////////////
+  // 写通道仅属于数据侧。
+  assign core_axi.awvalid = mem_axi.awvalid;
+  assign core_axi.aw_payload = mem_axi.aw_payload;
+  assign core_axi.wvalid = mem_axi.wvalid;
+  assign core_axi.w_payload = mem_axi.w_payload;
+  assign core_axi.bready = mem_axi.bready;
+  assign mem_axi.awready = core_axi.awready;
+  assign mem_axi.wready = core_axi.wready;
+  assign mem_axi.bvalid = core_axi.bvalid;
+  assign mem_axi.b_payload = core_axi.b_payload;
+  assign if_axi.awready = 1'b0;
+  assign if_axi.wready = 1'b0;
+  assign if_axi.bvalid = 1'b0;
+  assign if_axi.b_payload = '0;
 
+  // AR 反压时锁定来源，避免新到达的数据请求改变已展示的取指请求。
+  assign core_axi.arvalid = select_mem ? mem_axi.arvalid : if_axi.arvalid;
+  assign core_axi.ar_payload = select_mem ? mem_axi.ar_payload : if_axi.ar_payload;
+  assign mem_axi.arready = select_mem && core_axi.arready;
+  assign if_axi.arready = !select_mem && core_axi.arready;
+
+  // R 按固定 ID 分路，无响应缓存。
   always_comb begin
-    core_axi.awvalid = mem_axi.awvalid;
-    core_axi.aw_payload = mem_axi.aw_payload;
-    core_axi.wvalid = mem_axi.wvalid;
-    core_axi.w_payload = mem_axi.w_payload;
-    core_axi.bready = mem_axi.bready;
-    core_axi.arvalid = 1'b0;
-    core_axi.ar_payload = '0;
     core_axi.rready = 1'b0;
-
-    if_axi.awready = 1'b0;
-    if_axi.wready = 1'b0;
-    if_axi.bvalid = 1'b0;
-    if_axi.b_payload = '0;
-    if_axi.arready = 1'b0;
     if_axi.rvalid = 1'b0;
     if_axi.r_payload = '0;
-
-    mem_axi.awready = core_axi.awready;
-    mem_axi.wready = core_axi.wready;
-    mem_axi.bvalid = core_axi.bvalid;
-    mem_axi.b_payload = core_axi.b_payload;
-    mem_axi.arready = 1'b0;
     mem_axi.rvalid = 1'b0;
     mem_axi.r_payload = '0;
-
-    if (select_mem) begin
-      core_axi.arvalid = mem_axi.arvalid;
-      core_axi.ar_payload = mem_axi.ar_payload;
-      mem_axi.arready = core_axi.arready;
-    end else begin
-      core_axi.arvalid = if_axi.arvalid;
-      core_axi.ar_payload = if_axi.ar_payload;
-      if_axi.arready = core_axi.arready;
-    end
 
     // 外部 R 通道按 ID 直接选择唯一目标；RREADY 从目标侧直通，不设置响应缓存。
     if (core_axi.rvalid) begin
@@ -95,9 +82,7 @@ module axi4_fixed_priority_arb
     end
   end
 
-  ////////////////////
-  // AR 所有权状态更新 //
-  ////////////////////
+  // AR 所有权状态更新
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -111,9 +96,7 @@ module axi4_fixed_priority_arb
     end
   end
 
-  //////////////
-  // 协议检查 //
-  //////////////
+  // 协议检查
 
 `ifndef SYNTHESIS
   AxiArbICacheNeverWrites: assert property (@(posedge clk_i) disable iff (!rst_ni) (

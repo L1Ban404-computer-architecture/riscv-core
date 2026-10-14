@@ -79,9 +79,7 @@ module ysyx_25080230
   output [3:0] io_slave_rid
 );
 
-  ////////////////////////
-  // 内部总线与调试接口 //
-  ////////////////////////
+  // 内部总线与调试接口
 
   core_bus_if imem_bus ();
   core_bus_if dmem_bus ();
@@ -91,114 +89,81 @@ module ysyx_25080230
   axi4_if mem_axi ();
   axi4_if core_axi ();
   logic rst_ni;
+  logic icache_invalidate;
+  logic imem_flush;
+
 `ifndef SYNTHESIS
-  logic core_retire_valid  /* verilator public_flat_rd */;
   retire_debug_if retire_debug ();
   performance_debug_if performance_debug ();
   icache_performance_debug_if icache_performance ();
-
-  logic [31:0] debug_retire_pc  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_instr  /* verilator public_flat_rd */;
-  logic [63:0] debug_retire_instid  /* verilator public_flat_rd */;
-  logic debug_retire_redirect_valid  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_redirect_target  /* verilator public_flat_rd */;
-  logic [1:0] debug_retire_mem_op  /* verilator public_flat_rd */;
-  logic [1:0] debug_retire_mem_size  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mem_addr  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mem_data  /* verilator public_flat_rd */;
-  logic debug_retire_gpr_we  /* verilator public_flat_rd */;
-  logic [4:0] debug_retire_gpr_waddr  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_gpr_wdata  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mstatus  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mtvec  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mepc  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mcause  /* verilator public_flat_rd */;
-  logic [31:0] debug_retire_mtval  /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_instret_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_redirect_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_if_local_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_class_instret_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_class_id_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_class_ex_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_class_mem_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_class_wb_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_transaction_count /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_imem_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_imem_response_cycle_sum /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_request_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_response_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_transaction_count /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_dmem_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_response_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_icache_request_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_icache_hit_count /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_hit_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_hit_response_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_miss_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_miss_response_cycle_sum /* verilator public_flat_rd */;
-`endif
-
-  ////////////////////////
-  // 退休与性能观测信号 //
-  ////////////////////////
-
-`ifndef SYNTHESIS
-  assign debug_retire_pc = retire_debug.payload.meta.pc;
-  assign debug_retire_instr = retire_debug.payload.meta.instr;
-  assign debug_retire_instid = retire_debug.payload.meta.instid;
-  assign debug_retire_redirect_valid = retire_debug.payload.redirect.valid;
-  assign debug_retire_redirect_target = retire_debug.payload.redirect.target_pc;
-  assign debug_retire_mem_op = retire_debug.payload.mem.mem_op;
-  assign debug_retire_mem_size = retire_debug.payload.mem.mem_size;
-  assign debug_retire_mem_addr = retire_debug.payload.mem.mem_addr;
-  assign debug_retire_mem_data = retire_debug.payload.mem.mem_data;
-  assign debug_retire_gpr_we = retire_debug.payload.gpr_we;
-  assign debug_retire_gpr_waddr = retire_debug.payload.gpr_waddr;
-  assign debug_retire_gpr_wdata = retire_debug.payload.gpr_wdata;
-  assign debug_retire_mstatus = retire_debug.payload.csr.mstatus;
-  assign debug_retire_mtvec = retire_debug.payload.csr.mtvec;
-  assign debug_retire_mepc = retire_debug.payload.csr.mepc;
-  assign debug_retire_mcause = retire_debug.payload.csr.mcause;
-  assign debug_retire_mtval = retire_debug.payload.csr.mtval;
-  assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
-  assign debug_perf_instret_count = performance_debug.payload.instret_count;
-  assign debug_perf_redirect_count = performance_debug.payload.redirect_count;
-  assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
-  assign debug_perf_imem_transaction_count = performance_debug.payload.imem.transaction_count;
-  assign debug_perf_imem_request_cycle_sum = performance_debug.payload.imem.request_cycle_sum;
-  assign debug_perf_imem_response_cycle_sum = performance_debug.payload.imem.response_cycle_sum;
-  assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
-  assign debug_perf_imem_response_stall_cycle_count = performance_debug.payload.imem.response_stall_cycle_count;
-  assign debug_perf_dmem_transaction_count = performance_debug.payload.dmem.transaction_count;
-  assign debug_perf_dmem_request_cycle_sum = performance_debug.payload.dmem.request_cycle_sum;
-  assign debug_perf_dmem_response_cycle_sum = performance_debug.payload.dmem.response_cycle_sum;
-  assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
-  assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
-  assign debug_perf_icache_request_count = icache_performance.payload.request_count;
-  assign debug_perf_icache_hit_count = icache_performance.payload.hit_count;
-  assign debug_perf_icache_hit_request_cycle_sum = icache_performance.payload.hit_request_cycle_sum;
-  assign debug_perf_icache_hit_response_cycle_sum = icache_performance.payload.hit_response_cycle_sum;
-  assign debug_perf_icache_miss_request_cycle_sum = icache_performance.payload.miss_request_cycle_sum;
-  assign debug_perf_icache_miss_response_cycle_sum = icache_performance.payload.miss_response_cycle_sum;
-  for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
-    assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
-    assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;
-    assign debug_perf_class_ex_local_stall_cycle_count[i] = performance_debug.payload.classes[i].ex_local_stall_cycle_count;
-    assign debug_perf_class_mem_local_stall_cycle_count[i] = performance_debug.payload.classes[i].mem_local_stall_cycle_count;
-    assign debug_perf_class_wb_local_stall_cycle_count[i] = performance_debug.payload.classes[i].wb_local_stall_cycle_count;
-  end
-
-  assign core_retire_valid = retire_debug.valid;
 `endif
 
   assign rst_ni = ~reset;
 
-  ////////////////////////
-  // 外部 AXI4 接口适配 //
-  ////////////////////////
+  // 核心与片上互连实例
+
+  riscv_core_impl u_core (
+    .clk_i(clock),
+    .rst_ni,
+    .boot_pc_i(32'h3000_0000),
+    .imem(imem_bus),
+    .dmem(dmem_bus),
+`ifndef SYNTHESIS
+    .debug_retire(retire_debug),
+    .performance(performance_debug),
+`endif
+    .imem_flush_o(imem_flush),
+    .icache_invalidate_o(icache_invalidate)
+  );
+
+  corebus_addr_router #(
+    .DeviceBase(32'h0200_0000),
+    .DeviceMask(32'hffff_0000)
+  ) u_dmem_router (
+    .clk_i(clock),
+    .rst_ni,
+    .master_bus(dmem_bus),
+    .device_bus(clint_bus),
+    .fallback_bus(axi_dmem_bus)
+  );
+
+  corebus_clint #(
+    .MtimeAddr(32'h0200_bff8)
+  ) u_clint (
+    .clk_i(clock),
+    .rst_ni,
+    .core_bus(clint_bus)
+  );
+
+  icache u_icache (
+    .clk_i(clock),
+    .rst_ni,
+    .flush_i(imem_flush),
+    .invalidate_i(icache_invalidate),
+    .core_bus(imem_bus),
+    .axi(if_axi)
+`ifndef SYNTHESIS
+    ,
+    .performance(icache_performance)
+`endif
+  );
+
+  mem_axi4 u_mem_axi4 (
+    .clk_i(clock),
+    .rst_ni,
+    .core_bus(axi_dmem_bus),
+    .axi(mem_axi)
+  );
+
+  axi4_fixed_priority_arb u_axi4_fixed_priority_arb (
+    .clk_i(clock),
+    .rst_ni,
+    .if_axi,
+    .mem_axi,
+    .core_axi
+  );
+
+  // 外部 AXI4 接口适配
 
   // 主接口逐字段适配，外部从接口保持停用。
   assign io_master_awvalid = core_axi.awvalid;
@@ -251,69 +216,102 @@ module ysyx_25080230
         io_slave_wlast, io_slave_bready, io_slave_arvalid, io_slave_araddr, io_slave_arid,
         io_slave_arlen, io_slave_arsize, io_slave_arburst, io_slave_rready};
 
-  ////////////////////////
-  // 核心与片上互连实例 //
-  ////////////////////////
-
-  logic icache_invalidate;
-
-  riscv_core_impl u_core (
-    .clk_i(clock),
-    .rst_ni,
-    .boot_pc_i(32'h3000_0000),
-    .imem(imem_bus),
-    .dmem(dmem_bus),
 `ifndef SYNTHESIS
-    .debug_retire(retire_debug),
-    .performance(performance_debug),
+  logic core_retire_valid  /* verilator public_flat_rd */;
+
+  logic [31:0] debug_retire_pc  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_instr  /* verilator public_flat_rd */;
+  logic [63:0] debug_retire_instid  /* verilator public_flat_rd */;
+  logic debug_retire_redirect_valid  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_redirect_target  /* verilator public_flat_rd */;
+  logic [1:0] debug_retire_mem_op  /* verilator public_flat_rd */;
+  logic [1:0] debug_retire_mem_size  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mem_addr  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mem_data  /* verilator public_flat_rd */;
+  logic debug_retire_gpr_we  /* verilator public_flat_rd */;
+  logic [4:0] debug_retire_gpr_waddr  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_gpr_wdata  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mstatus  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mtvec  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mepc  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mcause  /* verilator public_flat_rd */;
+  logic [31:0] debug_retire_mtval  /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_instret_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_redirect_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_if_local_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_instret_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_id_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_ex_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_mem_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_class_wb_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_transaction_count /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_imem_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_imem_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_request_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_response_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_transaction_count /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_dmem_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_response_stall_cycle_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_request_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_hit_count /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_hit_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_hit_response_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_miss_request_cycle_sum /* verilator public_flat_rd */;
+  logic [127:0] debug_perf_icache_miss_response_cycle_sum /* verilator public_flat_rd */;
 `endif
-    .icache_invalidate_o(icache_invalidate)
-  );
 
-  corebus_addr_router #(
-    .DeviceBase(32'h0200_0000),
-    .DeviceMask(32'hffff_0000)
-  ) u_dmem_router (
-    .clk_i(clock),
-    .rst_ni,
-    .master_bus(dmem_bus),
-    .device_bus(clint_bus),
-    .fallback_bus(axi_dmem_bus)
-  );
+  // 退休与性能观测信号
 
-  corebus_clint #(
-    .MtimeAddr(32'h0200_bff8)
-  ) u_clint (
-    .clk_i(clock),
-    .rst_ni,
-    .core_bus(clint_bus)
-  );
-
-  icache u_icache (
-    .clk_i(clock),
-    .rst_ni,
-    .invalidate_i(icache_invalidate),
-    .core_bus(imem_bus),
-    .axi(if_axi)
 `ifndef SYNTHESIS
-    ,
-    .performance(icache_performance)
+  assign debug_retire_pc = retire_debug.payload.meta.pc;
+  assign debug_retire_instr = retire_debug.payload.meta.instr;
+  assign debug_retire_instid = retire_debug.payload.meta.instid;
+  assign debug_retire_redirect_valid = retire_debug.payload.redirect.valid;
+  assign debug_retire_redirect_target = retire_debug.payload.redirect.target_pc;
+  assign debug_retire_mem_op = retire_debug.payload.mem.mem_op;
+  assign debug_retire_mem_size = retire_debug.payload.mem.mem_size;
+  assign debug_retire_mem_addr = retire_debug.payload.mem.mem_addr;
+  assign debug_retire_mem_data = retire_debug.payload.mem.mem_data;
+  assign debug_retire_gpr_we = retire_debug.payload.gpr_we;
+  assign debug_retire_gpr_waddr = retire_debug.payload.gpr_waddr;
+  assign debug_retire_gpr_wdata = retire_debug.payload.gpr_wdata;
+  assign debug_retire_mstatus = retire_debug.payload.csr.mstatus;
+  assign debug_retire_mtvec = retire_debug.payload.csr.mtvec;
+  assign debug_retire_mepc = retire_debug.payload.csr.mepc;
+  assign debug_retire_mcause = retire_debug.payload.csr.mcause;
+  assign debug_retire_mtval = retire_debug.payload.csr.mtval;
+  assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
+  assign debug_perf_instret_count = performance_debug.payload.instret_count;
+  assign debug_perf_redirect_count = performance_debug.payload.redirect_count;
+  assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
+  assign debug_perf_imem_transaction_count = performance_debug.payload.imem.transaction_count;
+  assign debug_perf_imem_request_cycle_sum = performance_debug.payload.imem.request_cycle_sum;
+  assign debug_perf_imem_response_cycle_sum = performance_debug.payload.imem.response_cycle_sum;
+  assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
+  assign debug_perf_imem_response_stall_cycle_count = performance_debug.payload.imem.response_stall_cycle_count;
+  assign debug_perf_dmem_transaction_count = performance_debug.payload.dmem.transaction_count;
+  assign debug_perf_dmem_request_cycle_sum = performance_debug.payload.dmem.request_cycle_sum;
+  assign debug_perf_dmem_response_cycle_sum = performance_debug.payload.dmem.response_cycle_sum;
+  assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
+  assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
+  assign debug_perf_icache_request_count = icache_performance.payload.request_count;
+  assign debug_perf_icache_hit_count = icache_performance.payload.hit_count;
+  assign debug_perf_icache_hit_request_cycle_sum = icache_performance.payload.hit_request_cycle_sum;
+  assign debug_perf_icache_hit_response_cycle_sum = icache_performance.payload.hit_response_cycle_sum;
+  assign debug_perf_icache_miss_request_cycle_sum = icache_performance.payload.miss_request_cycle_sum;
+  assign debug_perf_icache_miss_response_cycle_sum = icache_performance.payload.miss_response_cycle_sum;
+  for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
+    assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
+    assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;
+    assign debug_perf_class_ex_local_stall_cycle_count[i] = performance_debug.payload.classes[i].ex_local_stall_cycle_count;
+    assign debug_perf_class_mem_local_stall_cycle_count[i] = performance_debug.payload.classes[i].mem_local_stall_cycle_count;
+    assign debug_perf_class_wb_local_stall_cycle_count[i] = performance_debug.payload.classes[i].wb_local_stall_cycle_count;
+  end
+
+  assign core_retire_valid = retire_debug.valid;
 `endif
-  );
-
-  mem_axi4 u_mem_axi4 (
-    .clk_i(clock),
-    .rst_ni,
-    .core_bus(axi_dmem_bus),
-    .axi(mem_axi)
-  );
-
-  axi4_fixed_priority_arb u_axi4_fixed_priority_arb (
-    .clk_i(clock),
-    .rst_ni,
-    .if_axi,
-    .mem_axi,
-    .core_axi
-  );
 
 endmodule

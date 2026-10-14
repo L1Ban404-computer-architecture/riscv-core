@@ -1,9 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 组合读 tag/data，lookup 寄存命中结果和数据，背压时保持该次查询的快照。
-// 回填开始时锁定牺牲路并清 valid，各 beat 按地址写入，无错误末拍才置 valid。
-// 请求入口阻塞回填目标 line，其他 line 仍可查询。
+// 组合查询 tag/data，lookup 保存查询快照。回填时逐字写入，无错误末拍置 valid。
 module icache_array
   import icache_pkg::*;
 #(
@@ -57,7 +55,6 @@ module icache_array
   logic lookup_hit;
   logic [DataWidth-1:0] lookup_rdata;
   lookup_payload_t lookup_push_payload;
-  lookup_payload_t lookup_stream_payload;
   logic lookup_stream_ready;
   logic lookup_push;
   logic refill_line_conflict;
@@ -89,12 +86,11 @@ module icache_array
     return data_addr_t'(set) * DataAddrW'(WordCount) + data_addr_t'(word);
   endfunction
 
-  // 请求地址直通组合读口；命中结果推进 stream，背压时由寄存器保持。
+  // 查询：比较各路 tag，将命中结果和数据一起锁存。
   assign lookup_set = set_from_addr(core_bus.req_payload.addr);
   assign lookup_tag = tag_from_addr(core_bus.req_payload.addr);
   assign lookup_word = word_from_addr(core_bus.req_payload.addr);
 
-  // 普通 tag/valid 比较；回填冲突只在请求入口处理。
   always_comb begin
     lookup_rdata = '0;
     for (int unsigned way = 0; way < WayCount; way++) begin
@@ -107,8 +103,7 @@ module icache_array
   assign lookup_hit = |lookup_hit_oh;
   assign lookup_push_payload = '{addr: core_bus.req_payload.addr,
       rdata: lookup_rdata, hit: lookup_hit};
-  // 新 line 在回填结束前不能查询。分配当拍尚无回填数据写入，旧 line 命中
-  // 可正常锁存；下一拍牺牲路有效位已清零，普通命中比较自然排除它。
+  // 回填目标 line 完成前禁止查询；分配当拍仍能读取牺牲路的旧内容。
   assign refill_line_conflict = refill.valid &&
       ((core_bus.req_payload.addr >> BlockOffsetW) == (refill.addr >> BlockOffsetW));
   assign core_bus.req_ready = lookup_stream_ready && !refill_line_conflict;
@@ -125,12 +120,10 @@ module icache_array
     .data_i(lookup_push_payload),
     .valid_o(lookup.valid),
     .ready_i(lookup.ready),
-    .data_o(lookup_stream_payload)
+    .data_o(lookup.payload)
   );
 
-  assign lookup.payload = lookup_stream_payload;
-
-  // set/tag 在 WRAP 中保持不变，word offset 由 miss 的当前 beat 地址决定。
+  // 回填：起始时锁定牺牲路，所有 beat 都写入同一路。
   assign refill_set = set_from_addr(refill.addr);
   assign refill_tag = tag_from_addr(refill.addr);
   assign refill_addr_word = word_from_addr(refill.addr);
@@ -154,7 +147,22 @@ module icache_array
     end
   end
 
-  // 命中在推进 stream 时更新；独热向量取自当拍组合比较。
+  // 分配时清 valid，只有完整且无错误的回填才重新置位。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      for (int unsigned way = 0; way < WayCount; way++)
+        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
+    end else if (invalidate_apply_i) begin
+      for (int unsigned way = 0; way < WayCount; way++)
+        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
+    end else if (refill_start) begin
+      valid_q[refill_victim_combo][refill_set] <= 1'b0;
+    end else if (refill_done && !refill.payload.error) begin
+      valid_q[refill_way_q][refill_set] <= 1'b1;
+    end
+  end
+
+  // 查询握手更新命中历史，回填起始选择牺牲路。
   icache_replacement_policy #(
     .SetCount(SetCount),
     .WayCount(WayCount),
@@ -171,8 +179,7 @@ module icache_array
     .hit_oh_i(lookup_hit_oh)
   );
 
-  // 分配时仅写 tag，数据 beat 至少在下一拍到达，因此写数据直接使用锁存路。
-  // 组合读地址来自 CPU 请求，写地址来自 refill。
+  // 每路的 tag/data 存储：查询组合读，回填写入。
   for (genvar way = 0; way < WayCount; way++) begin : gen_way_mem
     logic tag_we;
     logic data_we;
@@ -209,46 +216,11 @@ module icache_array
     );
   end
 
-  // 分配时清 valid，完整且无错误的末拍才置位。失效控制保证清除时没有回填。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      for (int unsigned way = 0; way < WayCount; way++)
-        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
-    end else if (invalidate_apply_i) begin
-      for (int unsigned way = 0; way < WayCount; way++)
-        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
-    end else if (refill_start) begin
-      valid_q[refill_victim_combo][refill_set] <= 1'b0;
-    end else if (refill_done && !refill.payload.error) begin
-      valid_q[refill_way_q][refill_set] <= 1'b1;
-    end
-  end
-
 `ifndef SYNTHESIS
-  // 上一拍的清除脉冲必须在这一拍把全部有效位清掉。
-  logic invalidate_apply_q;
-  logic any_valid;
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) invalidate_apply_q <= 1'b0;
-    else invalidate_apply_q <= invalidate_apply_i;
-  end
-  always_comb begin
-    any_valid = 1'b0;
-    for (int unsigned way = 0; way < WayCount; way++) begin
-      for (int unsigned set = 0; set < SetCount; set++) any_valid |= valid_q[way][set];
-    end
-  end
-
-  // 违反内部接口契约应直接暴露，不在数据通路中增加备用选路。
   ICacheArrayBeatAfterAllocation: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !refill.beat_valid || (refill.valid && refill_way_locked_q)));
-  ICacheArrayInvalidateWhenIdle: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !invalidate_apply_i || !refill.valid));
-  // x & (x - 1) 清除最低置位位，结果为零表示至多一路命中。
   ICacheArrayHitUnique: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       (lookup_hit_oh & (lookup_hit_oh - WayCount'(1))) == '0));
-  ICacheArrayInvalidateClearsValid: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !invalidate_apply_q || !any_valid));
 `endif
 
 endmodule

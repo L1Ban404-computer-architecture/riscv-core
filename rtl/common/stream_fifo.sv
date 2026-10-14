@@ -32,9 +32,7 @@ module stream_fifo #(
   input logic ready_i
 );
 
-  //////////////////////////
-  // 存储、指针与握手事件 //
-  //////////////////////////
+  // 存储、指针与握手事件
 
   typedef logic [PtrW-1:0] ptr_t;
   typedef logic [CountW-1:0] count_t;
@@ -62,9 +60,7 @@ module stream_fifo #(
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
   assign usage_o = count_q;
 
-  ////////////////////////////
-  // 数据写入与队列状态更新 //
-  ////////////////////////////
+  // 数据写入与队列状态更新
 
   always_ff @(posedge clk_i) begin
     if (rst_ni && !flush_i && push && !bypass_pop) mem_q[write_ptr_q] <= data_i;

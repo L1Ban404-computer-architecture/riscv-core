@@ -22,9 +22,7 @@ module corebus_clint
   core_bus_if.slave core_bus
 );
 
-  //////////////////////
-  // 计时器与响应状态 //
-  //////////////////////
+  // 计时器与响应状态
 
   logic [63:0] mtime_q;
   logic rsp_valid_q;
@@ -46,9 +44,7 @@ module corebus_clint
   assign core_bus.rsp_payload.error = rsp_error_q;
   assign core_bus.rsp_valid = rsp_valid_q;
 
-  /////////////////////////////
-  // 计时与 CoreBus 事务处理 //
-  /////////////////////////////
+  // 计时与 CoreBus 事务处理
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

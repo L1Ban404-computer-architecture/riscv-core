@@ -11,9 +11,7 @@ package riscv_core_pkg;
   localparam bit Rve = `RISCV_CORE_RVE;
   localparam int unsigned GprCount = Rve ? 16 : 32;
 
-  ////////////////////////
-  // 基础宽度与标量类型 //
-  ////////////////////////
+  // 基础宽度与标量类型
 
   // RV32I/E 共用指令编码：指令固定为 32 位，整数寄存器地址固定为 5 位。
   parameter int unsigned ILen = 32;
@@ -25,9 +23,7 @@ package riscv_core_pkg;
   typedef logic [riscv_common_pkg::XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
-  ////////////////////////
-  // 指令编码与执行操作 //
-  ////////////////////////
+  // 指令编码与执行操作
 
   // 核心内部的访存操作宽度。编码等于 log2(访问字节数)，描述 RISC-V load/store
   // 执行语义，与 CoreBus 的 core_bus_size_e 相互独立。
@@ -122,9 +118,7 @@ package riscv_core_pkg;
     WB_CSR
   } wb_sel_e;
 
-  ////////////////////////
-  // CSR、SYSTEM 与异常 //
-  ////////////////////////
+  // CSR、SYSTEM 与异常
 
   typedef logic [11:0] csr_addr_t;
 
@@ -183,9 +177,7 @@ package riscv_core_pkg;
   } retire_mem_op_e;
 `endif
 
-  ////////////////////////////////
-  // 执行与提交子事务 payload 类型 //
-  ////////////////////////////////
+  // 执行与提交子事务 payload 类型
 
   // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
   typedef struct packed {
@@ -297,9 +289,7 @@ package riscv_core_pkg;
     csr_write_payload_t csr_write;
   } commit_ctrl_payload_t;
 
-  //////////////////////////////////
-  // 提交、调试与性能观测 payload 类型 //
-  //////////////////////////////////
+  // 提交、调试与性能观测 payload 类型
 
   // 指令的不可变元数据。它是流水线事务的唯一 PC/指令来源，避免外层字段和
   // debug 字段重复携带相同信息。
@@ -413,9 +403,7 @@ package riscv_core_pkg;
   } performance_debug_payload_t;
 `endif
 
-  ////////////////////
-  // 流水级边界事务 //
-  ////////////////////
+  // 流水级边界事务
 
   // 四个流水级边界的事务类型；越靠后只保留仍可能影响提交的功能字段。
   typedef struct packed {

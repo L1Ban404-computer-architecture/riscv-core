@@ -1,0 +1,68 @@
+# RISC V 核心
+
+RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建使用 RV32E；接入工作台时，ISA 与地址布局由 `riscv-runner` 的平台契约决定。RTL 负责指令执行、总线事务和退休观察，宿主运行与差分由相邻的仿真模型和 runner 负责。
+
+## 阅读顺序
+
+先看 `rtl/core/riscv_core_impl.sv` 的连接，再按 IF、ID、EX、MEM、WB 读取流水级。事务字段由 `riscv_core_pkg.sv` 定义，接口方向与握手由 `riscv_core_if.sv` 定义。
+
+| 路径 | 责任与边界 |
+| --- | --- |
+| `rtl/core/pipeline/if_stage.sv` | 发出取指，保存请求 PC，将回应交给 IF/ID；改道当拍清前端，下一拍取消旧存储请求 |
+| `rtl/core/pipeline/id_stage.sv` | 译码、立即数与 GPR 读取，形成 ID/EX；临时 RAW 屏障只阻止新事务进入 |
+| `rtl/core/pipeline/ex_stage.sv` | 前递、ALU、分支、地址和 CSR 计算；生成提交上下文及独立访存请求 |
+| `rtl/core/pipeline/mem_stage.sv` | 数据对齐、CoreBus 请求和响应；EX/MEM 保留元数据直到响应完成 |
+| `rtl/core/pipeline/wb_stage.sv` | 唯一架构提交点；提交 GPR、CSR、异常、MRET 与 FENCE.I |
+| `rtl/core/pipeline/pipeline_ctrl.sv` | 仲裁改道与串行化屏障，阻止年轻访存越过待提交副作用 |
+| `rtl/core/units/` | 运算、译码、前递和架构状态；GPR 与 CSR 单元只接受 WB 的状态更新 |
+| `rtl/icache/` | 指令查询、缺失回填、CPU 回应与失效维护 |
+| `rtl/bus/` | CoreBus 地址路由、AXI 适配与仲裁；协议类型不依赖核心执行类型 |
+| `rtl/common/` | 弹性寄存器、FIFO 和存储原语，时序语义由参数决定 |
+| `rtl/peripheral/` | 只读 CLINT 计时器，无中断输出 |
+| `rtl/top/` | SoC 固定引脚包装、DPI 仿真包装与独立 I-cache 综合顶层 |
+| `formal/icache/` | 取指一致性的有界形式化环境与记分板 |
+| `cachesim/` | PC 轨迹回放、缓存几何扫描、综合结果与报告；详见其 README |
+
+## 必须保持的时序约束
+
+流水边界以 `valid && ready` 完成一次传输。反压时保持事务；`stream_register` 不组合穿透，但允许满载时同拍弹出和写入；`fall_through_register` 在空载时组合穿透。两者不可互换。
+
+异常随指令传播，已存在的较老异常不被后级覆盖。WB 优先级为 trap、MRET、FENCE.I、普通写回；WB 改道覆盖同拍 EX 改道并冲刷后端，EX 分支只冲刷前端。CSR 和异常构成串行化屏障，执行前等待更老事务排空。
+
+MEM 最多一笔访存在途，允许请求与响应同拍完成。请求握手后，EX/MEM 继续保持元数据，直到响应进入 MEM/WB；flush 不取消已经发出的数据请求。EX 前递选择最近生产者，最近数据未就绪时不能使用更老结果；阻塞期间出现的 MEM/WB 数据需要保存。
+
+IF 的存储回应至少晚于请求一拍。改道当拍仍可能接受旧 PC，所以存储侧 flush 延迟一拍；这个 flush 取消旧请求并保留同拍接受的目标 PC 请求。
+
+I-cache 的查询、回填与回应有不同寿命：
+
+- Array 保存查询快照，回填起始锁定牺牲路，逐字写数据，只有完整且无错误的末拍才置整行有效。
+- Miss 使用 WRAP 从目标字开始回填，首拍保存后即可回应 CPU；回应消费与背景回填都完成后才能接受下一笔 miss。
+- Rsp 在 flush 时取消旧查询，并单独排空已发出的 miss；背景回填仍可完成，其他行可命中，目标行等待回填结束。
+- Invalidate 立即阻止新查询，等待查询与回填排空后清 valid。它与取消取指的 flush 不同。
+
+数据侧 AXI 适配器分别跟踪 AW 与 W 的握手，完整请求被接受后等待响应。仲裁器让数据侧优先取得 AR，并在反压期间锁定来源；R 按固定且互异的 ID 返回，写通道全部属于数据侧。`axi4_burst_splitter` 是保留的 INCR 突发转单拍适配器，后续地址只递增，不支持 WRAP，当前 SoC 顶层不实例化它。
+
+缓存地址布局为 `{tag, set, block offset}`，优先占用最低编号无效路。满组后使用 fixed、round-robin 或 Tree-PLRU；RTL 与 C++ 模型需要保持相同选路和更新规则。C++ 缺失立即填入，不模拟握手、错误、flush 或回填时序。
+
+退休调试与性能统计只观察公开接口，不参与功能控制。顶层公开信号名是仿真包装的接口；整理内部结构时需保留这些名字及事件口径。
+
+## 代码组织
+
+模块按输入解释、计算与异常、输出事务、握手和状态更新的逻辑展开。信号放在相关功能附近或紧凑的声明区；接口 payload 直接使用，仅为有独立含义的计算结果命名。ID、MEM 的 `next_payload` 表示下一流水事务；EX 分别计算 `next_commit` 与 `next_mem_req`，再组成 EX/MEM。
+
+时序状态使用 `_q`，组合下一状态使用 `_d`；端口使用 `_i`、`_o`，接口名表达角色；类型使用 `_t`，枚举类型使用 `_e`。缩进为两空格。注释说明协议约束、优先级和设计原因，小节标题保持单行。模块拆分以独立协议或状态所有权为依据。
+
+## 验证入口
+
+从本目录执行：
+
+```sh
+make check RVE=1              # RV32E 综合语义检查
+make check RVE=0              # RV32I 综合语义检查
+make formal-icache           # 默认两字行，复位后 20 拍的有界一致性检查
+make cachesim                # C++ 功能模型
+```
+
+工作台集成需设置 `YSYX_HOME`、`AM_HOME`、`RISCV_CORE_HOME` 并保持当前平台契约。按工作台 `AGENTS.md` 执行包装 lint、dummy 冒烟和 RT-Thread 差分测试；总线或缓存修改同时验证 `DUT=npc` 与 `DUT=soc` 的实际路径。局部检查不能替代系统验证，20 拍有界检查也不代表任意长度的完整证明。
+
+生成物放在各组件的 `build/`。不要手改平台契约或提交可再生产物。

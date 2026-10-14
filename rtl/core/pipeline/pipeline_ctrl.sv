@@ -1,10 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 流水冒险与提交控制。
-//
-// 根据各级 monitor 视图生成串行化屏障、访存副作用阻塞、改道合并与后端冲刷。
-// 普通指令通过各级 ready/valid 并行推进，仅 CSR/SYSTEM 和异常形成串行屏障。
+// 仲裁改道、串行化和副作用屏障；普通指令通过 ready/valid 推进。
 module pipeline_ctrl
   import riscv_core_pkg::*;
 (

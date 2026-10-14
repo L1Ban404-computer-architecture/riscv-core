@@ -9,28 +9,6 @@
 //
 // 定义前递、CSR、改道、调试以及各级流水边界的信号和 modport。
 
-/////////////////////////////
-// 泛型流水 ready/valid 接口 //
-/////////////////////////////
-
-// 流水边界只拥有握手协议和一个 typed payload；具体事务字段由实例化时的
-// PayloadT 决定，避免 interface 再复制一份 payload 字段列表。
-interface pipeline_stream_if #(
-  parameter type PayloadT = logic
-);
-  logic valid;
-  logic ready;
-  logic fire;
-  PayloadT payload;
-
-  // fire 由握手派生，所有 modport 只读，模块不得驱动。
-  assign fire = valid && ready;
-
-  modport producer(output valid, payload, input ready, fire);
-  modport consumer(input valid, payload, fire, output ready);
-  modport monitor(input valid, ready, fire, payload);
-endinterface
-
 // 通用 GPR 写回候选。valid 表示存在写回语义，data_valid 表示数据已经可前递。
 interface writeback_if;
   riscv_core_pkg::writeback_payload_t payload;
@@ -58,9 +36,7 @@ interface gpr_read_if;
   modport monitor(input req_payload, rsp_payload);
 endinterface
 
-////////////////////////
-// CSR 与全局控制接口 //
-////////////////////////
+// CSR 与全局控制接口
 
 // EX 到 CSR 单元的组合读端口，同时返回地址是否实现，供非法指令检查使用。
 interface csr_read_if #(
@@ -121,9 +97,7 @@ interface commit_event_if;
   modport monitor(input valid, kind);
 endinterface
 
-////////////////////////
-// 调试与性能观测接口 //
-////////////////////////
+// 调试与性能观测接口
 
 `ifndef SYNTHESIS
 // 提交后的 CSR 架构状态快照，仅用于退休调试观察，不参与流水控制。
@@ -153,13 +127,9 @@ interface performance_debug_if;
 endinterface
 `endif
 
-/////////////////////////////
-// 流水级 ready/valid 接口 //
-/////////////////////////////
+// 流水级 ready/valid 接口
 
-// 当前目标工具对 parameterized interface port 的 modport 语法和
-// interface clone 支持不完整。pipeline_stream_if 保留为理想泛型；实际端口
-// 使用下面的 typed wrapper。宏只生成协议壳，不重复 payload 字段。
+// 工具链不支持泛型 interface 端口；宏复用握手定义，payload 类型由 package 拥有。
 // fire 由握手派生，所有 modport 只读。
 `define RISCV_CORE_PIPELINE_STREAM_IF(__name, __payload_t) \
   interface __name; \

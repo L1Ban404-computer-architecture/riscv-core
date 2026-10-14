@@ -10,53 +10,53 @@
 module riscv_core_sim
   import riscv_core_pkg::*;
 #(
-    parameter int unsigned ImemResponseLatency = 1,
-    parameter int unsigned ImemMaxOutstanding  = 1,
-    parameter int unsigned DmemResponseLatency = 1,
-    parameter int unsigned DmemMaxOutstanding  = 1
+  parameter int unsigned ImemResponseLatency = 1,
+  parameter int unsigned ImemMaxOutstanding  = 1,
+  parameter int unsigned DmemResponseLatency = 1,
+  parameter int unsigned DmemMaxOutstanding  = 1
 ) (
-    input logic clk_i,
-    input logic rst_ni,
+  input logic clk_i,
+  input logic rst_ni,
 `ifndef SYNTHESIS
-    output logic debug_retire_valid,
-    output logic [31:0] debug_retire_pc,
-    output logic [31:0] debug_retire_instr,
-    output logic [63:0] debug_retire_instid,
-    output logic debug_retire_redirect_valid,
-    output logic [31:0] debug_retire_redirect_target,
-    output logic [1:0] debug_retire_mem_op,
-    output logic [1:0] debug_retire_mem_size,
-    output logic [31:0] debug_retire_mem_addr,
-    output logic [31:0] debug_retire_mem_data,
-    output logic debug_retire_gpr_we,
-    output logic [4:0] debug_retire_gpr_waddr,
-    output logic [31:0] debug_retire_gpr_wdata,
-    output logic [31:0] debug_retire_mstatus,
-    output logic [31:0] debug_retire_mtvec,
-    output logic [31:0] debug_retire_mepc,
-    output logic [31:0] debug_retire_mcause,
-    output logic [31:0] debug_retire_mtval,
-    output logic [63:0] performance_cycle_count,
-    output logic [63:0] performance_instret_count,
-    output logic [63:0] performance_redirect_count,
-    output logic [63:0] performance_if_local_stall_cycle_count,
-    output logic [63:0] performance_class_instret_count[PerfClassCount],
-    output logic [63:0] performance_class_id_local_stall_cycle_count[PerfClassCount],
-    output logic [63:0] performance_class_ex_local_stall_cycle_count[PerfClassCount],
-    output logic [63:0] performance_class_mem_local_stall_cycle_count[PerfClassCount],
-    output logic [63:0] performance_class_wb_local_stall_cycle_count[PerfClassCount],
-    output logic [63:0] performance_imem_transaction_count,
-    output logic [127:0] performance_imem_request_cycle_sum,
-    output logic [127:0] performance_imem_response_cycle_sum,
-    output logic [63:0] performance_imem_request_stall_cycle_count,
-    output logic [63:0] performance_imem_response_stall_cycle_count,
-    output logic [63:0] performance_dmem_transaction_count,
-    output logic [127:0] performance_dmem_request_cycle_sum,
-    output logic [127:0] performance_dmem_response_cycle_sum,
-    output logic [63:0] performance_dmem_request_stall_cycle_count,
-    output logic [63:0] performance_dmem_response_stall_cycle_count,
+  output logic debug_retire_valid,
+  output logic [31:0] debug_retire_pc,
+  output logic [31:0] debug_retire_instr,
+  output logic [63:0] debug_retire_instid,
+  output logic debug_retire_redirect_valid,
+  output logic [31:0] debug_retire_redirect_target,
+  output logic [1:0] debug_retire_mem_op,
+  output logic [1:0] debug_retire_mem_size,
+  output logic [31:0] debug_retire_mem_addr,
+  output logic [31:0] debug_retire_mem_data,
+  output logic debug_retire_gpr_we,
+  output logic [4:0] debug_retire_gpr_waddr,
+  output logic [31:0] debug_retire_gpr_wdata,
+  output logic [31:0] debug_retire_mstatus,
+  output logic [31:0] debug_retire_mtvec,
+  output logic [31:0] debug_retire_mepc,
+  output logic [31:0] debug_retire_mcause,
+  output logic [31:0] debug_retire_mtval,
+  output logic [63:0] performance_cycle_count,
+  output logic [63:0] performance_instret_count,
+  output logic [63:0] performance_redirect_count,
+  output logic [63:0] performance_if_local_stall_cycle_count,
+  output logic [63:0] performance_class_instret_count[PerfClassCount],
+  output logic [63:0] performance_class_id_local_stall_cycle_count[PerfClassCount],
+  output logic [63:0] performance_class_ex_local_stall_cycle_count[PerfClassCount],
+  output logic [63:0] performance_class_mem_local_stall_cycle_count[PerfClassCount],
+  output logic [63:0] performance_class_wb_local_stall_cycle_count[PerfClassCount],
+  output logic [63:0] performance_imem_transaction_count,
+  output logic [127:0] performance_imem_request_cycle_sum,
+  output logic [127:0] performance_imem_response_cycle_sum,
+  output logic [63:0] performance_imem_request_stall_cycle_count,
+  output logic [63:0] performance_imem_response_stall_cycle_count,
+  output logic [63:0] performance_dmem_transaction_count,
+  output logic [127:0] performance_dmem_request_cycle_sum,
+  output logic [127:0] performance_dmem_response_cycle_sum,
+  output logic [63:0] performance_dmem_request_stall_cycle_count,
+  output logic [63:0] performance_dmem_response_stall_cycle_count,
 `endif
-    input pc_t boot_pc_i
+  input pc_t boot_pc_i
 );
 
   core_bus_if imem_bus ();
@@ -67,7 +67,45 @@ module riscv_core_sim
 `endif
 
   logic unused_icache_invalidate;
+  logic imem_flush;
 
+  riscv_core_impl u_core_impl (
+    .clk_i,
+    .rst_ni,
+    .boot_pc_i,
+    .imem(imem_bus),
+    .dmem(dmem_bus),
+`ifndef SYNTHESIS
+    .debug_retire(retire_debug_int),
+    .performance(performance_int),
+`endif
+    .imem_flush_o(imem_flush),
+    .icache_invalidate_o(unused_icache_invalidate)
+  );
+
+  mem_sim #(
+    .IsDmem(1'b0),
+    .ResponseLatency(ImemResponseLatency),
+    .MaxOutstanding(ImemMaxOutstanding)
+  ) u_imem_sim (
+    .clk_i,
+    .rst_ni,
+    .flush_i(imem_flush),
+    .core_bus(imem_bus)
+  );
+
+  mem_sim #(
+    .IsDmem(1'b1),
+    .ResponseLatency(DmemResponseLatency),
+    .MaxOutstanding(DmemMaxOutstanding)
+  ) u_dmem_sim (
+    .clk_i,
+    .rst_ni,
+    .flush_i(1'b0),
+    .core_bus(dmem_bus)
+  );
+
+  // 仿真输出：字段展开是宿主接口，命名保持稳定。
 `ifndef SYNTHESIS
   assign debug_retire_valid = retire_debug_int.valid;
   assign debug_retire_pc = retire_debug_int.payload.meta.pc;
@@ -110,45 +148,12 @@ module riscv_core_sim
   end
 `endif
 
-  riscv_core_impl u_core_impl (
-      .clk_i,
-      .rst_ni,
-      .boot_pc_i,
-      .imem(imem_bus),
-      .dmem(dmem_bus),
-`ifndef SYNTHESIS
-      .debug_retire(retire_debug_int),
-      .performance(performance_int),
-`endif
-      .icache_invalidate_o(unused_icache_invalidate)
-  );
-
-  mem_sim #(
-      .IsDmem(1'b0),
-      .ResponseLatency(ImemResponseLatency),
-      .MaxOutstanding(ImemMaxOutstanding)
-  ) u_imem_sim (
-      .clk_i,
-      .rst_ni,
-      .core_bus(imem_bus)
-  );
-
-  mem_sim #(
-      .IsDmem(1'b1),
-      .ResponseLatency(DmemResponseLatency),
-      .MaxOutstanding(DmemMaxOutstanding)
-  ) u_dmem_sim (
-      .clk_i,
-      .rst_ni,
-      .core_bus(dmem_bus)
-  );
-
 endmodule
 
 /* verilator lint_off DECLFILENAME */
 
-// 仿真专用存储器。每个已接受请求都先进入延迟队列，再产生至少一拍后的响应。
-// IsDmem=0 时使用指令读取 DPI-C 函数，IsDmem=1 时使用数据访问 DPI-C 函数。
+// 请求握手时执行 DPI 访问，将结果放入延迟队列，至少下一拍才能回应。
+// 指令侧 flush 清除旧队列，保留同拍新请求；数据侧 flush 接 0。
 import "DPI-C" function void dpi_imem_read_sim(
   input int unsigned addr,
   output int unsigned rdata,
@@ -167,13 +172,14 @@ import "DPI-C" function void dpi_dmem_access_sim(
 module mem_sim
   import riscv_bus_pkg::*;
 #(
-    parameter bit IsDmem = 1'b0,
-    parameter int unsigned ResponseLatency = 1,
-    parameter int unsigned MaxOutstanding = 1
+  parameter bit IsDmem = 1'b0,
+  parameter int unsigned ResponseLatency = 1,
+  parameter int unsigned MaxOutstanding = 1
 ) (
-    input logic clk_i,
-    input logic rst_ni,
-    core_bus_if.slave core_bus
+  input logic clk_i,
+  input logic rst_ni,
+  input logic flush_i,
+  core_bus_if.slave core_bus
 );
 
   localparam int unsigned QueueDepth = (MaxOutstanding > 0) ? MaxOutstanding : 1;
@@ -185,17 +191,20 @@ module mem_sim
   typedef logic [IndexWidth-1:0] index_t;
   typedef logic [CountWidth-1:0] count_t;
   typedef logic [DelayWidth-1:0] delay_t;
+  typedef struct packed {
+    logic [31:0] rdata;
+    logic write;
+    logic error;
+    delay_t delay_left;
+    logic valid;
+  } response_t;
 
-  logic [31:0] rsp_data_q[QueueDepth];
-  logic rsp_write_q[QueueDepth];
-  logic rsp_error_q[QueueDepth];
-  delay_t rsp_delay_q[QueueDepth];
-  logic rsp_slot_valid_q[QueueDepth];
+  response_t responses_q[QueueDepth];
   index_t head_q;
   index_t tail_q;
+  index_t req_index;
   count_t count_q;
 
-  logic queue_has_space;
   logic response_valid;
 
   function automatic index_t next_index(input index_t index);
@@ -212,78 +221,76 @@ module mem_sim
     endcase
   endfunction
 
-  assign queue_has_space = count_q < count_t'(QueueDepth);
-  assign
-      response_valid = (count_q != '0) && rsp_slot_valid_q[head_q] && (rsp_delay_q[head_q] == '0);
-  // 队列满时，即使当前周期正在消费响应，也不接受新请求。这样不会在
-  // 同一时钟边沿复用 head/tail 槽位，响应完成后下一周期再重新发 ready。
-  assign core_bus.req_ready = queue_has_space;
-  assign core_bus.rsp_valid = response_valid;
-  assign
-      core_bus.rsp_payload.rdata = response_valid && !rsp_write_q[head_q] ? rsp_data_q[head_q] : '0;
-  assign core_bus.rsp_payload.error = response_valid ? rsp_error_q[head_q] : 1'b0;
+  // 正常运行时满队列不做同拍读写；flush 释放全部槽位，新请求从 0 开始。
+  assign req_index = flush_i ? '0 : tail_q;
+  assign core_bus.req_ready = flush_i || (count_q < count_t'(QueueDepth));
+  assign response_valid = (count_q != '0) && responses_q[head_q].valid &&
+      (responses_q[head_q].delay_left == '0);
+  assign core_bus.rsp_valid = response_valid && !flush_i;
+  assign core_bus.rsp_payload = '{
+    rdata: response_valid && !responses_q[head_q].write ? responses_q[head_q].rdata : '0,
+    error: response_valid ? responses_q[head_q].error : 1'b0
+  };
 
   always_ff @(posedge clk_i or negedge rst_ni) begin : mem_sim_state
     int unsigned dpi_rdata;
     bit dpi_error;
+    byte unsigned dpi_size;
+    byte unsigned dpi_wstrb;
 
     if (!rst_ni) begin
       head_q  <= '0;
       tail_q  <= '0;
       count_q <= '0;
-      for (int unsigned i = 0; i < QueueDepth; i++) begin
-        rsp_data_q[i] <= '0;
-        rsp_write_q[i] <= 1'b0;
-        rsp_error_q[i] <= 1'b0;
-        rsp_delay_q[i] <= '0;
-        rsp_slot_valid_q[i] <= 1'b0;
-      end
+      for (int unsigned i = 0; i < QueueDepth; i++) responses_q[i] <= '0;
     end else begin
-      for (int unsigned i = 0; i < QueueDepth; i++) begin
-        if (rsp_slot_valid_q[i] && !(core_bus.req_fire && (tail_q == index_t'(i))) &&
-            (rsp_delay_q[i] != '0)) begin
-          rsp_delay_q[i] <= rsp_delay_q[i] - delay_t'(1);
+      if (flush_i) begin
+        head_q <= '0;
+        tail_q <= core_bus.req_fire ? next_index('0) : '0;
+        count_q <= count_t'(core_bus.req_fire);
+        for (int unsigned i = 0; i < QueueDepth; i++) responses_q[i].valid <= 1'b0;
+      end else begin
+        for (int unsigned i = 0; i < QueueDepth; i++) begin
+          if (responses_q[i].valid && !(core_bus.req_fire && (tail_q == index_t'(i))) &&
+              (responses_q[i].delay_left != '0)) begin
+            responses_q[i].delay_left <= responses_q[i].delay_left - delay_t'(1);
+          end
         end
+
+        if (core_bus.rsp_fire) begin
+          responses_q[head_q].valid <= 1'b0;
+          head_q <= next_index(head_q);
+        end
+        if (core_bus.req_fire) tail_q <= next_index(tail_q);
+
+        unique case ({core_bus.req_fire, core_bus.rsp_fire})
+          2'b10: count_q <= count_q + count_t'(1);
+          2'b01: count_q <= count_q - count_t'(1);
+          default: ;
+        endcase
       end
 
-      if (core_bus.rsp_fire) begin
-        rsp_slot_valid_q[head_q] <= 1'b0;
-        head_q <= next_index(head_q);
-      end
-
-      // DPI-C is deliberately called only for an accepted request and only on
-      // the clock edge that accepts it. The returned value is queued with the
-      // request, so combinational response logic never touches the DPI model.
+      // 新请求最后入队，使 flush 同拍的请求覆盖刚清空的槽位。
       if (core_bus.req_fire) begin
         dpi_rdata = '0;
         dpi_error = 1'b0;
         if (IsDmem) begin
-          dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write, {
-                              6'b0, core_bus.req_payload.size}, core_bus.req_payload.wdata,
-                              core_bus.req_payload.write ? dpi_wstrb_from_size_addr(
-                              {6'b0, core_bus.req_payload.size}, core_bus.req_payload.addr[1:0]
-                              ) : 8'd0, dpi_rdata, dpi_error);
+          dpi_size = {6'b0, core_bus.req_payload.size};
+          dpi_wstrb = core_bus.req_payload.write ?
+              dpi_wstrb_from_size_addr(dpi_size, core_bus.req_payload.addr[1:0]) : 8'd0;
+          dpi_dmem_access_sim(core_bus.req_payload.addr, core_bus.req_payload.write,
+              dpi_size, core_bus.req_payload.wdata, dpi_wstrb, dpi_rdata, dpi_error);
         end else begin
           dpi_imem_read_sim(core_bus.req_payload.addr, dpi_rdata, dpi_error);
         end
-        // The DPI result must enter the queue as a clocked update. In
-        // particular, it must not overwrite the current response slot while
-        // a response is being consumed.
-        rsp_data_q[tail_q] <= dpi_rdata;
-        rsp_error_q[tail_q] <= dpi_error;
-        rsp_write_q[tail_q] <= IsDmem && core_bus.req_payload.write;
-        rsp_delay_q[tail_q] <= delay_t'(ResponseDelay);
-        rsp_slot_valid_q[tail_q] <= 1'b1;
-        tail_q <= next_index(tail_q);
+        responses_q[req_index] <= '{
+          rdata: dpi_rdata,
+          write: IsDmem && core_bus.req_payload.write,
+          error: dpi_error,
+          delay_left: delay_t'(ResponseDelay),
+          valid: 1'b1
+        };
       end
-
-      unique case ({
-        core_bus.req_fire, core_bus.rsp_fire
-      })
-        2'b10:   count_q <= count_q + count_t'(1);
-        2'b01:   count_q <= count_q - count_t'(1);
-        default: ;
-      endcase
     end
   end
 

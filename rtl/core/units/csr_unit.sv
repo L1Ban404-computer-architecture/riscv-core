@@ -1,12 +1,8 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// M-mode CSR 状态单元。
-//
-// 实现机器级 CSR 的组合读取、普通写入、trap 进入和 MRET 恢复，并输出
-// 当前控制目标与提交后状态快照。
-// 仅实现列出的 M-mode CSR；同周期更新优先级固定为 trap > MRET > 普通写；
-// IALIGN=32，因此 mepc[1:0] 始终为零。
+// M-mode CSR：组合读、WB 提交写入及 trap/MRET 状态转换。
+// 优先级为 trap > MRET > 普通写；IALIGN=32，mepc 低两位恒零。
 module csr_unit
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -24,9 +20,7 @@ module csr_unit
   csr_status_if.producer status
 );
 
-  /////////////////////////
-  // 私有类型与 CSR 状态 //
-  /////////////////////////
+  // 私有类型与 CSR 状态
 
   // 当前核心只运行于 M-mode。mstatus 仅实现异常进入/返回所需的
   // MIE、MPIE 和 MPP 字段；MPP 固定为唯一支持的 M-mode，其他位读零。
@@ -36,9 +30,7 @@ module csr_unit
 
   csr_state_payload_t state_q, state_d;
 
-  //////////////////
-  // CSR 组合读取 //
-  //////////////////
+  // CSR 组合读取
 
   always_comb begin
     csr_read.rsp_payload.valid = 1'b1;
@@ -58,9 +50,7 @@ module csr_unit
     endcase
   end
 
-  ////////////////////////////
-  // CSR 提交与异常状态转换 //
-  ////////////////////////////
+  // CSR 提交与异常状态转换
 
   always_comb begin
     state_d = state_q;
@@ -96,9 +86,7 @@ module csr_unit
     end
   end
 
-  ////////////////////
-  // 状态输出与寄存 //
-  ////////////////////
+  // 状态输出与寄存
 
 `ifndef SYNTHESIS
   // 退休快照输出下一状态，使仿真环境在 WB fire 当周期观察到本条指令提交后的

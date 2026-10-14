@@ -1,11 +1,8 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 流水线 I-cache 事务统计。只观察 CoreBus 和 lookup，不驱动通路。
-//
-// 请求接受当拍 lookup 里仍是上一笔结果，本笔 hit 要到下一拍才出现在 lookup。
-// 因此请求计数晚一拍入账，但时间戳用接受当拍的周期。响应当拍 lookup 就是正在
-// 弹出的那笔事务，直接用它的 hit 分类。字段是请求数、命中数和两组周期和。
+// 请求的 hit 分类晚一拍出现在 lookup，时间戳仍用接受当拍。
+// lookup 弹出即事务结束，包含正常回应和 flush 取消。
 `ifndef SYNTHESIS
 module icache_performance_stats
   import icache_pkg::*;
@@ -35,7 +32,6 @@ module icache_performance_stats
       req_accepted_q <= core_bus.req_fire;
       if (core_bus.req_fire) req_cycle_q <= cycle_q;
 
-      // req_accepted_q 对应上一拍接受的请求，这一拍 lookup 已换成该请求。
       if (req_accepted_q) begin
         stats_q.request_count <= stats_q.request_count + 64'd1;
         if (lookup.payload.hit) begin
@@ -45,7 +41,7 @@ module icache_performance_stats
           stats_q.miss_request_cycle_sum <= stats_q.miss_request_cycle_sum + 128'(req_cycle_q);
         end
       end
-      if (core_bus.rsp_fire) begin
+      if (lookup.fire) begin
         if (lookup.payload.hit) begin
           stats_q.hit_response_cycle_sum <= stats_q.hit_response_cycle_sum + 128'(cycle_q);
         end else begin

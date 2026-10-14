@@ -28,10 +28,6 @@ module store_data_unit
         aligned_wdata_o = wdata_i << shift_amount;
         wstrb_o = byte_en_t'(4'b0011 << addr_offset_i);
       end
-      MEM_SIZE_WORD: begin
-        aligned_wdata_o = wdata_i;
-        wstrb_o = '1;
-      end
       default: begin
         aligned_wdata_o = wdata_i;
         wstrb_o = '1;

@@ -1,11 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 指令译码级。
-//
-// 解析 RV32 指令，生成立即数，经 gpr_read_if 读取寄存器，并形成 ID/EX 事务。
-// IF 已报告的异常优先于本级异常；冲刷、串行化或临时 GPR 冲突阻塞期间不得接收新事务；
-// ID/EX 边界必须满足标准 ready/valid 保持规则。
+// 译码、读取 GPR 并生成 ID/EX 事务。IF 异常优先；屏障只阻止新事务进入。
 module id_stage
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -28,77 +24,64 @@ module id_stage
   gpr_read_if.requester gpr_read
 );
 
-  ////////////////////////
-  // 私有类型与内部信号 //
-  ////////////////////////
-
   decode_result_t decoded;
-  if_id_payload_t if_id_payload;
-  id_ex_payload_t id_ex_payload;
   word_t decoded_imm;
 
-  id_ex_payload_t decoded_id_ex_bus;
+  id_ex_payload_t next_payload;
   logic id_ex_input_ready;
   logic temporary_gpr_stall;
+  logic input_enable;
 
-  assign if_id_payload = if_id.payload;
-  assign id_ex.payload = id_ex_payload;
   assign gpr_read.req_payload.rs1_addr = decoded.reg_addr.rs1_addr;
   assign gpr_read.req_payload.rs2_addr = decoded.reg_addr.rs2_addr;
 
-  //////////////////////////////
-  // 译码、立即数与寄存器读取 //
-  //////////////////////////////
+  // 译码、立即数与寄存器读取
 
   decoder u_decoder (
-    .instr_i(if_id_payload.meta.instr),
+    .instr_i(if_id.payload.meta.instr),
     .decode_o(decoded)
   );
 
   imm_gen u_imm_gen (
-    .instr_i(if_id_payload.meta.instr[31:7]),
+    .instr_i(if_id.payload.meta.instr[31:7]),
     .imm_type_i(decoded.imm_type),
     .imm_o(decoded_imm)
   );
 
-  ///////////////////////////////
-  // 异常归并与 ID/EX 事务生成 //
-  ///////////////////////////////
+  // 异常归并与 ID/EX 事务生成
 
   always_comb begin
-    decoded_id_ex_bus = '0;
-    decoded_id_ex_bus.meta = if_id_payload.meta;
-    decoded_id_ex_bus.reg_addr = decoded.reg_addr;
-    decoded_id_ex_bus.exec_data.rs1_value = gpr_read.rsp_payload.rs1_value;
-    decoded_id_ex_bus.exec_data.rs2_value = gpr_read.rsp_payload.rs2_value;
-    decoded_id_ex_bus.exec_data.imm = decoded_imm;
-    decoded_id_ex_bus.ctrl = decoded.ctrl;
+    next_payload = '0;
+    next_payload.meta = if_id.payload.meta;
+    next_payload.reg_addr = decoded.reg_addr;
+    next_payload.exec_data.rs1_value = gpr_read.rsp_payload.rs1_value;
+    next_payload.exec_data.rs2_value = gpr_read.rsp_payload.rs2_value;
+    next_payload.exec_data.imm = decoded_imm;
+    next_payload.ctrl = decoded.ctrl;
     // IF 异常年龄更老且优先。raise_exception 在已有 valid 时保持原样。
-    decoded_id_ex_bus.exception = if_id_payload.exception;
+    next_payload.exception = if_id.payload.exception;
     if (decoded.illegal) begin
-      decoded_id_ex_bus.exception =
-          raise_exception(decoded_id_ex_bus.exception, EXC_ILLEGAL_INSTR, if_id_payload.meta.instr);
+      next_payload.exception =
+          raise_exception(next_payload.exception, EXC_ILLEGAL_INSTR, if_id.payload.meta.instr);
     end else if (decoded.ctrl.system_op == SYS_ECALL) begin
-      decoded_id_ex_bus.exception =
-          raise_exception(decoded_id_ex_bus.exception, EXC_ECALL_M, '0);
+      next_payload.exception =
+          raise_exception(next_payload.exception, EXC_ECALL_M, '0);
     end else if (decoded.ctrl.system_op == SYS_EBREAK) begin
-      decoded_id_ex_bus.exception =
-          raise_exception(decoded_id_ex_bus.exception, EXC_BREAKPOINT, '0);
+      next_payload.exception =
+          raise_exception(next_payload.exception, EXC_BREAKPOINT, '0);
     end
   end
 
-  //////////////////////
-  // ID/EX 弹性寄存器 //
-  //////////////////////
+  // ID/EX 弹性寄存器
 
   // 临时逻辑集中在此：停留在 IF/ID，冲突清除后才锁存 GPR 的组合读结果。
   // 只阻止新事务进入 ID/EX，不阻止其中的较老事务排空，避免等待写回时死锁。
   if (EnableTemporaryGprStall) begin : gen_temporary_gpr_stall
     id_gpr_hazard_guard u_id_gpr_hazard_guard (
-      .transaction_valid_i(if_id.valid && !decoded_id_ex_bus.exception.valid),
+      .transaction_valid_i(if_id.valid && !next_payload.exception.valid),
       .sources_i(decoded.reg_addr),
       .id_ex_valid_i(id_ex.valid),
-      .id_ex_payload_i(id_ex_payload),
+      .id_ex_payload_i(id_ex.payload),
       .ex_mem,
       .mem_wb,
       .stall_o(temporary_gpr_stall)
@@ -108,20 +91,21 @@ module id_stage
   end
 
   // 无串行化或临时 GPR 冲突时，满载且 EX 就绪允许同拍弹出和写入。
-  assign if_id.ready = id_ex_input_ready && !serialize_block_i && !flush_i && !temporary_gpr_stall;
+  assign input_enable = !serialize_block_i && !flush_i && !temporary_gpr_stall;
+  assign if_id.ready = id_ex_input_ready && input_enable;
 
-  pipeline_register #(
+  stream_register #(
     .T(id_ex_payload_t)
   ) u_id_ex_register (
     .clk_i,
     .rst_ni,
     .flush_i,
-    .valid_i(if_id.valid && !serialize_block_i && !flush_i && !temporary_gpr_stall),
+    .valid_i(if_id.valid && input_enable),
     .ready_o(id_ex_input_ready),
-    .data_i(decoded_id_ex_bus),
+    .data_i(next_payload),
     .valid_o(id_ex.valid),
     .ready_i(id_ex.ready),
-    .data_o(id_ex_payload)
+    .data_o(id_ex.payload)
   );
 
 endmodule

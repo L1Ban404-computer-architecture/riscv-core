@@ -28,6 +28,7 @@ module fv_icache_fetch
   input logic rsp_ready_i,
   input logic hold_ar_i,
   input logic hold_r_i,
+  input logic flush_i,
   input logic invalidate_i
 );
 
@@ -49,12 +50,7 @@ module fv_icache_fetch
   ) axi ();
   icache_performance_debug_if performance ();
 
-  initial begin
-    rst_ni = 1'b0;
-    SolverAddr12: assert (SolverAddrWidth == 12);
-    BlockAligned: assert ((BlockBytes % 4) == 0);
-    BurstLine: assert (BlockBytes > DataWidth / 8);
-  end
+  initial rst_ni = 1'b0;
   always_ff @(posedge clk_i) rst_ni <= 1'b1;
 
   fv_cpu_fetch #(
@@ -69,30 +65,23 @@ module fv_icache_fetch
     .core_bus
   );
 
-  fv_scoreboard #(
+  icache #(
     .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth)
-  ) u_scoreboard (
+    .DataWidth(DataWidth),
+    .IdWidth(IdWidth),
+    .AxiId(AxiId),
+    .BlockBytes(BlockBytes),
+    .SetCount(SetCount),
+    .WayCount(WayCount),
+    .ReplacementPolicy(ReplacementPolicy)
+  ) u_dut (
     .clk_i,
     .rst_ni,
+    .flush_i,
     .invalidate_i,
-    .rsp_instr_i(rsp_instr),
     .core_bus,
-    .performance,
-    .rsp_word_addr_o(rsp_word_addr)
-  );
-
-  fv_imem #(
-    .AddrWidth(AddrWidth),
-    .SolverAddrWidth(SolverAddrWidth)
-  ) u_imem (
-    .clk_i,
-    .rst_ni,
-    .invalidate_i,
-    .axi_word_addr_i(axi_word_addr),
-    .axi_instr_o(axi_instr),
-    .rsp_word_addr_i(rsp_word_addr),
-    .rsp_instr_o(rsp_instr)
+    .axi,
+    .performance
   );
 
   fv_axi_rom #(
@@ -110,22 +99,30 @@ module fv_icache_fetch
     .axi
   );
 
-  icache #(
+  fv_imem #(
     .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .IdWidth(IdWidth),
-    .AxiId(AxiId),
-    .BlockBytes(BlockBytes),
-    .SetCount(SetCount),
-    .WayCount(WayCount),
-    .ReplacementPolicy(ReplacementPolicy)
-  ) u_dut (
+    .SolverAddrWidth(SolverAddrWidth)
+  ) u_imem (
     .clk_i,
     .rst_ni,
     .invalidate_i,
+    .axi_word_addr_i(axi_word_addr),
+    .axi_instr_o(axi_instr),
+    .rsp_word_addr_i(rsp_word_addr),
+    .rsp_instr_o(rsp_instr)
+  );
+
+  fv_scoreboard #(
+    .AddrWidth(AddrWidth),
+    .DataWidth(DataWidth)
+  ) u_scoreboard (
+    .clk_i,
+    .rst_ni,
+    .flush_i,
+    .invalidate_i,
+    .rsp_instr_i(rsp_instr),
     .core_bus,
-    .axi,
-    .performance
+    .rsp_word_addr_o(rsp_word_addr)
   );
 
 endmodule

@@ -22,6 +22,7 @@ module icache_top
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
+  input logic flush_i,
   input logic invalidate_i,
 
   // CPU 侧 CoreBus 从设备
@@ -80,9 +81,7 @@ module icache_top
   icache_performance_debug_if performance ();
 `endif
 
-  ////////////////////////
-  // CoreBus 接口适配 //
-  ////////////////////////
+  // CoreBus 接口适配
 
   assign core_bus.req_valid = req_valid_i;
   assign core_bus.req_payload.addr = req_addr_i;
@@ -95,9 +94,7 @@ module icache_top
   assign rsp_rdata_o = core_bus.rsp_payload.rdata;
   assign rsp_error_o = core_bus.rsp_payload.error;
 
-  ////////////////////////
-  // AXI4 主接口适配 //
-  ////////////////////////
+  // AXI4 主接口适配
 
   assign axi_awvalid_o = axi.awvalid;
   assign axi_awaddr_o = axi.aw_payload.addr;
@@ -142,6 +139,7 @@ module icache_top
   ) u_icache (
     .clk_i,
     .rst_ni,
+    .flush_i,
     .invalidate_i,
     .core_bus,
     .axi

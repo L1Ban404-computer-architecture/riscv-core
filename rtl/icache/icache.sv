@@ -1,9 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// Array 寄存查询结果，响应级返回命中或首拍 miss 数据，WRAP 回填独立继续。
-// 失效控制阻塞新查询，待 lookup 和回填排空后清除有效位。
-
+// 请求经失效控制进入阵列，命中直接回应，miss 启动独立回填。
 module icache
   import riscv_bus_pkg::*;
   import icache_pkg::*;
@@ -20,9 +18,11 @@ module icache
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
+  // 取消此前接受的取指；同拍接受的新请求仍保留，不清除缓存有效位。
+  input logic flush_i,
   input logic invalidate_i,
 
-  // 指令请求与下级存储访问。失效逻辑可以挡住新请求；响应级直接驱动回应。
+  // CPU 请求与下级存储访问
   core_bus_if core_bus,
   axi4_if.master axi
 `ifndef SYNTHESIS
@@ -45,7 +45,6 @@ module icache
     .DataWidth(DataWidth)
   ) refill ();
 
-  // 失效模块在清除期间过滤请求，阵列只看到放行后的查询。
   logic invalidate_apply;
   core_bus_if #(
     .AddrWidth(AddrWidth),
@@ -58,20 +57,10 @@ module icache
     .invalidate_i,
     .lookup_valid_i(lookup.valid),
     .refill_valid_i(refill.valid),
-    .core_bus(core_bus),
-    .array_req(array_req),
+    .core_bus,
+    .array_req,
     .invalidate_apply_o(invalidate_apply)
   );
-
-`ifndef SYNTHESIS
-  icache_performance_stats u_performance_stats (
-    .clk_i,
-    .rst_ni,
-    .core_bus,
-    .lookup,
-    .performance
-  );
-`endif
 
   icache_array #(
     .AddrWidth(AddrWidth),
@@ -90,6 +79,9 @@ module icache
   );
 
   icache_rsp u_rsp (
+    .clk_i,
+    .rst_ni,
+    .flush_i,
     .lookup,
     .miss,
     .core_bus
@@ -108,5 +100,15 @@ module icache
     .refill,
     .axi
   );
+
+`ifndef SYNTHESIS
+  icache_performance_stats u_performance_stats (
+    .clk_i,
+    .rst_ni,
+    .core_bus,
+    .lookup,
+    .performance
+  );
+`endif
 
 endmodule

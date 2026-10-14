@@ -24,23 +24,8 @@ module decoder
     decode_o.reg_addr.rs2_addr = instr_i[24:20];
     decode_o.reg_addr.rd_addr = instr_i[11:7];
 
-    decode_o.imm_type = IMM_NONE;
-
-    decode_o.ctrl.alu_op = ALU_ADD;
-    decode_o.ctrl.mem_sign_ext = 1'b0;
-    decode_o.ctrl.rd_write = 1'b0;
-    decode_o.ctrl.csr_use_imm = 1'b0;
-    decode_o.ctrl.csr_addr = '0;
-    decode_o.ctrl.serialize = 1'b0;
-    decode_o.ctrl.fence_i = 1'b0;
-    decode_o.ctrl.op_a_sel = OP_A_RS1;
-    decode_o.ctrl.op_b_sel = OP_B_RS2;
-    decode_o.ctrl.branch_op = BR_NONE;
-    decode_o.ctrl.mem_cmd = MEM_NONE;
+    // 其余默认值为零：无副作用、寄存器操作数、ADD；未识别编码保持非法。
     decode_o.ctrl.mem_size = MEM_SIZE_WORD;
-    decode_o.ctrl.wb_sel = WB_NONE;
-    decode_o.ctrl.csr_cmd = CSR_NONE;
-    decode_o.ctrl.system_op = SYS_NONE;
     decode_o.illegal = 1'b1;
 
     case (opcode)
@@ -154,30 +139,12 @@ module decoder
         decode_o.ctrl.wb_sel = WB_ALU;
         decode_o.ctrl.rd_write = 1'b1;
         case (funct3)
-          3'b000: begin
-            decode_o.ctrl.alu_op = ALU_ADD;
-            decode_o.illegal = 1'b0;
-          end
-          3'b010: begin
-            decode_o.ctrl.alu_op = ALU_SLT;
-            decode_o.illegal = 1'b0;
-          end
-          3'b011: begin
-            decode_o.ctrl.alu_op = ALU_SLTU;
-            decode_o.illegal = 1'b0;
-          end
-          3'b100: begin
-            decode_o.ctrl.alu_op = ALU_XOR;
-            decode_o.illegal = 1'b0;
-          end
-          3'b110: begin
-            decode_o.ctrl.alu_op = ALU_OR;
-            decode_o.illegal = 1'b0;
-          end
-          3'b111: begin
-            decode_o.ctrl.alu_op = ALU_AND;
-            decode_o.illegal = 1'b0;
-          end
+          3'b000: begin decode_o.ctrl.alu_op = ALU_ADD; decode_o.illegal = 1'b0; end
+          3'b010: begin decode_o.ctrl.alu_op = ALU_SLT; decode_o.illegal = 1'b0; end
+          3'b011: begin decode_o.ctrl.alu_op = ALU_SLTU; decode_o.illegal = 1'b0; end
+          3'b100: begin decode_o.ctrl.alu_op = ALU_XOR; decode_o.illegal = 1'b0; end
+          3'b110: begin decode_o.ctrl.alu_op = ALU_OR; decode_o.illegal = 1'b0; end
+          3'b111: begin decode_o.ctrl.alu_op = ALU_AND; decode_o.illegal = 1'b0; end
           3'b001: begin
             decode_o.ctrl.alu_op = ALU_SLL;
             decode_o.illegal = (funct7 != 7'b0000000);
@@ -204,50 +171,20 @@ module decoder
         decode_o.ctrl.rd_write = 1'b1;
         if (funct7 == 7'b0000000) begin
           case (funct3)
-            3'b000: begin
-              decode_o.ctrl.alu_op = ALU_ADD;
-              decode_o.illegal = 1'b0;
-            end
-            3'b001: begin
-              decode_o.ctrl.alu_op = ALU_SLL;
-              decode_o.illegal = 1'b0;
-            end
-            3'b010: begin
-              decode_o.ctrl.alu_op = ALU_SLT;
-              decode_o.illegal = 1'b0;
-            end
-            3'b011: begin
-              decode_o.ctrl.alu_op = ALU_SLTU;
-              decode_o.illegal = 1'b0;
-            end
-            3'b100: begin
-              decode_o.ctrl.alu_op = ALU_XOR;
-              decode_o.illegal = 1'b0;
-            end
-            3'b101: begin
-              decode_o.ctrl.alu_op = ALU_SRL;
-              decode_o.illegal = 1'b0;
-            end
-            3'b110: begin
-              decode_o.ctrl.alu_op = ALU_OR;
-              decode_o.illegal = 1'b0;
-            end
-            3'b111: begin
-              decode_o.ctrl.alu_op = ALU_AND;
-              decode_o.illegal = 1'b0;
-            end
+            3'b000: begin decode_o.ctrl.alu_op = ALU_ADD; decode_o.illegal = 1'b0; end
+            3'b001: begin decode_o.ctrl.alu_op = ALU_SLL; decode_o.illegal = 1'b0; end
+            3'b010: begin decode_o.ctrl.alu_op = ALU_SLT; decode_o.illegal = 1'b0; end
+            3'b011: begin decode_o.ctrl.alu_op = ALU_SLTU; decode_o.illegal = 1'b0; end
+            3'b100: begin decode_o.ctrl.alu_op = ALU_XOR; decode_o.illegal = 1'b0; end
+            3'b101: begin decode_o.ctrl.alu_op = ALU_SRL; decode_o.illegal = 1'b0; end
+            3'b110: begin decode_o.ctrl.alu_op = ALU_OR; decode_o.illegal = 1'b0; end
+            3'b111: begin decode_o.ctrl.alu_op = ALU_AND; decode_o.illegal = 1'b0; end
             default: ;
           endcase
         end else if (funct7 == 7'b0100000) begin
           case (funct3)
-            3'b000: begin
-              decode_o.ctrl.alu_op = ALU_SUB;
-              decode_o.illegal = 1'b0;
-            end
-            3'b101: begin
-              decode_o.ctrl.alu_op = ALU_SRA;
-              decode_o.illegal = 1'b0;
-            end
+            3'b000: begin decode_o.ctrl.alu_op = ALU_SUB; decode_o.illegal = 1'b0; end
+            3'b101: begin decode_o.ctrl.alu_op = ALU_SRA; decode_o.illegal = 1'b0; end
             default: ;
           endcase
         end

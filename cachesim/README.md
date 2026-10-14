@@ -14,6 +14,7 @@
 | `src/trace.cpp` | 小端 `uint32` 流读取 |
 | `src/main.cpp` | 命令行、回放循环、统计输出 |
 | `dse/` | 几何扫描：综合、AMT、CSV 和散点图 |
+| `dse/plot.html` | 离线散点页模板；`report.py` 负责数据和 SVG 拼装 |
 | `Makefile` | 编译、采轨迹、单次仿真、扫描 |
 | `build/` | 全部生成物，已 gitignore |
 
@@ -148,7 +149,7 @@ tag =  addr >> (block_offset_w_ + set_index_bits_)
 2. 从 way 0 扫到最后一路。某一路 `valid && tag` 相等则 `hits++`。路数大于 1 且策略是 PLRU 时，用命中路更新该组的树。轮转和固定策略在命中时不改状态。
 3. 全未命中则 `misses++`，选出牺牲路，把该路标为有效并写入新 tag，再按策略记下这次填充。
 
-组内只要还有无效路，三种策略都先选**编号最小的无效路**，满组后才用策略给出的牺牲路。`SelectVictim` 里 `full_victim` 在 `ways == 1` 时保持 0，直接映射不看 `policy`。
+组内只要还有无效路，三种策略都先选**编号最小的无效路**，满组后才用策略给出的牺牲路。`SelectVictim` 先扫描无效路，满组后才解释替换策略；`ways == 1` 时直接返回 0，不看 `policy`。
 
 ### 替换策略
 
@@ -204,14 +205,14 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 
 ## 设计空间扫描：`dse/`
 
-`make run` 在本目录下等价于 `python3 -m dse`。脚本不读命令行参数，扫描范围和路径都写在 `dse/__main__.py` 开头。数据容量是 `sets * ways * block_bytes`。`BYTES_MIN` 和 `BYTES_MAX` 给出这个容量的闭区间，脚本在区间里搜索组数、路数、块大小都是 2 的幂的全部组合，再配上 `POLICIES`。块至少 4 字节，路数至多 8。容量和地址划分也必须合法。默认 16–256 字节比原先只列几档组数、路数和块大小的笛卡尔积多出不少点。阵列按触发器综合，把上限调大以后面积会远超 nangate45 上留给核心的预算：
+`make run` 在本目录下等价于 `python3 -m dse`。脚本不读命令行参数，扫描范围和路径都写在 `dse/__main__.py` 开头。数据容量是 `sets * ways * block_bytes`。`BYTES_MIN` 和 `BYTES_MAX` 给出这个容量的闭区间，脚本在区间里搜索组数、路数、块大小都是 2 的幂的全部组合，再配上 `POLICIES`。块至少 4 字节，路数至多 8。容量和地址划分也必须合法。默认 16–128 字节比原先只列几档组数、路数和块大小的笛卡尔积多出不少点。阵列按触发器综合，把上限调大以后面积会远超 nangate45 上留给核心的预算：
 
 | 常量 | 取值 |
 | --- | --- |
 | `BYTES_MIN` | `16` |
-| `BYTES_MAX` | `256` |
+| `BYTES_MAX` | `128` |
 | `POLICIES` | `fixed, rr, plru` |
-| `JOBS` | `1` |
+| `JOBS` | `16` |
 | `TRACE` | `build/runner-pctrace.bin` |
 | `CACHESIM` | `build/cachesim` |
 | `OUTPUT` / `PLOT` | `build/dse.csv`、`build/dse.html` |

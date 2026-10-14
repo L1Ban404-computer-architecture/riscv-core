@@ -1,12 +1,8 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 退休调试观察器。
-//
-// 只监视公开握手、写回和 CSR 快照，不参与功能控制、不观察 CoreBus。
-// 各级在途事务按入口/出口 fire 顺序入队出队；Depth 为该段最大在途数。
-// EX 改道在 ID/EX fire 采样，访存请求在 EX/MEM fire 采样，提交快照在 MEM/WB fire
-// 组装。后端 flush 在 posedge 清队列，不破坏当拍退休记录。
+// 从公开流水握手、前递和 CSR 快照组装退休记录，不参与功能控制。
+// 旁路队列按阶段入口/出口 fire 推进；后端 flush 清队列但保留当拍退休。
 `ifndef SYNTHESIS
 module retire_debug
   import riscv_common_pkg::*;
@@ -34,9 +30,7 @@ module retire_debug
   retire_debug_if.producer debug_retire
 );
 
-  ////////////////////////
-  // 旁路类型与握手     //
-  ////////////////////////
+  // 旁路类型与握手
 
   typedef struct packed {retire_redirect_payload_t redirect;} ex_sideband_t;
 
@@ -51,9 +45,7 @@ module retire_debug
   mem_sideband_t mem_pop;
   retire_debug_payload_t debug_payload;
 
-  ////////////////////////
-  // 顺序在途队列       //
-  ////////////////////////
+  // 顺序在途队列
 
   always_comb begin
     ex_push = '0;
@@ -96,9 +88,7 @@ module retire_debug
     .out_data_o(mem_pop)
   );
 
-  ////////////////////////
-  // 退休快照组装       //
-  ////////////////////////
+  // 退休快照组装
 
   always_comb begin
     debug_payload = '0;
