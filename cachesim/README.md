@@ -192,11 +192,11 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 
 - 指令数据、字偏移、回填突发和 AXI。缺失在 `Access` 返回前就写好 tag。
 - `invalidate`。模型从全无效开始，轨迹中间不会被清空。
-- 请求就绪、查找流寄存器、缺失与查找的互锁。每个 PC 都算一次访问，即使硬件上同一次缺失会挡住后续请求。
+- 请求就绪、查找流寄存器、WRAP 和 early restart。RTL 首拍回应后继续回填，同 line 请求等整行结束，其他 line 可命中；模型仍把缺失视为立即完成。
 - 替换状态“已分配但回填失败仍消耗候选”的情况。这里每次缺失都会完成填充。
 - 性能计数里的周期和。C++ 只累计访问、命中、缺失次数。
 
-因此 hit rate 是块级重用率，不是带流水线停顿的 IPC。
+因此 hit rate 是块级重用率，不是带流水线停顿的 IPC；下文 AMT 估算整行传输代价，不包含 early restart 的提前回应收益。
 
 ## 单次回放：`src/main.cpp`
 
@@ -216,7 +216,7 @@ RTL 的 PLRU 更新吃的是独热路掩码，并且同一拍里若命中更新�
 | `CACHESIM` | `build/cachesim` |
 | `OUTPUT` / `PLOT` | `build/dse.csv`、`build/dse.html` |
 
-每个配置做两件独立的事。
+每个配置做两件独立的事。32 位数据总线的 WRAP 至多 16 拍，扫描的块大小上限为 64 字节；数据容量上限仍由 `BYTES_MAX` 指定。
 
 **功能。** 调 `cachesim` 拿 hit rate。缺失代价按块传输的拍数线性放大：
 
@@ -230,7 +230,7 @@ AMT          = (1 - hit_rate) * miss_penalty
 
 **物理。** 每个几何在 `build/dse/nangate45/s{sets}_w{ways}_b{bytes}_{policy}/` 下调用 `rtl/Makefile` 的 `perf`，顶层是 `icache_top`，目标频率 1000 MHz，时钟端口 `clk_i`，工艺库沿用 `PDK`（默认 `nangate45`）。源文件由 Makefile 自己收集。几何通过 `read_slang -G` 覆盖 `BlockBytes`、`SetCount`、`WayCount` 和 `ReplacementPolicy`。替换策略传 `icache_pkg` 的枚举名，不传整数：`fixed` 是 `ICACHE_REPLACEMENT_FIXED`，`rr` 是 `ICACHE_REPLACEMENT_ROUND_ROBIN`，`plru` 是 `ICACHE_REPLACEMENT_TREE_PLRU`。
 
-报告在该目录的 `icache_top-1000MHz/` 下。面积取 `synth_stat.txt` 里 `Chip area for module '\icache_top'`，频率取 `icache_top.rpt` 中 `core_clock` / `max` 的 Freq(MHz)。两份报告都能解析时跳过综合，只重跑 cachesim。`YOSYS` 和 `YOSYS_STA_HOME` 也沿用 `rtl/Makefile`。`make perf` 的 Yosys 和 STA 日志不打到终端；综合失败时异常里带着日志结尾。回放失败时，子进程的退出码直接结束这次扫描。
+报告在该目录的 `icache_top-1000MHz/` 下。面积取 `synth_stat.txt` 里 `Chip area for module '\icache_top'`，频率取 `icache_top.rpt` 中 `core_clock` / `max` 的 Freq(MHz)。两份报告都能解析且不早于 RTL 源码和 Makefile 的修改时间时跳过综合，只重跑 cachesim；否则重新综合。`YOSYS` 和 `YOSYS_STA_HOME` 也沿用 `rtl/Makefile`。`make perf` 的 Yosys 和 STA 日志不打到终端；综合失败时异常里带着日志结尾。回放失败时，子进程的退出码直接结束这次扫描。
 
 CSV 列是 `sets,ways,block_bytes,policy,synth_area,synth_freq_mhz,hit_rate,amt`。行按 AMT 升序，其次面积，再按几何参数。`build/dse.html` 是同一份结果的散点页：横轴面积、纵轴 AMT。颜色和形状各自可以选择 `sets`、`ways`、`block_bytes`、`bytes` 或 `policy`。`bytes` 是数据容量 `sets * ways * block_bytes`。默认颜色是 `policy`、形状是 `sets`。灰色虚线是 Pareto 前沿，串起面积和 AMT 不能再被其他点同时改进的配置。悬停一个点能看到它的组数、路数、块大小、容量、策略、面积、频率、命中率和 AMT。数据写在页面里，扫描结束后用浏览器打开这个文件即可，不必再跑综合。进度打在标准错误。`JOBS` 大于 1 时每个进程独占自己的几何目录，先综合再回放。
 

@@ -35,6 +35,7 @@ POLICIES = ("fixed", "rr", "plru")
 JOBS = 16
 
 _BLOCK_MIN = 4
+_BLOCK_MAX = 64  # 32 位数据总线上的 AXI WRAP 至多 16 拍。
 _WAYS_MAX = 8
 _ADDR_BITS = 32
 
@@ -126,7 +127,7 @@ def geometries(
     """容量落在区间内、组/路/块都是 2 的幂、且路数不超过上限的全部组合。"""
     points: List[Point] = []
     largest = max(bytes_max // _BLOCK_MIN, 1)
-    for block_bytes in _powers_of_two(bytes_max):
+    for block_bytes in _powers_of_two(min(bytes_max, _BLOCK_MAX)):
         if block_bytes < _BLOCK_MIN:
             continue
         offset_bits = block_bytes.bit_length() - 1

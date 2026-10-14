@@ -1,205 +1,156 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 流水线 I-cache 的缺失处理器。
-//
-// miss 请求在整段事务期间保持，块地址和字索引都由该地址组合得到。块地址同时驱动
-// AXI AR 和 refill 地址通道。AR 只用一次：`ar_sent_q` 在握手后拉高，避免保持中的
-// 请求被重复发出。`beat_q` 从 0 数到行尾，等于字索引的拍写入 stream，等于行尾的
-// 拍结束 burst。
-//
-// 短 burst 或末拍丢失时终止回填并带 error 返回，避免 lookup 一直被压住。本拍或
-// 此前拍出错时 refill 的 error 为高，阵列不把该行标为有效。
-//
-// 匹配 word 可以早于末拍进入 stream，但 miss 响应要等到 line 写回提交的下一拍
-// 才交给 miss 总线。这样 CPU 回应不会在 refill 仍占用阵列时释放 lookup。
-
+// 单笔在途的关键字优先回填。请求接受后锁存地址，WRAP 从目标字开始，首拍
+// 寄存后即可回应 CPU。响应和剩余回填独立完成，两者均结束才接受下一笔 miss。
+// Array 不反压回填；CPU 反压只保持首拍响应，不影响后续 AXI R 接收。
 module icache_miss
   import riscv_bus_pkg::*;
   import icache_pkg::*;
 #(
-  parameter int unsigned AddrWidth = ICacheAddrWidth,
-  parameter int unsigned DataWidth = ICacheDataWidth,
-  parameter int unsigned IdWidth = 4,
-  parameter int unsigned AxiId = ICACHE_AXI_ID,
-  parameter int unsigned BlockBytes = ICacheBlockBytes,
-  localparam int unsigned BeatBytes = DataWidth / 8,
-  localparam int unsigned BlockOffsetW = $clog2(BlockBytes),
-  localparam int unsigned WordCount = BlockBytes / BeatBytes,
-  localparam int unsigned WordIndexW = (WordCount > 1) ? $clog2(WordCount) : 1
+    parameter int unsigned AddrWidth = ICacheAddrWidth,
+    parameter int unsigned DataWidth = ICacheDataWidth,
+    parameter int unsigned IdWidth = 4,
+    parameter int unsigned AxiId = ICACHE_AXI_ID,
+    parameter int unsigned BlockBytes = ICacheBlockBytes,
+    localparam int unsigned BeatBytes = DataWidth / 8,
+    localparam int unsigned WordCount = BlockBytes / BeatBytes,
+    localparam int unsigned BeatIndexW = (WordCount > 1) ? $clog2(WordCount) : 1
 ) (
-  // 全局控制
-  input logic clk_i,
-  input logic rst_ni,
-
-  // 缺失事务、阵列回填与下级存储
-  icache_miss_if.slave miss,
-  icache_refill_if.master refill,
-  axi4_if.master axi
+    input logic clk_i,
+    input logic rst_ni,
+    icache_miss_if.slave miss,
+    icache_refill_if.master refill,
+    axi4_if.master axi
 );
 
-  typedef logic [WordIndexW-1:0] word_index_t;
-
-  ////////////////////
-  // 地址拆分
-  ////////////////////
-
-  // 块地址对齐到缓存行。字索引只保留行内 word 编号，单 word 行没有偏移。
-  function automatic word_index_t word_from_addr(input logic [AddrWidth-1:0] address);
-    word_index_t result;
-
-    result = '0;
-    if (WordCount > 1) result = word_index_t'(address >> $clog2(BeatBytes));
-    return result;
-  endfunction
-
-  logic [AddrWidth-1:0] block_addr;
-  word_index_t word_index;
-  assign block_addr = {miss.req_payload.addr[AddrWidth-1:BlockOffsetW], {BlockOffsetW{1'b0}}};
-  assign word_index = word_from_addr(miss.req_payload.addr);
-
-  ////////////////////
-  // 在途状态
-  ////////////////////
-
-  // ar_sent_q：AR 已经握手，不能再发。line_written_q：末拍已经写入，下一拍才能回应。
-  // beat_q 是已经接受的拍号，同时用来认出目标字和末拍。
-  logic ar_sent_q;
-  logic line_written_q;
-  word_index_t beat_q;
+  typedef enum logic [1:0] {
+    IDLE,
+    SEND_AR,
+    RECEIVE_R
+  } state_t;
+  state_t state_q;
+  logic [AddrWidth-1:0] beat_addr_q;
+  logic [BeatIndexW-1:0] beat_q;
   logic error_q;
-
-  ////////////////////
-  // 当前拍
-  ////////////////////
-
   logic expected_last;
   logic beat_error;
-  logic burst_terminate;
-  logic word_match;
+  logic burst_done;
 
-  assign expected_last = beat_q == word_index_t'(WordCount - 1);
-  assign word_match = beat_q == word_index;
-  // 只在 data_fire 时采样，因此不必再与 rvalid 相与。
+  initial begin
+    RefillGeometry :
+    assert (icache_is_power_of_two(
+        BeatBytes
+    ) && (DataWidth % 8 == 0) && (BlockBytes >= BeatBytes) && (BlockBytes % BeatBytes == 0) &&
+        ((WordCount == 1) || (WordCount == 2) || (WordCount == 4) || (WordCount == 8) ||
+         (WordCount == 16)))
+    else $fatal(1, "I-cache requires 1/2/4/8/16 words per line");
+  end
+
+  // 只有低 line offset 位递增；高位在整次事务内保持不变。
+  function automatic logic [AddrWidth-1:0] next_beat_addr(input logic [AddrWidth-1:0] addr);
+    return (addr & ~AddrWidth'(BlockBytes - 1)) |
+        ((addr + AddrWidth'(BeatBytes)) & AddrWidth'(BlockBytes - 1));
+  endfunction
+
+  assign expected_last = beat_q == BeatIndexW'(WordCount - 1);
+  // 响应码、ID 或长度错误都使行无效。首拍上的错误同时报给 CPU；后续
+  // 错误不改写首拍响应。提前 RLAST 或收满预期拍数均结束本次回填。
+  // 这里只检测协议错误，不负责排空缺失 RLAST 后多发的 beat 或恢复总线。
   assign beat_error = (axi.r_payload.resp != AXI4_RESP_OKAY) ||
-      (axi.r_payload.id != IdWidth'(AxiId)) || (axi.r_payload.last != expected_last);
-  assign burst_terminate = axi.r_payload.last || expected_last;
+      (axi.r_payload.id != IdWidth'(AxiId)) ||
+      (axi.r_payload.last != expected_last);
+  assign burst_done = axi.r_payload.last || expected_last;
 
-  //////////////////////////
-  // AXI 读与 refill
-  //////////////////////////
-
-  // AR 只握手一次。refill 地址保持到末拍；R 等 AR 完成后再接收，因此数据至少晚地址一拍。
   assign axi.awvalid = 1'b0;
   assign axi.aw_payload = '0;
   assign axi.wvalid = 1'b0;
   assign axi.w_payload = '0;
   assign axi.bready = 1'b0;
-
-  assign axi.arvalid = miss.req_valid && !ar_sent_q;
-  assign axi.ar_payload.addr = block_addr;
+  assign axi.arvalid = state_q == SEND_AR;
+  // SEND_AR 中地址保持不变，进入 RECEIVE_R 后才随 beat 推进。
+  assign axi.ar_payload.addr = beat_addr_q;
   assign axi.ar_payload.id = IdWidth'(AxiId);
   assign axi.ar_payload.len = 8'(WordCount - 1);
   assign axi.ar_payload.size = 3'($clog2(BeatBytes));
-  assign axi.ar_payload.burst = AXI4_BURST_INCR;
+  assign axi.ar_payload.burst = (WordCount == 1) ? AXI4_BURST_INCR : AXI4_BURST_WRAP;
+  assign axi.rready = state_q == RECEIVE_R;
 
-  assign refill.addr_valid = miss.req_valid && !line_written_q;
-  assign refill.addr_payload.addr = block_addr;
+  // 接受请求当拍通知 Array 分配并阻塞目标 line，此时还没有数据 beat。
+  assign refill.valid = (state_q != IDLE) || miss.req_fire;
+  assign refill.addr = (state_q == IDLE) ? miss.req_payload.addr : beat_addr_q;
+  assign refill.beat_valid = axi.r_fire;
+  assign refill.payload.data = axi.r_payload.data;
+  assign refill.payload.last = refill.beat_valid && burst_done;
+  assign refill.payload.error = error_q || (refill.beat_valid && beat_error);
 
-  // rready 不依赖 rvalid，避免从设备等 ready 才拉高 valid。
-  assign axi.rready = ar_sent_q && !line_written_q && refill.data_ready;
-  assign refill.data_valid = axi.rvalid && axi.rready;
-  assign refill.data_payload.data = axi.r_payload.data;
-  assign refill.data_payload.last = refill.data_valid && burst_terminate;
-  // beat_error 只在数据拍有效时有意义；此前拍的故障留在 error_q。
-  assign refill.data_payload.error = error_q || (refill.data_valid && beat_error);
-
-  ////////////////////
-  // miss 响应
-  ////////////////////
-
-  // 目标拍写入数据。burst 结束时 stream 仍空，说明没数到目标字，写入零。
-  // 错误留在 error_q，响应输出时再把数据清零。
+  // 首拍只写一次。错误也在首拍锁存，后续故障只能使整行失效，不能改写响应。
+  typedef struct packed {
+    logic [DataWidth-1:0] rdata;
+    logic error;
+  } rsp_t;
   logic rsp_push;
-  logic [DataWidth-1:0] rsp_push_data;
   logic rsp_stream_ready;
-  logic rsp_word_valid;
-  logic [DataWidth-1:0] rsp_word_data;
+  rsp_t rsp_push_payload;
+  rsp_t rsp_payload;
 
-  assign rsp_push = refill.data_fire && (word_match || (burst_terminate && !rsp_word_valid));
-  assign rsp_push_data = word_match ? axi.r_payload.data : '0;
-  assign miss.rsp_valid = rsp_word_valid && line_written_q;
-  assign miss.rsp_payload.rdata = miss.rsp_valid && !error_q ? rsp_word_data : '0;
-  assign miss.rsp_payload.error = miss.rsp_valid && error_q;
+  // 回填结束且首拍响应已消费，才能交出处理器的所有权。
+  assign miss.req_ready = (state_q == IDLE) && !miss.rsp_valid;
+  assign rsp_push = refill.beat_valid && (beat_q == '0);
+  assign rsp_push_payload = '{rdata: beat_error ? '0 : axi.r_payload.data, error: beat_error};
+  assign miss.rsp_payload.rdata = rsp_payload.rdata;
+  assign miss.rsp_payload.error = rsp_payload.error;
 
   stream_register #(
-    .T(logic [DataWidth-1:0])
+      .T(rsp_t)
   ) u_rsp_word (
-    .clk_i,
-    .rst_ni,
-    .flush_i(1'b0),
-    .valid_i(rsp_push),
-    .ready_o(rsp_stream_ready),
-    .data_i(rsp_push_data),
-    .valid_o(rsp_word_valid),
-    .ready_i(miss.rsp_ready && line_written_q),
-    .data_o(rsp_word_data)
+      .clk_i,
+      .rst_ni,
+      .flush_i(1'b0),
+      .valid_i(rsp_push),
+      .ready_o(rsp_stream_ready),
+      .data_i (rsp_push_payload),
+      .valid_o(miss.rsp_valid),
+      .ready_i(miss.rsp_ready),
+      .data_o (rsp_payload)
   );
 
-  ////////////////////
-  // 状态更新
-  ////////////////////
-
-  // 响应握手当拍请求仍有效。本拍回到初态，下一拍才能接收下一笔 miss。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      ar_sent_q <= 1'b0;
-      line_written_q <= 1'b0;
-      beat_q <= '0;
-      error_q <= 1'b0;
-    end else if (!miss.req_valid || miss.rsp_fire) begin
-      ar_sent_q <= 1'b0;
-      line_written_q <= 1'b0;
+      state_q <= IDLE;
+      beat_addr_q <= '0;
       beat_q <= '0;
       error_q <= 1'b0;
     end else begin
-      if (axi.ar_fire) ar_sent_q <= 1'b1;
-      if (refill.data_fire) begin
-        error_q <= error_q || beat_error;
-        if (burst_terminate) begin
+      case (state_q)
+        IDLE:
+        if (miss.req_fire) begin
+          state_q <= SEND_AR;
+          beat_addr_q <= miss.req_payload.addr;
           beat_q <= '0;
-          line_written_q <= 1'b1;
-        end else begin
-          beat_q <= beat_q + word_index_t'(1);
+          error_q <= 1'b0;
         end
-      end
+        SEND_AR: if (axi.ar_fire) state_q <= RECEIVE_R;
+        RECEIVE_R:
+        if (axi.r_fire) begin
+          error_q <= error_q || beat_error;
+          if (burst_done) state_q <= IDLE;
+          else begin
+            beat_addr_q <= next_beat_addr(beat_addr_q);
+            beat_q <= beat_q + BeatIndexW'(1);
+          end
+        end
+        default: ;
+      endcase
     end
   end
 
-  // 写通道、refill 地址 ready 和 stream ready 不参与状态。读出来避免端口悬空告警。
-  logic unused_sideband;
-  assign unused_sideband = ^{
-    axi.awready,
-    axi.aw_fire,
-    axi.wready,
-    axi.w_fire,
-    axi.bvalid,
-    axi.b_payload,
-    axi.b_fire,
-    refill.addr_ready,
-    refill.addr_fire,
-    rsp_stream_ready
-  };
-
-  //////////////
-  // 协议检查 //
-  //////////////
+  logic unused_axi_write;
+  assign unused_axi_write = ^{axi.awready, axi.aw_fire, axi.wready, axi.w_fire,
+      axi.bvalid, axi.b_payload, axi.b_fire};
 
 `ifndef SYNTHESIS
-  ICacheMissRspAfterRefill: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !miss.rsp_valid || (!refill.addr_valid && !refill.data_valid)));
-  ICacheMissNeverWrites: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !axi.awvalid && !axi.wvalid && !axi.bready));
+  ICacheMissRspStorageAvailable :
+  assert property (@(posedge clk_i) disable iff (!rst_ni) (!rsp_push || rsp_stream_ready));
 `endif
-
 endmodule

@@ -1,12 +1,8 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 流水线 I-cache 替换策略。
-//
-// 满组策略与 `icache_old_replacement_policy` 相同，package 换成 `icache_pkg`。
-// 存在无效路时始终选择最低编号无效路；只有目标组全部有效时，才使用固定 0 路、
-// 逐组轮转或 Tree-PLRU 结果。策略是静态参数，generate 保证未选逻辑不进入综合网表。
-// 命中更新以独热路向量输入，Tree-PLRU 更新直接沿独热掩码下推，避免 binary 译码。
+// 优先选择最低编号无效路，满组时使用固定路、轮转或 Tree-PLRU。
+// 分配更新替换状态；命中仅更新 PLRU。同组同时命中和分配时，分配优先。
 
 module icache_replacement_policy
   import icache_pkg::*;
@@ -41,19 +37,8 @@ module icache_replacement_policy
 
   assign select_victim_oh = WayCount'(1) << victim_way_o;
 
-  //////////////////////////
-  // 满组牺牲路的静态实现 //
-  //////////////////////////
-
   // 直接映射和固定策略不需要任何替换状态。
-  if (WayCount == 1) begin : gen_direct_mapped
-    assign full_victim = '0;
-
-    // 1 路不读这些输入；赋值未被读取，综合会删除。
-    logic unused_policy_inputs;
-    assign unused_policy_inputs = ^{clk_i, rst_ni, select_set_i, select_en_i, hit_valid_i, hit_set_i,
-                                    hit_oh_i, select_victim_oh};
-  end else if (ReplacementPolicy == ICACHE_REPLACEMENT_FIXED) begin : gen_fixed
+  if (WayCount == 1 || ReplacementPolicy == ICACHE_REPLACEMENT_FIXED) begin : gen_fixed
     assign full_victim = '0;
 
     logic unused_policy_inputs;
@@ -152,10 +137,6 @@ module icache_replacement_policy
       end
     end
   end
-
-  //////////////////////
-  // 无效路优先选择 //
-  //////////////////////
 
   // 按路号从低到高扫描；找到第一条无效路后不再覆盖结果。
   always_comb begin

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // 单笔在途的 AXI 只读从设备。
-// 接受 AR 后按 INCR 回 arlen+1 拍，每拍一个数据总线字，地址按字递增并在 4KB 边界回绕。
+// 接受 AR 后按 burst/size/len 生成地址，支持 INCR 和 line 内 WRAP。
 // 末拍 last 为 1，resp 为 OKAY，数据取 rdata_i。
 // hold_ar_i 推迟接受 AR；hold_r_i 在拍间插入等待，已放上的 R 保持到握手。
-// 写通道保持空闲。arsize 和 arburst 不参与译码。
+// 写通道保持空闲。
 module fv_axi_rom
   import riscv_bus_pkg::*;
 #(
@@ -36,17 +36,17 @@ module fv_axi_rom
   logic [AddrWidth-1:0] addr_q;
   logic [7:0] len_q;
   logic [7:0] beat_q;
+  logic [2:0] size_q;
+  logic [1:0] burst_q;
+  logic [AddrWidth-1:0] wrap_mask_q;
   logic last_beat;
 
-  if (AddrWidth > 12) begin : gen_next_beat
-    function automatic logic [AddrWidth-1:0] step(input logic [AddrWidth-1:0] addr);
-      return {addr[AddrWidth-1:12], addr[11:0] + 12'(BeatBytes)};
-    endfunction
-  end else begin : gen_next_beat
-    function automatic logic [AddrWidth-1:0] step(input logic [AddrWidth-1:0] addr);
-      return addr + AddrWidth'(BeatBytes);
-    endfunction
-  end
+  function automatic logic [AddrWidth-1:0] step(input logic [AddrWidth-1:0] addr);
+    logic [AddrWidth-1:0] incremented;
+    incremented = addr + (AddrWidth'(1) << size_q);
+    return (burst_q == AXI4_BURST_WRAP) ?
+        ((addr & ~wrap_mask_q) | (incremented & wrap_mask_q)) : incremented;
+  endfunction
 
   assign word_addr_o = addr_q[AddrWidth-1:2];
   assign last_beat = beat_q == len_q;
@@ -69,6 +69,9 @@ module fv_axi_rom
     addr_q = '0;
     len_q = '0;
     beat_q = '0;
+    size_q = '0;
+    burst_q = AXI4_BURST_INCR;
+    wrap_mask_q = '0;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -77,12 +80,19 @@ module fv_axi_rom
       addr_q <= '0;
       len_q <= '0;
       beat_q <= '0;
+      size_q <= '0;
+      burst_q <= AXI4_BURST_INCR;
+      wrap_mask_q <= '0;
     end else begin
       case (state_q)
         FV_AXI_IDLE: begin
           if (axi.ar_fire) begin
             addr_q <= axi.ar_payload.addr;
             len_q <= axi.ar_payload.len;
+            size_q <= axi.ar_payload.size;
+            burst_q <= axi.ar_payload.burst;
+            wrap_mask_q <= ((AddrWidth'(axi.ar_payload.len) + AddrWidth'(1)) <<
+                axi.ar_payload.size) - AddrWidth'(1);
             beat_q <= '0;
             state_q <= FV_AXI_WAIT;
           end
@@ -95,7 +105,7 @@ module fv_axi_rom
             if (last_beat) begin
               state_q <= FV_AXI_IDLE;
             end else begin
-              addr_q <= gen_next_beat.step(addr_q);
+              addr_q <= step(addr_q);
               beat_q <= beat_q + 8'd1;
               if (hold_r_i) state_q <= FV_AXI_WAIT;
             end
@@ -109,7 +119,7 @@ module fv_axi_rom
   logic unused_request;
   assign unused_request = ^{
     axi.awvalid, axi.aw_payload, axi.wvalid, axi.w_payload, axi.bready,
-    axi.ar_payload.id, axi.ar_payload.size, axi.ar_payload.burst
+    axi.ar_payload.id
   };
 
 endmodule

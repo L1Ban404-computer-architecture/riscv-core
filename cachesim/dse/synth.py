@@ -59,11 +59,20 @@ def parse_freq_mhz(text: str) -> float:
 
 
 def saved(work: Path) -> tuple[float, float] | None:
-    """报告都能解析时返回 (频率 MHz, 面积)，否则返回 None 以便重新综合。"""
+    """报告有效且不早于 RTL 时返回 (频率 MHz, 面积)，否则重新综合。"""
     directory = result_dir(work)
     stat = directory / "synth_stat.txt"
     report = directory / f"{DESIGN}.rpt"
     if not stat.is_file() or not report.is_file():
+        return None
+    # 沿用已有报告作为检查点；RTL 修改后不能复用旧面积和 STA 结果。
+    sources = [RTL_DIR / "Makefile"] + [
+        path for path in RTL_DIR.rglob("*")
+        if path.suffix in (".sv", ".svh") and "build" not in path.relative_to(RTL_DIR).parts
+    ]
+    if min(stat.stat().st_mtime_ns, report.stat().st_mtime_ns) < max(
+        path.stat().st_mtime_ns for path in sources
+    ):
         return None
     try:
         area = parse_area(stat.read_text(encoding="utf-8", errors="replace"))

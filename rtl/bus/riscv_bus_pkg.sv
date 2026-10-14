@@ -21,5 +21,6 @@ package riscv_bus_pkg;
   // 当前 RTL 实际使用的 AXI 响应和 burst 编码。
   localparam logic [1:0] AXI4_RESP_OKAY = 2'b00;
   localparam logic [1:0] AXI4_BURST_INCR = 2'b01;
+  localparam logic [1:0] AXI4_BURST_WRAP = 2'b10;
 
 endpackage
