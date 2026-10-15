@@ -245,22 +245,20 @@ module ysyx_25080230
   logic [63:0] debug_perf_class_ex_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
   logic [63:0] debug_perf_class_mem_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
   logic [63:0] debug_perf_class_wb_local_stall_cycle_count [PerfClassCount] /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_imem_transaction_count /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_imem_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_imem_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_response_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_imem_latency_cycle_sum /* verilator public_flat_rd */;
   logic [63:0] debug_perf_imem_request_stall_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_imem_response_stall_cycle_count /* verilator public_flat_rd */;
-  logic [63:0] debug_perf_dmem_transaction_count /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_dmem_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_dmem_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_response_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_dmem_latency_cycle_sum /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_request_stall_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_dmem_response_stall_cycle_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_icache_request_count /* verilator public_flat_rd */;
   logic [63:0] debug_perf_icache_hit_count /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_hit_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_hit_response_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_miss_request_cycle_sum /* verilator public_flat_rd */;
-  logic [127:0] debug_perf_icache_miss_response_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_hit_response_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_hit_latency_cycle_sum /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_miss_response_count /* verilator public_flat_rd */;
+  logic [63:0] debug_perf_icache_miss_latency_cycle_sum /* verilator public_flat_rd */;
 `endif
 
   // 退休与性能观测信号
@@ -287,22 +285,7 @@ module ysyx_25080230
   assign debug_perf_instret_count = performance_debug.payload.instret_count;
   assign debug_perf_redirect_count = performance_debug.payload.redirect_count;
   assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
-  assign debug_perf_imem_transaction_count = performance_debug.payload.imem.transaction_count;
-  assign debug_perf_imem_request_cycle_sum = performance_debug.payload.imem.request_cycle_sum;
-  assign debug_perf_imem_response_cycle_sum = performance_debug.payload.imem.response_cycle_sum;
-  assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
-  assign debug_perf_imem_response_stall_cycle_count = performance_debug.payload.imem.response_stall_cycle_count;
-  assign debug_perf_dmem_transaction_count = performance_debug.payload.dmem.transaction_count;
-  assign debug_perf_dmem_request_cycle_sum = performance_debug.payload.dmem.request_cycle_sum;
-  assign debug_perf_dmem_response_cycle_sum = performance_debug.payload.dmem.response_cycle_sum;
-  assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
-  assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
-  assign debug_perf_icache_request_count = icache_performance.payload.request_count;
-  assign debug_perf_icache_hit_count = icache_performance.payload.hit_count;
-  assign debug_perf_icache_hit_request_cycle_sum = icache_performance.payload.hit_request_cycle_sum;
-  assign debug_perf_icache_hit_response_cycle_sum = icache_performance.payload.hit_response_cycle_sum;
-  assign debug_perf_icache_miss_request_cycle_sum = icache_performance.payload.miss_request_cycle_sum;
-  assign debug_perf_icache_miss_response_cycle_sum = icache_performance.payload.miss_response_cycle_sum;
+
   for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
     assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
     assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;
@@ -310,6 +293,23 @@ module ysyx_25080230
     assign debug_perf_class_mem_local_stall_cycle_count[i] = performance_debug.payload.classes[i].mem_local_stall_cycle_count;
     assign debug_perf_class_wb_local_stall_cycle_count[i] = performance_debug.payload.classes[i].wb_local_stall_cycle_count;
   end
+
+  assign debug_perf_imem_response_count = performance_debug.payload.imem.response_count;
+  assign debug_perf_imem_latency_cycle_sum = performance_debug.payload.imem.latency_cycle_sum;
+  assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
+  assign debug_perf_imem_response_stall_cycle_count = performance_debug.payload.imem.response_stall_cycle_count;
+
+  assign debug_perf_dmem_response_count = performance_debug.payload.dmem.response_count;
+  assign debug_perf_dmem_latency_cycle_sum = performance_debug.payload.dmem.latency_cycle_sum;
+  assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
+  assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
+
+  assign debug_perf_icache_request_count = icache_performance.payload.request_count;
+  assign debug_perf_icache_hit_count = icache_performance.payload.hit_count;
+  assign debug_perf_icache_hit_response_count = icache_performance.payload.hit_response_count;
+  assign debug_perf_icache_hit_latency_cycle_sum = icache_performance.payload.hit_latency_cycle_sum;
+  assign debug_perf_icache_miss_response_count = icache_performance.payload.miss_response_count;
+  assign debug_perf_icache_miss_latency_cycle_sum = icache_performance.payload.miss_latency_cycle_sum;
 
   assign core_retire_valid = retire_debug.valid;
 `endif

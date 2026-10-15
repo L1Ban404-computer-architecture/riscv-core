@@ -29,14 +29,14 @@ package icache_pkg;
   endfunction
 
 `ifndef SYNTHESIS
-  // 仅供仿真观测。请求与响应分别累计周期和，缺失次数由请求数减命中数得到。
+  // 命中率按已分类请求计算；服务延迟只使用响应首次有效的样本。
   typedef struct packed {
     logic [63:0] request_count;
     logic [63:0] hit_count;
-    logic [127:0] hit_request_cycle_sum;
-    logic [127:0] hit_response_cycle_sum;
-    logic [127:0] miss_request_cycle_sum;
-    logic [127:0] miss_response_cycle_sum;
+    logic [63:0] hit_response_count;
+    logic [63:0] hit_latency_cycle_sum;
+    logic [63:0] miss_response_count;
+    logic [63:0] miss_latency_cycle_sum;
   } icache_performance_payload_t;
 `endif
 
