@@ -9,9 +9,8 @@ module icache_performance_stats
 (
   input logic clk_i,
   input logic rst_ni,
-  core_bus_if.monitor core_bus,
-  icache_lookup_if.monitor lookup,
-  icache_performance_debug_if.producer performance
+  icache_debug_if.consumer debug,
+  output icache_performance_payload_t performance_o
 );
 
   icache_performance_payload_t stats_q;
@@ -20,9 +19,12 @@ module icache_performance_stats
   logic [63:0] request_cycle_q;
   logic [63:0] cycle_q;
   logic sample_response;
+  logic request_fire;
 
-  assign sample_response = core_bus.rsp_valid && lookup.valid && !response_seen_q;
-  assign performance.payload = stats_q;
+  assign request_fire = debug.bus.req_valid && debug.bus.req_ready;
+
+  assign sample_response = debug.bus.rsp_valid && debug.lookup_valid && !response_seen_q;
+  assign performance_o = stats_q;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -35,11 +37,11 @@ module icache_performance_stats
       // 请求接受后一拍，lookup 才提供这笔请求的命中分类。
       if (request_accepted_q) begin
         stats_q.request_count <= stats_q.request_count + 64'd1;
-        if (lookup.payload.hit)
+        if (debug.lookup_hit)
           stats_q.hit_count <= stats_q.hit_count + 64'd1;
       end
       if (sample_response) begin
-        if (lookup.payload.hit) begin
+        if (debug.lookup_hit) begin
           stats_q.hit_response_count <= stats_q.hit_response_count + 64'd1;
           stats_q.hit_latency_cycle_sum <= stats_q.hit_latency_cycle_sum + (cycle_q - request_cycle_q);
         end else begin
@@ -51,11 +53,11 @@ module icache_performance_stats
       // lookup 保存在途事务；这里只保存时间戳和是否已采样。新请求优先，
       // 避免旧 lookup 弹出时清掉同拍接受的新请求。
       cycle_q <= cycle_q + 64'd1;
-      request_accepted_q <= core_bus.req_fire;
-      if (core_bus.req_fire) begin
+      request_accepted_q <= request_fire;
+      if (request_fire) begin
         request_cycle_q <= cycle_q;
         response_seen_q <= 1'b0;
-      end else if (lookup.fire) begin
+      end else if (debug.lookup_fire) begin
         response_seen_q <= 1'b0;
       end else if (sample_response) begin
         response_seen_q <= 1'b1;

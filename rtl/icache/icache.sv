@@ -28,7 +28,7 @@ module icache
 `ifndef SYNTHESIS
   ,
   // 仿真期性能计数。
-  icache_performance_debug_if.producer performance
+  output icache_pkg::icache_performance_payload_t performance_o
 `endif
 );
 
@@ -102,12 +102,20 @@ module icache
   );
 
 `ifndef SYNTHESIS
+  icache_debug_if debug_bus ();
+  assign debug_bus.bus = '{
+    req_valid: core_bus.req_valid, req_ready: core_bus.req_ready,
+    rsp_valid: core_bus.rsp_valid, rsp_ready: core_bus.rsp_ready
+  };
+  assign debug_bus.lookup_valid = lookup.valid;
+  assign debug_bus.lookup_fire = lookup.fire;
+  assign debug_bus.lookup_hit = lookup.payload.hit;
+
   icache_performance_stats u_performance_stats (
     .clk_i,
     .rst_ni,
-    .core_bus,
-    .lookup,
-    .performance
+    .debug(debug_bus),
+    .performance_o
   );
 `endif
 

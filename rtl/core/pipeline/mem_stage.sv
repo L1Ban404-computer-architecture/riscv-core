@@ -17,16 +17,13 @@ module mem_stage
   // 流水事务
   ex_mem_if.consumer ex_mem,
   core_bus_if.master dmem,
-  writeback_if.producer mem_wb_forward,
-  mem_wb_if.producer mem_wb,
-
-  // 状态指示
-  output logic busy_o
+  mem_wb_if.producer result
+`ifndef SYNTHESIS
+  , output riscv_debug_pkg::memory_debug_payload_t debug_o
+`endif
 );
 
   word_t aligned_store_data;
-  byte_en_t store_byte_en;
-  logic unused_store_strb;
   word_t loaded_data;
 
   logic inflight_q;
@@ -35,8 +32,6 @@ module mem_stage
   logic request_blocked;
 
   mem_wb_payload_t next_payload;
-  logic mem_wb_input_valid;
-  logic mem_wb_input_ready;
 
   // 事务转换与数据整理
 
@@ -55,11 +50,8 @@ module mem_stage
     .size_i(ex_mem.payload.mem_req.size),
     .addr_offset_i(ex_mem.payload.mem_req.addr[1:0]),
     .wdata_i(ex_mem.payload.mem_req.wdata),
-    .aligned_wdata_o(aligned_store_data),
-    .wstrb_o(store_byte_en)
+    .aligned_wdata_o(aligned_store_data)
   );
-
-  assign unused_store_strb = |store_byte_en;
 
   assign memory_instruction = ex_mem.payload.mem_req.valid;
 
@@ -76,12 +68,12 @@ module mem_stage
 
   // CoreBus 保证响应对应已接受或同拍接受的请求。预先给出 ready，避免
   // 响应 ready 依赖请求 ready；响应和元数据仅在 MEM/WB 可接收时一起转移。
-  assign dmem.rsp_ready = ex_mem.valid && memory_instruction && mem_wb_input_ready && !flush_i;
+  assign dmem.rsp_ready = ex_mem.valid && memory_instruction && result.ready && !flush_i;
 
   always_comb begin
     if (flush_i) ex_mem.ready = 1'b0;
     else if (memory_instruction) ex_mem.ready = dmem.rsp_fire;
-    else ex_mem.ready = mem_wb_input_ready;
+    else ex_mem.ready = result.ready;
   end
 
   // 响应优先，同拍请求和响应不留下在途事务。flush 不取消已发送的请求。
@@ -102,7 +94,7 @@ module mem_stage
   // 访存完成、异常归并与 MEM/WB 仲裁
 
   // 非访存直接传递；访存仅在响应有效时形成完成事务。
-  assign mem_wb_input_valid = ex_mem.valid && (!memory_instruction || dmem.rsp_valid);
+  assign result.valid = ex_mem.valid && (!memory_instruction || dmem.rsp_valid) && !flush_i;
 
   always_comb begin
     next_payload = ex_mem.payload.commit_ctx;
@@ -114,40 +106,34 @@ module mem_stage
       end
       if (next_payload.exception.valid) begin
         next_payload.wb_req = '0;
-      end else if (!ex_mem.payload.mem_req.write) begin
-        // rd=x0 的 load 仍保留数据供退休观察；前递只看 wb_req.valid。
+      end else if (!ex_mem.payload.mem_req.write && next_payload.wb_req.valid) begin
         next_payload.wb_req.data_valid = 1'b1;
         next_payload.wb_req.wdata = loaded_data;
       end
     end
   end
 
-  // MEM/WB 弹性寄存器与前递
-
-  stream_register #(
-    .T(mem_wb_payload_t)
-  ) u_mem_wb_register (
-    .clk_i,
-    .rst_ni,
-    .flush_i,
-    .valid_i(mem_wb_input_valid && !flush_i),
-    .ready_o(mem_wb_input_ready),
-    .data_i(next_payload),
-    .valid_o(mem_wb.valid),
-    .ready_i(mem_wb.ready),
-    .data_o(mem_wb.payload)
-  );
-
-  always_comb begin
-    mem_wb_forward.payload = mem_wb.payload.wb_req;
-    mem_wb_forward.payload.valid = mem_wb.valid && mem_wb.payload.wb_req.valid;
-  end
-
-  assign busy_o = inflight_q || dmem.req_fire;
+  // 本级输出送入顶层 MEM/WB 寄存器。
+  assign result.payload = next_payload;
 
   // 协议检查
 
 `ifndef SYNTHESIS
+  import riscv_debug_pkg::*;
+
+  assign debug_o = '{
+    valid: ex_mem.valid, ready: ex_mem.ready,
+    mem: '{mem_op: !ex_mem.payload.mem_req.valid ? RETIRE_MEM_NONE :
+                       (ex_mem.payload.mem_req.write ? RETIRE_MEM_WRITE : RETIRE_MEM_READ),
+           mem_size: ex_mem.payload.mem_req.size,
+           mem_addr: ex_mem.payload.mem_req.addr,
+           mem_data: ex_mem.payload.mem_req.valid && !ex_mem.payload.mem_req.write ?
+                         (next_payload.exception.valid ? '0 : loaded_data) :
+                         ex_mem.payload.mem_req.wdata},
+    bus: '{req_valid: dmem.req_valid, req_ready: dmem.req_ready,
+           rsp_valid: dmem.rsp_valid, rsp_ready: dmem.rsp_ready}
+  };
+
   DmemResponseOwned: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !dmem.rsp_fire || inflight_q || dmem.req_fire));
   DmemSingleInflight: assert property (@(posedge clk_i) disable iff (!rst_ni) (

@@ -23,4 +23,13 @@ package riscv_bus_pkg;
   localparam logic [1:0] AXI4_BURST_INCR = 2'b01;
   localparam logic [1:0] AXI4_BURST_WRAP = 2'b10;
 
+`ifndef SYNTHESIS
+  typedef struct packed {
+    logic req_valid;
+    logic req_ready;
+    logic rsp_valid;
+    logic rsp_ready;
+  } bus_debug_payload_t;
+`endif
+
 endpackage

@@ -2,7 +2,7 @@
 
 `cachesim` 是 I-cache 的**元数据功能模型**，外加一套对同一条 PC 轨迹做几何扫描的脚本。它只记录每组每路的 `valid` / `tag` 和替换状态，不存指令数据，也不模拟流水线、AXI 回填或背压。每个 PC 被当成一次普通取指：块已在 cache 里记一次命中，否则立刻填入该块并记一次缺失。
 
-模型与 `rtl/icache/` 在地址划分和替换规则上同构，默认几何也与 `icache_pkg` 一致：4 字节块、16 组、1 路、轮转替换。命中率用来估算平均缺失代价（AMT）；面积和频率来自对真实 `icache_top` 的综合与静态时序分析，不来自这个 C++ 模型。
+模型与 `rtl/icache/` 在地址划分和替换规则上同构，默认几何也与 `icache_pkg` 一致：16 字节块、4 组、2 路、轮转替换。命中率用来估算平均缺失代价（AMT）；面积和频率来自对真实 `icache_top` 的综合与静态时序分析，不来自这个 C++ 模型。
 
 ## 目录
 
@@ -44,7 +44,7 @@ make -C cachesim sim SETS=8 WAYS=2 BLOCK_BYTES=8 POLICY=plru
 
 ```text
 build/cachesim --trace build/runner-pctrace.bin \
-  --block-bytes 4 --sets 16 --ways 1 --policy rr
+  --block-bytes 16 --sets 4 --ways 2 --policy rr
 ```
 
 标准输出只有一行：
@@ -101,9 +101,9 @@ pc = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
 
 ```cpp
 struct CacheConfig {
-  std::uint32_t block_bytes = 4;
-  std::uint32_t sets = 16;
-  std::uint32_t ways = 1;
+  std::uint32_t block_bytes = 16;
+  std::uint32_t sets = 4;
+  std::uint32_t ways = 2;
   ReplacementPolicy policy = ReplacementPolicy::kRoundRobin;
 };
 ```

@@ -9,8 +9,6 @@
 module axi4_fixed_priority_arb
   import riscv_bus_pkg::*;
 #(
-  parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned ICacheAxiId = ICACHE_AXI_ID,
   parameter int unsigned MemAxiId = MEM_AXI_ID

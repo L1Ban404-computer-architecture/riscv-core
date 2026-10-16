@@ -4,11 +4,14 @@
 // 仅用于仿真的核心顶层。
 //
 // 与 ysyx_25080230 并列存在，但不包含 AXI、CLINT 或外部 SoC 引脚；两个内部
-// CoreBus 分别连接 DPI-C 存储器模型。调试与性能 interface 的字段在顶层逐一展开，
+// CoreBus 分别连接 DPI-C 存储器模型。调试与性能快照的字段在顶层逐一展开，
 // 避免仿真器对顶层 interface port 的限制。
 
 module riscv_core_sim
   import riscv_core_pkg::*;
+`ifndef SYNTHESIS
+  import riscv_debug_pkg::*;
+`endif
 #(
   parameter int unsigned ImemResponseLatency = 1,
   parameter int unsigned ImemMaxOutstanding  = 1,
@@ -17,7 +20,9 @@ module riscv_core_sim
 ) (
   input logic clk_i,
   input logic rst_ni,
+  input pc_t boot_pc_i
 `ifndef SYNTHESIS
+  ,
   output logic debug_retire_valid,
   output logic [31:0] debug_retire_pc,
   output logic [31:0] debug_retire_instr,
@@ -52,17 +57,12 @@ module riscv_core_sim
   output logic [63:0] performance_dmem_response_count,
   output logic [63:0] performance_dmem_latency_cycle_sum,
   output logic [63:0] performance_dmem_request_stall_cycle_count,
-  output logic [63:0] performance_dmem_response_stall_cycle_count,
+  output logic [63:0] performance_dmem_response_stall_cycle_count
 `endif
-  input pc_t boot_pc_i
 );
 
   core_bus_if imem_bus ();
   core_bus_if dmem_bus ();
-`ifndef SYNTHESIS
-  retire_debug_if retire_debug_int ();
-  performance_debug_if performance_int ();
-`endif
 
   logic unused_icache_invalidate;
   logic imem_flush;
@@ -73,12 +73,13 @@ module riscv_core_sim
     .boot_pc_i,
     .imem(imem_bus),
     .dmem(dmem_bus),
-`ifndef SYNTHESIS
-    .debug_retire(retire_debug_int),
-    .performance(performance_int),
-`endif
     .imem_flush_o(imem_flush),
     .icache_invalidate_o(unused_icache_invalidate)
+`ifndef SYNTHESIS
+    , .debug_retire_valid_o(gen_debug.retire_valid),
+    .debug_retire_o(gen_debug.retire),
+    .performance_o(gen_debug.performance)
+`endif
   );
 
   mem_sim #(
@@ -105,46 +106,54 @@ module riscv_core_sim
 
   // 仿真输出：字段展开是宿主接口，命名保持稳定。
 `ifndef SYNTHESIS
-  assign debug_retire_valid = retire_debug_int.valid;
-  assign debug_retire_pc = retire_debug_int.payload.meta.pc;
-  assign debug_retire_instr = retire_debug_int.payload.meta.instr;
-  assign debug_retire_instid = retire_debug_int.payload.meta.instid;
-  assign debug_retire_redirect_valid = retire_debug_int.payload.redirect.valid;
-  assign debug_retire_redirect_target = retire_debug_int.payload.redirect.target_pc;
-  assign debug_retire_mem_op = retire_debug_int.payload.mem.mem_op;
-  assign debug_retire_mem_size = retire_debug_int.payload.mem.mem_size;
-  assign debug_retire_mem_addr = retire_debug_int.payload.mem.mem_addr;
-  assign debug_retire_mem_data = retire_debug_int.payload.mem.mem_data;
-  assign debug_retire_gpr_we = retire_debug_int.payload.gpr_we;
-  assign debug_retire_gpr_waddr = retire_debug_int.payload.gpr_waddr;
-  assign debug_retire_gpr_wdata = retire_debug_int.payload.gpr_wdata;
-  assign debug_retire_mstatus = retire_debug_int.payload.csr.mstatus;
-  assign debug_retire_mtvec = retire_debug_int.payload.csr.mtvec;
-  assign debug_retire_mepc = retire_debug_int.payload.csr.mepc;
-  assign debug_retire_mcause = retire_debug_int.payload.csr.mcause;
-  assign debug_retire_mtval = retire_debug_int.payload.csr.mtval;
-  assign performance_cycle_count = performance_int.payload.cycle_count;
-  assign performance_instret_count = performance_int.payload.instret_count;
-  assign performance_redirect_count = performance_int.payload.redirect_count;
-  assign performance_if_local_stall_cycle_count = performance_int.payload.if_local_stall_cycle_count;
+  generate
+    begin : gen_debug
+      logic retire_valid;
+      retire_debug_payload_t retire;
+      performance_debug_payload_t performance;
+    end
+  endgenerate
+
+  assign debug_retire_valid = gen_debug.retire_valid;
+  assign debug_retire_pc = gen_debug.retire.meta.pc;
+  assign debug_retire_instr = gen_debug.retire.meta.instr;
+  assign debug_retire_instid = gen_debug.retire.meta.instid;
+  assign debug_retire_redirect_valid = gen_debug.retire.redirect.valid;
+  assign debug_retire_redirect_target = gen_debug.retire.redirect.target_pc;
+  assign debug_retire_mem_op = gen_debug.retire.mem.mem_op;
+  assign debug_retire_mem_size = gen_debug.retire.mem.mem_size;
+  assign debug_retire_mem_addr = gen_debug.retire.mem.mem_addr;
+  assign debug_retire_mem_data = gen_debug.retire.mem.mem_data;
+  assign debug_retire_gpr_we = gen_debug.retire.gpr_we;
+  assign debug_retire_gpr_waddr = gen_debug.retire.gpr_waddr;
+  assign debug_retire_gpr_wdata = gen_debug.retire.gpr_wdata;
+  assign debug_retire_mstatus = gen_debug.retire.csr.mstatus;
+  assign debug_retire_mtvec = gen_debug.retire.csr.mtvec;
+  assign debug_retire_mepc = gen_debug.retire.csr.mepc;
+  assign debug_retire_mcause = gen_debug.retire.csr.mcause;
+  assign debug_retire_mtval = gen_debug.retire.csr.mtval;
+  assign performance_cycle_count = gen_debug.performance.cycle_count;
+  assign performance_instret_count = gen_debug.performance.instret_count;
+  assign performance_redirect_count = gen_debug.performance.redirect_count;
+  assign performance_if_local_stall_cycle_count = gen_debug.performance.if_local_stall_cycle_count;
 
   for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
-    assign performance_class_instret_count[i] = performance_int.payload.classes[i].instret_count;
-    assign performance_class_id_local_stall_cycle_count[i] = performance_int.payload.classes[i].id_local_stall_cycle_count;
-    assign performance_class_ex_local_stall_cycle_count[i] = performance_int.payload.classes[i].ex_local_stall_cycle_count;
-    assign performance_class_mem_local_stall_cycle_count[i] = performance_int.payload.classes[i].mem_local_stall_cycle_count;
-    assign performance_class_wb_local_stall_cycle_count[i] = performance_int.payload.classes[i].wb_local_stall_cycle_count;
+    assign performance_class_instret_count[i] = gen_debug.performance.classes[i].instret_count;
+    assign performance_class_id_local_stall_cycle_count[i] = gen_debug.performance.classes[i].id_local_stall_cycle_count;
+    assign performance_class_ex_local_stall_cycle_count[i] = gen_debug.performance.classes[i].ex_local_stall_cycle_count;
+    assign performance_class_mem_local_stall_cycle_count[i] = gen_debug.performance.classes[i].mem_local_stall_cycle_count;
+    assign performance_class_wb_local_stall_cycle_count[i] = gen_debug.performance.classes[i].wb_local_stall_cycle_count;
   end
 
-  assign performance_imem_response_count = performance_int.payload.imem.response_count;
-  assign performance_imem_latency_cycle_sum = performance_int.payload.imem.latency_cycle_sum;
-  assign performance_imem_request_stall_cycle_count = performance_int.payload.imem.request_stall_cycle_count;
-  assign performance_imem_response_stall_cycle_count = performance_int.payload.imem.response_stall_cycle_count;
+  assign performance_imem_response_count = gen_debug.performance.imem.response_count;
+  assign performance_imem_latency_cycle_sum = gen_debug.performance.imem.latency_cycle_sum;
+  assign performance_imem_request_stall_cycle_count = gen_debug.performance.imem.request_stall_cycle_count;
+  assign performance_imem_response_stall_cycle_count = gen_debug.performance.imem.response_stall_cycle_count;
 
-  assign performance_dmem_response_count = performance_int.payload.dmem.response_count;
-  assign performance_dmem_latency_cycle_sum = performance_int.payload.dmem.latency_cycle_sum;
-  assign performance_dmem_request_stall_cycle_count = performance_int.payload.dmem.request_stall_cycle_count;
-  assign performance_dmem_response_stall_cycle_count = performance_int.payload.dmem.response_stall_cycle_count;
+  assign performance_dmem_response_count = gen_debug.performance.dmem.response_count;
+  assign performance_dmem_latency_cycle_sum = gen_debug.performance.dmem.latency_cycle_sum;
+  assign performance_dmem_request_stall_cycle_count = gen_debug.performance.dmem.request_stall_cycle_count;
+  assign performance_dmem_response_stall_cycle_count = gen_debug.performance.dmem.response_stall_cycle_count;
 
 `endif
 

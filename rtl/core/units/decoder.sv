@@ -34,7 +34,6 @@ module decoder
         decode_o.ctrl.alu_op = ALU_PASS_B;
         decode_o.ctrl.op_b_sel = OP_B_IMM;
         decode_o.ctrl.wb_sel = WB_ALU;
-        decode_o.ctrl.rd_write = 1'b1;
         decode_o.illegal = 1'b0;
       end
 
@@ -43,7 +42,6 @@ module decoder
         decode_o.ctrl.op_a_sel = OP_A_PC;
         decode_o.ctrl.op_b_sel = OP_B_IMM;
         decode_o.ctrl.wb_sel = WB_ALU;
-        decode_o.ctrl.rd_write = 1'b1;
         decode_o.illegal = 1'b0;
       end
 
@@ -53,7 +51,6 @@ module decoder
         decode_o.ctrl.op_b_sel = OP_B_IMM;
         decode_o.ctrl.branch_op = BR_JAL;
         decode_o.ctrl.wb_sel = WB_PC4;
-        decode_o.ctrl.rd_write = 1'b1;
         decode_o.illegal = 1'b0;
       end
 
@@ -63,7 +60,6 @@ module decoder
           decode_o.ctrl.op_b_sel = OP_B_IMM;
           decode_o.ctrl.branch_op = BR_JALR;
           decode_o.ctrl.wb_sel = WB_PC4;
-          decode_o.ctrl.rd_write = 1'b1;
           decode_o.illegal = 1'b0;
         end
       end
@@ -89,7 +85,6 @@ module decoder
         decode_o.ctrl.op_b_sel = OP_B_IMM;
         decode_o.ctrl.mem_cmd = MEM_LOAD;
         decode_o.ctrl.wb_sel = WB_MEM;
-        decode_o.ctrl.rd_write = 1'b1;
         case (funct3)
           3'b000: begin
             decode_o.ctrl.mem_size = MEM_SIZE_BYTE;
@@ -114,7 +109,6 @@ module decoder
           default: begin
             decode_o.ctrl.mem_cmd = MEM_NONE;
             decode_o.ctrl.wb_sel = WB_NONE;
-            decode_o.ctrl.rd_write = 1'b0;
           end
         endcase
         decode_o.illegal = (decode_o.ctrl.mem_cmd == MEM_NONE);
@@ -137,7 +131,6 @@ module decoder
         decode_o.imm_type = IMM_I;
         decode_o.ctrl.op_b_sel = OP_B_IMM;
         decode_o.ctrl.wb_sel = WB_ALU;
-        decode_o.ctrl.rd_write = 1'b1;
         case (funct3)
           3'b000: begin decode_o.ctrl.alu_op = ALU_ADD; decode_o.illegal = 1'b0; end
           3'b010: begin decode_o.ctrl.alu_op = ALU_SLT; decode_o.illegal = 1'b0; end
@@ -162,13 +155,11 @@ module decoder
         endcase
         if (decode_o.illegal) begin
           decode_o.ctrl.wb_sel = WB_NONE;
-          decode_o.ctrl.rd_write = 1'b0;
         end
       end
 
       OPC_OP: begin
         decode_o.ctrl.wb_sel = WB_ALU;
-        decode_o.ctrl.rd_write = 1'b1;
         if (funct7 == 7'b0000000) begin
           case (funct3)
             3'b000: begin decode_o.ctrl.alu_op = ALU_ADD; decode_o.illegal = 1'b0; end
@@ -190,7 +181,6 @@ module decoder
         end
         if (decode_o.illegal) begin
           decode_o.ctrl.wb_sel = WB_NONE;
-          decode_o.ctrl.rd_write = 1'b0;
         end
       end
 
@@ -231,7 +221,6 @@ module decoder
         end else begin
           decode_o.ctrl.serialize = 1'b1;
           decode_o.ctrl.wb_sel = WB_CSR;
-          decode_o.ctrl.rd_write = 1'b1;
           decode_o.ctrl.csr_use_imm = funct3[2];
           decode_o.imm_type = funct3[2] ? IMM_Z : IMM_NONE;
 
@@ -249,7 +238,6 @@ module decoder
           if (decode_o.illegal) begin
             decode_o.ctrl.csr_cmd = CSR_NONE;
             decode_o.ctrl.wb_sel = WB_NONE;
-            decode_o.ctrl.rd_write = 1'b0;
           end
         end
       end
@@ -266,7 +254,7 @@ module decoder
          !decode_o.ctrl.csr_use_imm);
     decode_o.reg_addr.rs2_used = (opcode == OPC_BRANCH) || (opcode == OPC_STORE) ||
         (opcode == OPC_OP);
-    if (Rve && ((decode_o.ctrl.rd_write && instr_i[11]) ||
+    if (Rve && (((decode_o.ctrl.wb_sel != WB_NONE) && instr_i[11]) ||
                 (decode_o.reg_addr.rs1_used && instr_i[19]) ||
                 (decode_o.reg_addr.rs2_used && instr_i[24]))) begin
       decode_o.illegal = 1'b1;

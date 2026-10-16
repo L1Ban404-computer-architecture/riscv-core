@@ -11,7 +11,6 @@ module corebus_addr_router
   import riscv_bus_pkg::*;
 #(
   parameter int unsigned AddrWidth = 32,
-  parameter int unsigned DataWidth = 32,
   parameter logic [AddrWidth-1:0] DeviceBase = 32'h0200_0000,
   parameter logic [AddrWidth-1:0] DeviceMask = 32'hffff_0000
 ) (

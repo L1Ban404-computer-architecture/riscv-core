@@ -37,11 +37,7 @@ module icache_array
   typedef logic [WayIndexW-1:0] way_index_t;
   typedef logic [TagW-1:0] tag_t;
   typedef logic [DataAddrW-1:0] data_addr_t;
-  typedef struct packed {
-    logic [AddrWidth-1:0] addr;
-    logic [DataWidth-1:0] rdata;
-    logic hit;
-  } lookup_payload_t;
+  typedef lookup.payload_t lookup_payload_t;
 
   // valid 需要复位和整阵列失效；存储阵列不复位，valid=0 时其内容不可见。
   logic valid_q[WayCount][SetCount];

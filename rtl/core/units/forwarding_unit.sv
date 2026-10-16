@@ -10,25 +10,13 @@ module forwarding_unit
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
-  input logic transaction_valid_i,
-  input logic execute_fire_i,
 
-  // 源操作数
-  input reg_addr_t rs1_addr_i,
-  input reg_addr_t rs2_addr_i,
-  input logic rs1_used_i,
-  input logic rs2_used_i,
-  input word_t rs1_value_i,
-  input word_t rs2_value_i,
+  // 当前执行事务和较老的生产者；候选均来自寄存后的流水边界。
+  id_ex_if.monitor id_ex,
+  ex_mem_if.monitor ex_mem,
+  mem_wb_if.monitor mem_wb,
 
-  // 前递来源
-  writeback_if.consumer ex_wb,
-  writeback_if.consumer mem_wb,
-
-  // 选择结果
-  output word_t rs1_value_o,
-  output word_t rs2_value_o,
-  output logic stall_o
+  execute_operands_if.producer operands
 );
 
   // 内部暂存与相关状态
@@ -47,13 +35,22 @@ module forwarding_unit
 
   logic held_rs1_valid_q;
   logic held_rs2_valid_q;
+  writeback_payload_t ex_mem_candidate;
+  writeback_payload_t mem_wb_candidate;
+
+  always_comb begin
+    ex_mem_candidate = ex_mem.payload.commit_ctx.wb_req;
+    ex_mem_candidate.valid = ex_mem.valid && ex_mem.payload.commit_ctx.wb_req.valid;
+    mem_wb_candidate = mem_wb.payload.wb_req;
+    mem_wb_candidate.valid = mem_wb.valid && mem_wb.payload.wb_req.valid;
+  end
 
   // 前递优先级与阻塞判定
 
   // MEM/WB 可以在当前事务受阻时独立完成写回。已经观察到的前递值必须
   // 保存到该事务执行为止，否则会退回使用 ID/EX 中锁存的旧寄存器值。
-  assign rs1_base_value = held_rs1_valid_q ? held_rs1_value_q : rs1_value_i;
-  assign rs2_base_value = held_rs2_valid_q ? held_rs2_value_q : rs2_value_i;
+  assign rs1_base_value = held_rs1_valid_q ? held_rs1_value_q : id_ex.payload.exec_data.rs1_value;
+  assign rs2_base_value = held_rs2_valid_q ? held_rs2_value_q : id_ex.payload.exec_data.rs2_value;
 
   // 最近的 EX/MEM 候选优先；匹配但尚未就绪时，不能绕过到更老的 MEM/WB。
   function automatic forward_result_t resolve_source(
@@ -81,13 +78,13 @@ module forwarding_unit
     return result;
   endfunction
 
-  assign rs1_result = resolve_source(rs1_used_i, rs1_addr_i, rs1_base_value,
-                                     ex_wb.payload, mem_wb.payload);
-  assign rs2_result = resolve_source(rs2_used_i, rs2_addr_i, rs2_base_value,
-                                     ex_wb.payload, mem_wb.payload);
-  assign rs1_value_o = rs1_result.value;
-  assign rs2_value_o = rs2_result.value;
-  assign stall_o = rs1_result.stall || rs2_result.stall;
+  assign rs1_result = resolve_source(id_ex.payload.reg_addr.rs1_used,
+      id_ex.payload.reg_addr.rs1_addr, rs1_base_value, ex_mem_candidate, mem_wb_candidate);
+  assign rs2_result = resolve_source(id_ex.payload.reg_addr.rs2_used,
+      id_ex.payload.reg_addr.rs2_addr, rs2_base_value, ex_mem_candidate, mem_wb_candidate);
+  assign operands.rs1_value = rs1_result.value;
+  assign operands.rs2_value = rs2_result.value;
+  assign operands.stall = rs1_result.stall || rs2_result.stall;
 
   // 阻塞期间的数据暂存
 
@@ -95,7 +92,7 @@ module forwarding_unit
     if (!rst_ni) begin
       held_rs1_valid_q <= 1'b0;
       held_rs2_valid_q <= 1'b0;
-    end else if (!transaction_valid_i || execute_fire_i) begin
+    end else if (!id_ex.valid || id_ex.fire) begin
       held_rs1_valid_q <= 1'b0;
       held_rs2_valid_q <= 1'b0;
     end else begin
@@ -106,9 +103,9 @@ module forwarding_unit
 
   // 数据位不需要复位；valid=0 时不会被选择，避免为 64 位数据增加复位网络。
   always_ff @(posedge clk_i) begin
-    if (transaction_valid_i && !execute_fire_i) begin
-      if (rs1_result.mem_wb_forwarded) held_rs1_value_q <= rs1_value_o;
-      if (rs2_result.mem_wb_forwarded) held_rs2_value_q <= rs2_value_o;
+    if (id_ex.valid && !id_ex.fire) begin
+      if (rs1_result.mem_wb_forwarded) held_rs1_value_q <= operands.rs1_value;
+      if (rs2_result.mem_wb_forwarded) held_rs2_value_q <= operands.rs2_value;
     end
   end
 

@@ -7,62 +7,53 @@
 
 // 核心内部接口。
 //
-// 定义前递、CSR、改道、调试以及各级流水边界的信号和 modport。
+// 定义前递、CSR、改道以及各级流水边界的信号和 modport。
 
-// 通用 GPR 写回候选。valid 表示存在写回语义，data_valid 表示数据已经可前递。
-interface writeback_if;
-  riscv_core_pkg::writeback_payload_t payload;
-  modport producer(output payload);
-  modport consumer(input payload);
-  modport monitor(input payload);
+// WB 确认的 GPR 写入。
+interface gpr_write_if;
+  logic valid;
+  riscv_core_pkg::reg_addr_t rd_addr;
+  riscv_common_pkg::word_t wdata;
+  modport producer(output valid, rd_addr, wdata);
+  modport consumer(input valid, rd_addr, wdata);
+  modport monitor(input valid, rd_addr, wdata);
+endinterface
+
+// 前递单元向 EX 提供已经解析的操作数与数据相关等待条件。
+interface execute_operands_if;
+  riscv_common_pkg::word_t rs1_value;
+  riscv_common_pkg::word_t rs2_value;
+  logic stall;
+  modport producer(output rs1_value, rs2_value, stall);
+  modport consumer(input rs1_value, rs2_value, stall);
 endinterface
 
 // ID 到寄存器堆的两路组合读；写回旁路仍由寄存器堆在内部完成。
 interface gpr_read_if;
-  typedef struct packed {
-    riscv_core_pkg::reg_addr_t rs1_addr;
-    riscv_core_pkg::reg_addr_t rs2_addr;
-  } req_payload_t;
-
-  typedef struct packed {
-    riscv_common_pkg::word_t rs1_value;
-    riscv_common_pkg::word_t rs2_value;
-  } rsp_payload_t;
-
-  req_payload_t req_payload;
-  rsp_payload_t rsp_payload;
-  modport requester(output req_payload, input rsp_payload);
-  modport responder(input req_payload, output rsp_payload);
-  modport monitor(input req_payload, rsp_payload);
+  riscv_core_pkg::reg_addr_t rs1_addr;
+  riscv_core_pkg::reg_addr_t rs2_addr;
+  riscv_common_pkg::word_t rs1_value;
+  riscv_common_pkg::word_t rs2_value;
+  modport requester(output rs1_addr, rs2_addr, input rs1_value, rs2_value);
+  modport responder(input rs1_addr, rs2_addr, output rs1_value, rs2_value);
 endinterface
 
 // CSR 与全局控制接口
 
 // EX 到 CSR 单元的组合读端口，同时返回地址是否实现，供非法指令检查使用。
-interface csr_read_if #(
-  parameter int unsigned DataWidth = riscv_common_pkg::XLen,
-  parameter int unsigned CsrAddrWidth = 12
-);
-  typedef struct packed {logic [CsrAddrWidth-1:0] addr;} req_payload_t;
-
-  typedef struct packed {
-    logic valid;
-    logic [DataWidth-1:0] data;
-  } rsp_payload_t;
-
-  req_payload_t req_payload;
-  rsp_payload_t rsp_payload;
-  modport requester(output req_payload, input rsp_payload);
-  modport responder(input req_payload, output rsp_payload);
-  modport monitor(input req_payload, rsp_payload);
+interface csr_read_if;
+  riscv_core_pkg::csr_addr_t addr;
+  riscv_common_pkg::word_t data;
+  logic implemented;
+  modport requester(output addr, input data, implemented);
+  modport responder(input addr, output data, implemented);
 endinterface
 
-// WB 提交 CSR、trap 或 MRET 的互斥状态更新请求；提交优先级由 CSR 单元实现。
+// WB 提交 CSR、trap 或 MRET 的互斥状态更新请求。
 interface csr_commit_if;
   riscv_core_pkg::csr_commit_payload_t payload;
   modport producer(output payload);
   modport consumer(input payload);
-  modport monitor(input payload);
 endinterface
 
 // 提交前的 trap/MRET 控制目标；与 Zicsr 组合读口分离。
@@ -71,63 +62,19 @@ interface csr_status_if;
   riscv_common_pkg::word_t mepc;
   modport producer(output mtvec, mepc);
   modport consumer(input mtvec, mepc);
-  modport monitor(input mtvec, mepc);
 endinterface
 
 // 控制流改道事件；valid 当拍的 target_pc 是下一条应取指的架构 PC。
-// FENCE.I 也走本接口做前端重取；架构提交类别由 commit_event_if 单独给出。
-interface redirect_if #(
-  parameter int unsigned AddrWidth = riscv_common_pkg::XLen
-);
-  typedef struct packed {logic [AddrWidth-1:0] target_pc;} payload_t;
-
+// FENCE.I 也走本接口做前端重取。
+interface redirect_if;
   logic valid;
-  payload_t payload;
-  modport producer(output valid, payload);
-  modport consumer(input valid, payload);
-  modport monitor(input valid, payload);
+  riscv_core_pkg::pc_t target_pc;
+  modport producer(output valid, target_pc);
+  modport consumer(input valid, target_pc);
+  modport monitor(input valid, target_pc);
 endinterface
 
-// WB 唯一提交点给出的退休类别。valid 与 MEM/WB fire 同拍；kind 仅在 valid 时有意义。
-interface commit_event_if;
-  logic valid;
-  riscv_core_pkg::commit_kind_e kind;
-  modport producer(output valid, kind);
-  modport consumer(input valid, kind);
-  modport monitor(input valid, kind);
-endinterface
-
-// 调试与性能观测接口
-
-`ifndef SYNTHESIS
-// 提交后的 CSR 架构状态快照，仅用于退休调试观察，不参与流水控制。
-interface csr_state_if;
-  riscv_core_pkg::csr_state_payload_t payload;
-  modport producer(output payload);
-  modport consumer(input payload);
-  modport monitor(input payload);
-endinterface
-
-// 单条退休事件及其架构副作用快照。valid 仅在退休当拍拉高；valid 为零时其余
-// 字段无效，生产者可以将其清零。
-interface retire_debug_if;
-  logic valid;
-  riscv_core_pkg::retire_debug_payload_t payload;
-  modport producer(output valid, payload);
-  modport consumer(input valid, payload);
-  modport monitor(input valid, payload);
-endinterface
-
-// 实时性能计数快照。所有计数器只供仿真分析，不参与核心功能控制。
-interface performance_debug_if;
-  riscv_core_pkg::performance_debug_payload_t payload;
-  modport producer(output payload);
-  modport consumer(input payload);
-  modport monitor(input payload);
-endinterface
-`endif
-
-// 流水级 ready/valid 接口
+// 流水级 ready/valid 接口，同时连接本级计算输出与级间寄存器。
 
 // 工具链不支持泛型 interface 端口；宏复用握手定义，payload 类型由 package 拥有。
 // fire 由握手派生，所有 modport 只读。

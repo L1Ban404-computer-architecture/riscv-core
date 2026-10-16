@@ -77,9 +77,6 @@ module icache_top
     .DataWidth(DataWidth),
     .IdWidth(IdWidth)
   ) axi ();
-`ifndef SYNTHESIS
-  icache_performance_debug_if performance ();
-`endif
 
   // CoreBus 接口适配
 
@@ -145,7 +142,7 @@ module icache_top
     .axi
 `ifndef SYNTHESIS
     ,
-    .performance
+    .performance_o(  /* 未使用 */)
 `endif
   );
 

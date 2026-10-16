@@ -10,6 +10,9 @@
 module ysyx_25080230
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
+`ifndef SYNTHESIS
+  import riscv_debug_pkg::*;
+`endif
 (
   // 全局控制
   input clock,
@@ -92,11 +95,6 @@ module ysyx_25080230
   logic icache_invalidate;
   logic imem_flush;
 
-`ifndef SYNTHESIS
-  retire_debug_if retire_debug ();
-  performance_debug_if performance_debug ();
-  icache_performance_debug_if icache_performance ();
-`endif
 
   assign rst_ni = ~reset;
 
@@ -108,12 +106,13 @@ module ysyx_25080230
     .boot_pc_i(32'h3000_0000),
     .imem(imem_bus),
     .dmem(dmem_bus),
-`ifndef SYNTHESIS
-    .debug_retire(retire_debug),
-    .performance(performance_debug),
-`endif
     .imem_flush_o(imem_flush),
     .icache_invalidate_o(icache_invalidate)
+`ifndef SYNTHESIS
+    , .debug_retire_valid_o(gen_debug.retire_valid),
+    .debug_retire_o(gen_debug.retire),
+    .performance_o(gen_debug.performance)
+`endif
   );
 
   corebus_addr_router #(
@@ -144,7 +143,7 @@ module ysyx_25080230
     .axi(if_axi)
 `ifndef SYNTHESIS
     ,
-    .performance(icache_performance)
+    .performance_o(gen_debug.icache_performance)
 `endif
   );
 
@@ -217,6 +216,15 @@ module ysyx_25080230
         io_slave_arlen, io_slave_arsize, io_slave_arburst, io_slave_rready};
 
 `ifndef SYNTHESIS
+  generate
+    begin : gen_debug
+      logic retire_valid;
+      retire_debug_payload_t retire;
+      performance_debug_payload_t performance;
+      icache_pkg::icache_performance_payload_t icache_performance;
+    end
+  endgenerate
+
   logic core_retire_valid  /* verilator public_flat_rd */;
 
   logic [31:0] debug_retire_pc  /* verilator public_flat_rd */;
@@ -264,54 +272,54 @@ module ysyx_25080230
   // 退休与性能观测信号
 
 `ifndef SYNTHESIS
-  assign debug_retire_pc = retire_debug.payload.meta.pc;
-  assign debug_retire_instr = retire_debug.payload.meta.instr;
-  assign debug_retire_instid = retire_debug.payload.meta.instid;
-  assign debug_retire_redirect_valid = retire_debug.payload.redirect.valid;
-  assign debug_retire_redirect_target = retire_debug.payload.redirect.target_pc;
-  assign debug_retire_mem_op = retire_debug.payload.mem.mem_op;
-  assign debug_retire_mem_size = retire_debug.payload.mem.mem_size;
-  assign debug_retire_mem_addr = retire_debug.payload.mem.mem_addr;
-  assign debug_retire_mem_data = retire_debug.payload.mem.mem_data;
-  assign debug_retire_gpr_we = retire_debug.payload.gpr_we;
-  assign debug_retire_gpr_waddr = retire_debug.payload.gpr_waddr;
-  assign debug_retire_gpr_wdata = retire_debug.payload.gpr_wdata;
-  assign debug_retire_mstatus = retire_debug.payload.csr.mstatus;
-  assign debug_retire_mtvec = retire_debug.payload.csr.mtvec;
-  assign debug_retire_mepc = retire_debug.payload.csr.mepc;
-  assign debug_retire_mcause = retire_debug.payload.csr.mcause;
-  assign debug_retire_mtval = retire_debug.payload.csr.mtval;
-  assign debug_perf_cycle_count = performance_debug.payload.cycle_count;
-  assign debug_perf_instret_count = performance_debug.payload.instret_count;
-  assign debug_perf_redirect_count = performance_debug.payload.redirect_count;
-  assign debug_perf_if_local_stall_cycle_count = performance_debug.payload.if_local_stall_cycle_count;
+  assign debug_retire_pc = gen_debug.retire.meta.pc;
+  assign debug_retire_instr = gen_debug.retire.meta.instr;
+  assign debug_retire_instid = gen_debug.retire.meta.instid;
+  assign debug_retire_redirect_valid = gen_debug.retire.redirect.valid;
+  assign debug_retire_redirect_target = gen_debug.retire.redirect.target_pc;
+  assign debug_retire_mem_op = gen_debug.retire.mem.mem_op;
+  assign debug_retire_mem_size = gen_debug.retire.mem.mem_size;
+  assign debug_retire_mem_addr = gen_debug.retire.mem.mem_addr;
+  assign debug_retire_mem_data = gen_debug.retire.mem.mem_data;
+  assign debug_retire_gpr_we = gen_debug.retire.gpr_we;
+  assign debug_retire_gpr_waddr = gen_debug.retire.gpr_waddr;
+  assign debug_retire_gpr_wdata = gen_debug.retire.gpr_wdata;
+  assign debug_retire_mstatus = gen_debug.retire.csr.mstatus;
+  assign debug_retire_mtvec = gen_debug.retire.csr.mtvec;
+  assign debug_retire_mepc = gen_debug.retire.csr.mepc;
+  assign debug_retire_mcause = gen_debug.retire.csr.mcause;
+  assign debug_retire_mtval = gen_debug.retire.csr.mtval;
+  assign debug_perf_cycle_count = gen_debug.performance.cycle_count;
+  assign debug_perf_instret_count = gen_debug.performance.instret_count;
+  assign debug_perf_redirect_count = gen_debug.performance.redirect_count;
+  assign debug_perf_if_local_stall_cycle_count = gen_debug.performance.if_local_stall_cycle_count;
 
   for (genvar i = 0; i < PerfClassCount; i++) begin : gen_perf_classes
-    assign debug_perf_class_instret_count[i] = performance_debug.payload.classes[i].instret_count;
-    assign debug_perf_class_id_local_stall_cycle_count[i] = performance_debug.payload.classes[i].id_local_stall_cycle_count;
-    assign debug_perf_class_ex_local_stall_cycle_count[i] = performance_debug.payload.classes[i].ex_local_stall_cycle_count;
-    assign debug_perf_class_mem_local_stall_cycle_count[i] = performance_debug.payload.classes[i].mem_local_stall_cycle_count;
-    assign debug_perf_class_wb_local_stall_cycle_count[i] = performance_debug.payload.classes[i].wb_local_stall_cycle_count;
+    assign debug_perf_class_instret_count[i] = gen_debug.performance.classes[i].instret_count;
+    assign debug_perf_class_id_local_stall_cycle_count[i] = gen_debug.performance.classes[i].id_local_stall_cycle_count;
+    assign debug_perf_class_ex_local_stall_cycle_count[i] = gen_debug.performance.classes[i].ex_local_stall_cycle_count;
+    assign debug_perf_class_mem_local_stall_cycle_count[i] = gen_debug.performance.classes[i].mem_local_stall_cycle_count;
+    assign debug_perf_class_wb_local_stall_cycle_count[i] = gen_debug.performance.classes[i].wb_local_stall_cycle_count;
   end
 
-  assign debug_perf_imem_response_count = performance_debug.payload.imem.response_count;
-  assign debug_perf_imem_latency_cycle_sum = performance_debug.payload.imem.latency_cycle_sum;
-  assign debug_perf_imem_request_stall_cycle_count = performance_debug.payload.imem.request_stall_cycle_count;
-  assign debug_perf_imem_response_stall_cycle_count = performance_debug.payload.imem.response_stall_cycle_count;
+  assign debug_perf_imem_response_count = gen_debug.performance.imem.response_count;
+  assign debug_perf_imem_latency_cycle_sum = gen_debug.performance.imem.latency_cycle_sum;
+  assign debug_perf_imem_request_stall_cycle_count = gen_debug.performance.imem.request_stall_cycle_count;
+  assign debug_perf_imem_response_stall_cycle_count = gen_debug.performance.imem.response_stall_cycle_count;
 
-  assign debug_perf_dmem_response_count = performance_debug.payload.dmem.response_count;
-  assign debug_perf_dmem_latency_cycle_sum = performance_debug.payload.dmem.latency_cycle_sum;
-  assign debug_perf_dmem_request_stall_cycle_count = performance_debug.payload.dmem.request_stall_cycle_count;
-  assign debug_perf_dmem_response_stall_cycle_count = performance_debug.payload.dmem.response_stall_cycle_count;
+  assign debug_perf_dmem_response_count = gen_debug.performance.dmem.response_count;
+  assign debug_perf_dmem_latency_cycle_sum = gen_debug.performance.dmem.latency_cycle_sum;
+  assign debug_perf_dmem_request_stall_cycle_count = gen_debug.performance.dmem.request_stall_cycle_count;
+  assign debug_perf_dmem_response_stall_cycle_count = gen_debug.performance.dmem.response_stall_cycle_count;
 
-  assign debug_perf_icache_request_count = icache_performance.payload.request_count;
-  assign debug_perf_icache_hit_count = icache_performance.payload.hit_count;
-  assign debug_perf_icache_hit_response_count = icache_performance.payload.hit_response_count;
-  assign debug_perf_icache_hit_latency_cycle_sum = icache_performance.payload.hit_latency_cycle_sum;
-  assign debug_perf_icache_miss_response_count = icache_performance.payload.miss_response_count;
-  assign debug_perf_icache_miss_latency_cycle_sum = icache_performance.payload.miss_latency_cycle_sum;
+  assign debug_perf_icache_request_count = gen_debug.icache_performance.request_count;
+  assign debug_perf_icache_hit_count = gen_debug.icache_performance.hit_count;
+  assign debug_perf_icache_hit_response_count = gen_debug.icache_performance.hit_response_count;
+  assign debug_perf_icache_hit_latency_cycle_sum = gen_debug.icache_performance.hit_latency_cycle_sum;
+  assign debug_perf_icache_miss_response_count = gen_debug.icache_performance.miss_response_count;
+  assign debug_perf_icache_miss_latency_cycle_sum = gen_debug.icache_performance.miss_latency_cycle_sum;
 
-  assign core_retire_valid = retire_debug.valid;
+  assign core_retire_valid = gen_debug.retire_valid;
 `endif
 
 endmodule

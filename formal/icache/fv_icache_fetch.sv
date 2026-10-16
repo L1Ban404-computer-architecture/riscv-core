@@ -48,7 +48,6 @@ module fv_icache_fetch
     .DataWidth(DataWidth),
     .IdWidth(IdWidth)
   ) axi ();
-  icache_performance_debug_if performance ();
 
   initial rst_ni = 1'b0;
   always_ff @(posedge clk_i) rst_ni <= 1'b1;
@@ -81,7 +80,7 @@ module fv_icache_fetch
     .invalidate_i,
     .core_bus,
     .axi,
-    .performance
+    .performance_o(  /* 未使用 */)
   );
 
   fv_axi_rom #(

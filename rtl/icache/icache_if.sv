@@ -93,12 +93,13 @@ interface icache_refill_if
 endinterface
 
 `ifndef SYNTHESIS
-// 仿真期 I-cache 性能计数快照。计数不参与功能控制。
-interface icache_performance_debug_if;
-  icache_pkg::icache_performance_payload_t payload;
-  modport producer(output payload);
-  modport consumer(input payload);
-  modport monitor(input payload);
+interface icache_debug_if;
+  riscv_bus_pkg::bus_debug_payload_t bus;
+  logic lookup_valid;
+  logic lookup_fire;
+  logic lookup_hit;
+  modport producer(output bus, lookup_valid, lookup_fire, lookup_hit);
+  modport consumer(input bus, lookup_valid, lookup_fire, lookup_hit);
 endinterface
 `endif
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // M-mode CSR：组合读、WB 提交写入及 trap/MRET 状态转换。
-// 优先级为 trap > MRET > 普通写；IALIGN=32，mepc 低两位恒零。
+// IALIGN=32，mepc 低两位恒零。
 module csr_unit
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -14,10 +14,10 @@ module csr_unit
   // CSR 事务
   csr_read_if.responder csr_read,
   csr_commit_if.consumer commit,
-`ifndef SYNTHESIS
-  csr_state_if.producer state,
-`endif
   csr_status_if.producer status
+`ifndef SYNTHESIS
+  , output riscv_core_pkg::csr_state_payload_t debug_o
+`endif
 );
 
   // 私有类型与 CSR 状态
@@ -33,19 +33,19 @@ module csr_unit
   // CSR 组合读取
 
   always_comb begin
-    csr_read.rsp_payload.valid = 1'b1;
-    unique case (csr_read.req_payload.addr)
+    csr_read.implemented = 1'b1;
+    unique case (csr_read.addr)
       // ysyx 厂商标识和本核学号标识由硬件常量提供，不占用可写状态。
-      CsrMvendorid: csr_read.rsp_payload.data = 32'h7973_7978;
-      CsrMarchid: csr_read.rsp_payload.data = 32'd25080230;
-      CsrMstatus: csr_read.rsp_payload.data = state_q.mstatus;
-      CsrMtvec: csr_read.rsp_payload.data = state_q.mtvec;
-      CsrMepc: csr_read.rsp_payload.data = state_q.mepc;
-      CsrMcause: csr_read.rsp_payload.data = state_q.mcause;
-      CsrMtval: csr_read.rsp_payload.data = state_q.mtval;
+      CsrMvendorid: csr_read.data = 32'h7973_7978;
+      CsrMarchid: csr_read.data = 32'd25080230;
+      CsrMstatus: csr_read.data = state_q.mstatus;
+      CsrMtvec: csr_read.data = state_q.mtvec;
+      CsrMepc: csr_read.data = state_q.mepc;
+      CsrMcause: csr_read.data = state_q.mcause;
+      CsrMtval: csr_read.data = state_q.mtval;
       default: begin
-        csr_read.rsp_payload.valid = 1'b0;
-        csr_read.rsp_payload.data = '0;
+        csr_read.implemented = 1'b0;
+        csr_read.data = '0;
       end
     endcase
   end
@@ -55,44 +55,41 @@ module csr_unit
   always_comb begin
     state_d = state_q;
 
-    // 同一退休周期只允许一种 CSR 状态变更。优先级与 WB 架构提交顺序一致：
-    // trap entry > MRET > 普通 CSR 写。
-    if (commit.payload.trap) begin
-      // IALIGN=32：无论来源是软件写入还是 trap entry，mepc[1:0] 恒为零。
-      state_d.mepc = commit.payload.trap_epc & word_t'(~3);
-      state_d.mcause = {
-        commit.payload.trap_is_interrupt, {(XLen - 5) {1'b0}}, commit.payload.trap_cause
-      };
-      state_d.mtval = commit.payload.trap_tval;
-      if ((state_q.mstatus & MstatusMie) != '0) state_d.mstatus = state_q.mstatus | MstatusMpie;
-      else state_d.mstatus = state_q.mstatus & ~MstatusMpie;
-      state_d.mstatus = (state_d.mstatus & ~MstatusMie) | MstatusMpp;
-    end else if (commit.payload.mret) begin
-      if ((state_q.mstatus & MstatusMpie) != '0) state_d.mstatus = state_q.mstatus | MstatusMie;
-      else state_d.mstatus = state_q.mstatus & ~MstatusMie;
-      state_d.mstatus = state_d.mstatus | MstatusMpie | MstatusMpp;
-    end else if (commit.payload.write.valid) begin
-      unique case (commit.payload.write.addr)
-        CsrMstatus: begin
-          state_d.mstatus = (commit.payload.write.wdata & (MstatusMie | MstatusMpie)) | MstatusMpp;
-        end
-        CsrMtvec: state_d.mtvec = commit.payload.write.wdata & word_t'(~3);
-        // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
-        CsrMepc: state_d.mepc = commit.payload.write.wdata & word_t'(~3);
-        CsrMcause: state_d.mcause = commit.payload.write.wdata;
-        CsrMtval: state_d.mtval = commit.payload.write.wdata;
-        default: ;
-      endcase
-    end
+    unique case (commit.payload.op)
+      CSR_COMMIT_TRAP: begin
+        // IALIGN=32：无论来源是软件写入还是 trap entry，mepc[1:0] 恒为零。
+        state_d.mepc = commit.payload.trap_epc & word_t'(~3);
+        // 当前只接收同步异常，mcause 的 interrupt 位恒为零。
+        state_d.mcause = {{(XLen - 4) {1'b0}}, commit.payload.trap_cause};
+        state_d.mtval = commit.payload.trap_tval;
+        if ((state_q.mstatus & MstatusMie) != '0) state_d.mstatus = state_q.mstatus | MstatusMpie;
+        else state_d.mstatus = state_q.mstatus & ~MstatusMpie;
+        state_d.mstatus = (state_d.mstatus & ~MstatusMie) | MstatusMpp;
+      end
+      CSR_COMMIT_MRET: begin
+        if ((state_q.mstatus & MstatusMpie) != '0) state_d.mstatus = state_q.mstatus | MstatusMie;
+        else state_d.mstatus = state_q.mstatus & ~MstatusMie;
+        state_d.mstatus = state_d.mstatus | MstatusMpie | MstatusMpp;
+      end
+      CSR_COMMIT_WRITE: begin
+        unique case (commit.payload.addr)
+          CsrMstatus: begin
+            state_d.mstatus = (commit.payload.wdata & (MstatusMie | MstatusMpie)) | MstatusMpp;
+          end
+          CsrMtvec: state_d.mtvec = commit.payload.wdata & word_t'(~3);
+          // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
+          CsrMepc: state_d.mepc = commit.payload.wdata & word_t'(~3);
+          CsrMcause: state_d.mcause = commit.payload.wdata;
+          CsrMtval: state_d.mtval = commit.payload.wdata;
+          default: ;
+        endcase
+      end
+      default: ;
+    endcase
   end
 
   // 状态输出与寄存
 
-`ifndef SYNTHESIS
-  // 退休快照输出下一状态，使仿真环境在 WB fire 当周期观察到本条指令提交后的
-  // CSR 值；trap/MRET 目标另由 status 接口提供提交前的 mtvec/mepc。
-  assign state.payload = state_d;
-`endif
   assign status.mtvec = state_q.mtvec;
   assign status.mepc = state_q.mepc;
 
@@ -103,5 +100,9 @@ module csr_unit
       state_q <= state_d;
     end
   end
+
+`ifndef SYNTHESIS
+  assign debug_o = state_d;
+`endif
 
 endmodule

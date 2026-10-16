@@ -7,26 +7,26 @@ module id_stage
   import riscv_core_pkg::*;
 (
   // 全局控制
-  input logic clk_i,
-  input logic rst_ni,
   input logic flush_i,
   input logic serialize_block_i,
 
   // 流水事务
   if_id_if.consumer if_id,
-  id_ex_if.producer id_ex,
+  id_ex_if.producer result,
   gpr_read_if.requester gpr_read
+`ifndef SYNTHESIS
+  , output riscv_debug_pkg::stage_debug_payload_t debug_o
+`endif
 );
 
   decode_result_t decoded;
   word_t decoded_imm;
 
   id_ex_payload_t next_payload;
-  logic id_ex_input_ready;
   logic input_enable;
 
-  assign gpr_read.req_payload.rs1_addr = decoded.reg_addr.rs1_addr;
-  assign gpr_read.req_payload.rs2_addr = decoded.reg_addr.rs2_addr;
+  assign gpr_read.rs1_addr = decoded.reg_addr.rs1_addr;
+  assign gpr_read.rs2_addr = decoded.reg_addr.rs2_addr;
 
   // 译码、立即数与寄存器读取
 
@@ -47,8 +47,8 @@ module id_stage
     next_payload = '0;
     next_payload.meta = if_id.payload.meta;
     next_payload.reg_addr = decoded.reg_addr;
-    next_payload.exec_data.rs1_value = gpr_read.rsp_payload.rs1_value;
-    next_payload.exec_data.rs2_value = gpr_read.rsp_payload.rs2_value;
+    next_payload.exec_data.rs1_value = gpr_read.rs1_value;
+    next_payload.exec_data.rs2_value = gpr_read.rs2_value;
     next_payload.exec_data.imm = decoded_imm;
     next_payload.ctrl = decoded.ctrl;
     // IF 异常年龄更老且优先。raise_exception 在已有 valid 时保持原样。
@@ -65,24 +65,17 @@ module id_stage
     end
   end
 
-  // ID/EX 弹性寄存器
+  // 本级握手；ID/EX 寄存器由顶层持有。
 
   // 普通 GPR 相关不阻止译码；满载且 EX 就绪允许同拍弹出和写入。
   assign input_enable = !serialize_block_i && !flush_i;
-  assign if_id.ready = id_ex_input_ready && input_enable;
+  assign if_id.ready = result.ready && input_enable;
 
-  stream_register #(
-    .T(id_ex_payload_t)
-  ) u_id_ex_register (
-    .clk_i,
-    .rst_ni,
-    .flush_i,
-    .valid_i(if_id.valid && input_enable),
-    .ready_o(id_ex_input_ready),
-    .data_i(next_payload),
-    .valid_o(id_ex.valid),
-    .ready_i(id_ex.ready),
-    .data_o(id_ex.payload)
-  );
+  assign result.valid = if_id.valid && input_enable;
+  assign result.payload = next_payload;
+
+`ifndef SYNTHESIS
+  assign debug_o = '{valid: if_id.valid, ready: if_id.ready};
+`endif
 
 endmodule

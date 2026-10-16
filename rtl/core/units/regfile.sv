@@ -12,7 +12,7 @@ module regfile
 
   // 读写接口
   gpr_read_if.responder gpr_read,
-  writeback_if.consumer wb
+  gpr_write_if.consumer wb
 );
 
   // 寄存器阵列与写入
@@ -24,37 +24,36 @@ module regfile
   reg_addr_t rs1_addr;
   reg_addr_t rs2_addr;
 
-  assign rs1_addr = gpr_read.req_payload.rs1_addr;
-  assign rs2_addr = gpr_read.req_payload.rs2_addr;
-  assign wb_write = wb.payload.valid && wb.payload.data_valid && (wb.payload.rd_addr != ZeroReg)
-                  && (int'(wb.payload.rd_addr) < GprCount);
+  assign rs1_addr = gpr_read.rs1_addr;
+  assign rs2_addr = gpr_read.rs2_addr;
+  assign wb_write = wb.valid && (wb.rd_addr != ZeroReg) && (int'(wb.rd_addr) < GprCount);
 
   always_ff @(posedge clk_i) begin
     if (wb_write) begin
-      regs_q[wb.payload.rd_addr] <= wb.payload.wdata;
+      regs_q[wb.rd_addr] <= wb.wdata;
     end
   end
 
   // 组合读取与同拍旁路
 
   always_comb begin
-    gpr_read.rsp_payload.rs1_value = '0;
+    gpr_read.rs1_value = '0;
     if ((rs1_addr != ZeroReg) && (int'(rs1_addr) < GprCount)) begin
       // WB 和 ID 同周期访问同一寄存器时显式旁路，避免依赖 SRAM/寄存器阵列
       // 的 read-during-write 工艺语义。
-      if (wb_write && (wb.payload.rd_addr == rs1_addr)) begin
-        gpr_read.rsp_payload.rs1_value = wb.payload.wdata;
+      if (wb_write && (wb.rd_addr == rs1_addr)) begin
+        gpr_read.rs1_value = wb.wdata;
       end else begin
-        gpr_read.rsp_payload.rs1_value = regs_q[rs1_addr];
+        gpr_read.rs1_value = regs_q[rs1_addr];
       end
     end
 
-    gpr_read.rsp_payload.rs2_value = '0;
+    gpr_read.rs2_value = '0;
     if ((rs2_addr != ZeroReg) && (int'(rs2_addr) < GprCount)) begin
-      if (wb_write && (wb.payload.rd_addr == rs2_addr)) begin
-        gpr_read.rsp_payload.rs2_value = wb.payload.wdata;
+      if (wb_write && (wb.rd_addr == rs2_addr)) begin
+        gpr_read.rs2_value = wb.wdata;
       end else begin
-        gpr_read.rsp_payload.rs2_value = regs_q[rs2_addr];
+        gpr_read.rs2_value = regs_q[rs2_addr];
       end
     end
   end

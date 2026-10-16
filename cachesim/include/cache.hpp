@@ -13,9 +13,9 @@ enum class ReplacementPolicy {
 };
 
 struct CacheConfig {
-  std::uint32_t block_bytes = 4;
-  std::uint32_t sets = 16;
-  std::uint32_t ways = 1;
+  std::uint32_t block_bytes = 16;
+  std::uint32_t sets = 4;
+  std::uint32_t ways = 2;
   ReplacementPolicy policy = ReplacementPolicy::kRoundRobin;
 };
 

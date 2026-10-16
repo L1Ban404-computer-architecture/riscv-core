@@ -18,9 +18,9 @@ ARCH ?= runner
 DUT ?= nemu
 MAINARGS ?= train
 
-SETS ?= 16
-WAYS ?= 1
-BLOCK_BYTES ?= 4
+SETS ?= 4
+WAYS ?= 2
+BLOCK_BYTES ?= 16
 POLICY ?= rr
 
 SRCS := src/cache.cpp src/trace.cpp src/main.cpp

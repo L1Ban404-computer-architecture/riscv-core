@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // RV32I/E/Zicsr/Zifencei 指令字段、执行操作、异常原因及核心公共类型。
-// 流水、调试和性能 payload 类型也由本 package 统一拥有。
+// 功能流水事务由本 package 定义。
 `ifndef RISCV_CORE_RVE
 `define RISCV_CORE_RVE 1
 `endif
@@ -130,7 +130,7 @@ package riscv_core_pkg;
     CSR_RC
   } csr_cmd_e;
 
-  // SYSTEM 操作随指令送至 WB；ECALL/EBREAK 在前级转为异常，MRET 在 WB 提交。
+  // 译码的 SYSTEM 操作；ECALL/EBREAK 在 ID 转为异常，EX 之后仅保留 is_mret。
   typedef enum logic [1:0] {
     SYS_NONE,
     SYS_ECALL,
@@ -168,15 +168,6 @@ package riscv_core_pkg;
   localparam csr_addr_t CsrMvendorid = 12'hf11;
   localparam csr_addr_t CsrMarchid = 12'hf12;
 
-`ifndef SYNTHESIS
-  // 调试接口中的退休访存事件编码；相关调试 payload 类型同样由本 package 定义。
-  typedef enum logic [1:0] {
-    RETIRE_MEM_NONE = 2'd0,
-    RETIRE_MEM_READ = 2'd1,
-    RETIRE_MEM_WRITE = 2'd2
-  } retire_mem_op_e;
-`endif
-
   // 执行与提交子事务 payload 类型
 
   // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
@@ -205,7 +196,6 @@ package riscv_core_pkg;
     mem_size_e mem_size;
     logic mem_sign_ext;
     wb_sel_e wb_sel;
-    logic rd_write;
     csr_cmd_e csr_cmd;
     logic csr_use_imm;
     csr_addr_t csr_addr;
@@ -227,7 +217,6 @@ package riscv_core_pkg;
   // 随指令传播的精确异常；一旦 valid 置位，年轻流水级只能保留而不能覆盖。
   typedef struct packed {
     logic valid;
-    logic is_interrupt;
     exception_cause_e cause;
     riscv_common_pkg::word_t tval;
   } exception_payload_t;
@@ -272,7 +261,7 @@ package riscv_core_pkg;
     riscv_common_pkg::word_t wdata;
   } csr_write_payload_t;
 
-  // 已实现 M-mode CSR 的架构快照，供退休调试记录本条指令提交后的状态。
+  // 已实现 M-mode CSR 的架构状态。
   typedef struct packed {
     riscv_common_pkg::word_t mstatus;
     riscv_common_pkg::word_t mtvec;
@@ -281,126 +270,56 @@ package riscv_core_pkg;
     riscv_common_pkg::word_t mtval;
   } csr_state_payload_t;
 
-  // 随指令送往 WB 的串行化和 SYSTEM/CSR 提交控制。
+  // 随指令送往 WB 的串行化和 MRET/CSR 提交控制。
   typedef struct packed {
     logic serialize;
     logic fence_i;
-    system_op_e system_op;
+    logic is_mret;
     csr_write_payload_t csr_write;
   } commit_ctrl_payload_t;
 
-  // 提交、调试与性能观测 payload 类型
-
-  // 指令的不可变元数据。它是流水线事务的唯一 PC/指令来源，避免外层字段和
-  // debug 字段重复携带相同信息。
+  // 前端执行与异常检测所需的指令元数据。
   typedef struct packed {
     pc_t pc;
     instr_t instr;
-`ifndef SYNTHESIS
-    logic [63:0] instid;
-`endif
   } instruction_meta_payload_t;
 
-  // EX 之后指令字仅用于观测；功能提交仍需 PC。仿真布局与前端元数据一致。
-`ifdef SYNTHESIS
-  typedef struct packed {pc_t pc;} commit_meta_payload_t;
-`else
-  typedef instruction_meta_payload_t commit_meta_payload_t;
-`endif
-
-`ifndef SYNTHESIS
-  // 退休观察器从功能 mem_req 与数据响应推导访存事件；功能通路不携带这些字段。
-  typedef struct packed {
-    retire_mem_op_e mem_op;
-    mem_size_e mem_size;
-    riscv_common_pkg::word_t mem_addr;
-    riscv_common_pkg::word_t mem_data;
-  } retire_mem_payload_t;
-
-  typedef struct packed {
-    logic valid;
-    pc_t target_pc;
-  } retire_redirect_payload_t;
-`endif
-
   // WB 到 CSR 单元的完整架构状态更新请求。
+  typedef enum logic [1:0] {
+    CSR_COMMIT_NONE,
+    CSR_COMMIT_WRITE,
+    CSR_COMMIT_TRAP,
+    CSR_COMMIT_MRET
+  } csr_commit_op_e;
+
   typedef struct packed {
-    csr_write_payload_t write;
-    logic trap;
+    csr_commit_op_e op;
+    csr_addr_t addr;
+    riscv_common_pkg::word_t wdata;
     riscv_common_pkg::word_t trap_epc;
-    logic trap_is_interrupt;
     exception_cause_e trap_cause;
     riscv_common_pkg::word_t trap_tval;
-    logic mret;
   } csr_commit_payload_t;
 
   // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在访存响应完成时修改
   // 异常和 load 写回数据，其余字段直接整体转移。退休观察字段不进入本结构。
   typedef struct packed {
-    commit_meta_payload_t meta;
+    pc_t pc;
     writeback_payload_t wb_req;
     exception_payload_t exception;
     commit_ctrl_payload_t commit;
   } commit_context_payload_t;
 
   // 提交优先级与 WB 一致：trap entry > MRET > FENCE.I > 普通写回。
-  // 只解释 exception/system_op/fence_i；其余上下文字段有意忽略。
+  // 只解释 exception/is_mret/fence_i；其余上下文字段有意忽略。
   /* verilator lint_off UNUSEDSIGNAL */
   function automatic commit_kind_e commit_kind_from_context(input commit_context_payload_t ctx);
     if (ctx.exception.valid) return COMMIT_TRAP;
-    if (ctx.commit.system_op == SYS_MRET) return COMMIT_MRET;
+    if (ctx.commit.is_mret) return COMMIT_MRET;
     if (ctx.commit.fence_i) return COMMIT_FENCE_I;
     return COMMIT_NORMAL;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
-
-`ifndef SYNTHESIS
-  // 完整退休快照由核心顶层观察器生成，不随流水级功能事务传播。
-  typedef struct packed {
-    instruction_meta_payload_t meta;
-    logic gpr_we;
-    reg_addr_t gpr_waddr;
-    riscv_common_pkg::word_t gpr_wdata;
-    retire_mem_payload_t mem;
-    retire_redirect_payload_t redirect;
-    csr_state_payload_t csr;
-  } retire_debug_payload_t;
-
-  // 仅供性能观测；顺序与仿真端的类别数组一致。
-  localparam int unsigned PerfClassCount = 7;
-  typedef enum logic [2:0] {
-    PERF_COMPUTE, PERF_LOAD, PERF_STORE, PERF_BRANCH,
-    PERF_JUMP, PERF_SYSTEM, PERF_OTHER
-  } perf_class_e;
-
-  typedef struct packed {
-    logic [63:0] instret_count;
-    logic [63:0] id_local_stall_cycle_count;
-    logic [63:0] ex_local_stall_cycle_count;
-    logic [63:0] mem_local_stall_cycle_count;
-    logic [63:0] wb_local_stall_cycle_count;
-  } class_performance_payload_t;
-
-  // 响应首次有效时累计服务延迟；未响应的请求和取消不形成样本。
-  typedef struct packed {
-    logic [63:0] response_count;
-    logic [63:0] latency_cycle_sum;
-    logic [63:0] request_stall_cycle_count;
-    logic [63:0] response_stall_cycle_count;
-  } memory_performance_payload_t;
-
-  // 局部阻塞按被挡在阶段入口的指令分类；IF 未译码，只统计总体。
-  typedef struct packed {
-    logic [63:0] cycle_count;
-    logic [63:0] instret_count;
-    // 最终送到 IF 的 redirect 事件总数，包含 EX 改道和 WB trap/MRET/FENCE.I。
-    logic [63:0] redirect_count;
-    logic [63:0] if_local_stall_cycle_count;
-    class_performance_payload_t [PerfClassCount-1:0] classes;
-    memory_performance_payload_t imem;
-    memory_performance_payload_t dmem;
-  } performance_debug_payload_t;
-`endif
 
   // 流水级边界事务
 

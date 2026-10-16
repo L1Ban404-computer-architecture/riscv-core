@@ -8,9 +8,9 @@
 
 ```mermaid
 flowchart LR
-  GPR[寄存器堆] --> ID[ID 读取并锁存快照]
+  GPR[寄存器堆] --> ID[ID 读取并经 ID/EX 锁存快照]
   WB[WB 提交值] -->|同拍读写旁路| GPR
-  ID --> F[EX forwarding_unit]
+  ID --> F[顶层 forwarding_unit]
   EM[EX/MEM 中的写回候选] -->|较近生产者| F
   MW[MEM/WB 中的写回候选] -->|较远生产者| F
   H[当前指令暂存的 MEM/WB 值] --> F
@@ -19,18 +19,19 @@ flowchart LR
 
 | 文件 | 职责 |
 | --- | --- |
-| [`rtl/core/pipeline/id_stage.sv`](rtl/core/pipeline/id_stage.sv) | 译码源寄存器及使用标志，锁存 GPR 读值到 ID/EX |
-| [`rtl/core/units/forwarding_unit.sv`](rtl/core/units/forwarding_unit.sv) | 分别解析 rs1、rs2，选择前递值、产生停顿、保存短暂出现的 WB 值 |
-| [`rtl/core/pipeline/ex_stage.sv`](rtl/core/pipeline/ex_stage.sv) | 从 EX/MEM 构造 `ex_wb`，使用前递结果，控制 ID/EX 向 EX/MEM 转移 |
-| [`rtl/core/pipeline/mem_stage.sv`](rtl/core/pipeline/mem_stage.sv) | 完成 load 数据整理，从 MEM/WB 构造 `mem_wb_forward` |
+| [`rtl/core/riscv_core_impl.sv`](rtl/core/riscv_core_impl.sv) | 实例化四组级间寄存器和前递单元，连接各级计算输出与寄存后的边界 |
+| [`rtl/core/pipeline/id_stage.sv`](rtl/core/pipeline/id_stage.sv) | 译码源寄存器及使用标志，生成携带 GPR 读值的 ID 计算输出 |
+| [`rtl/core/units/forwarding_unit.sv`](rtl/core/units/forwarding_unit.sv) | 从流水边界提取候选，分别解析 rs1、rs2，选择前递值、产生停顿、保存短暂出现的 WB 值 |
+| [`rtl/core/pipeline/ex_stage.sv`](rtl/core/pipeline/ex_stage.sv) | 使用前递结果，控制 ID/EX 向 EX/MEM 转移 |
+| [`rtl/core/pipeline/mem_stage.sv`](rtl/core/pipeline/mem_stage.sv) | 完成 load 数据整理，生成进入 MEM/WB 的计算输出 |
 | [`rtl/core/units/regfile.sv`](rtl/core/units/regfile.sv) | GPR 组合读、WB 同步写，以及 WB 到 ID 的同拍读写旁路 |
 | [`rtl/core/pipeline/pipeline_ctrl.sv`](rtl/core/pipeline/pipeline_ctrl.sv) | CSR、SYSTEM、FENCE.I、异常的串行化与改道控制 |
 
-`forwarding_unit` 的端口 `ex_wb` 实际来自 **EX/MEM 寄存器输出**，`mem_wb` 来自 **MEM/WB 寄存器输出**。它们都不是当前流水级尚未锁存的组合计算结果。
+`forwarding_unit` 通过 monitor 接口读取 ID/EX 的当前事务，以及 EX/MEM、MEM/WB 的较老生产者，在内部构造写回候选；通过 `execute_operands_if` 向 EX 提供两路操作数和 `stall`。候选都来自**寄存器输出**，不使用当前流水级尚未锁存的组合计算结果。
 
 ## 写回候选与选择优先级
 
-前递接口使用 `writeback_payload_t`：
+前递单元内部的写回候选使用 `writeback_payload_t`：
 
 | 字段 | 含义 |
 | --- | --- |
@@ -38,6 +39,8 @@ flowchart LR
 | `rd_addr` | 目的寄存器地址 |
 | `data_valid` | 结果已经可用；与“存在生产者”分开表示 |
 | `wdata` | 可用的写回数据 |
+
+WB 到寄存器堆使用 `gpr_write_if`，只携带已经确认的写使能、目的地址和数据。
 
 对 rs1、rs2 **独立**选择，只有 `rs*_used=1` 且源地址不为 x0 时才参与匹配。优先级如下：
 
@@ -72,11 +75,12 @@ CSR 寄存器之间没有专用前递网络。CSR/SYSTEM 等指令在 EX 执行�
 
 ## 停顿与典型时序
 
-`forward_stall` 为两路源操作数停顿请求的或。EX 的握手条件为：
+`operands.stall` 为两路源操作数停顿请求的或。EX 的 `result` 输出端口连接顶层 `ex_result`，其 ready 表示 EX/MEM 寄存器的输入容量，握手条件为：
 
 ```text
-input_enable = !forward_stall && !serialize_stall && !flush_i
-id_ex.ready  = ex_mem_input_ready && input_enable
+input_enable = !operands.stall && !serialize_stall && !flush_i
+id_ex.ready  = result.ready && input_enable
+result.valid = id_ex.valid && input_enable
 execute_fire = id_ex.valid && id_ex.ready
 ```
 
@@ -95,7 +99,7 @@ load-use 时，load 在 EX/MEM 中的 `data_valid` 始终为 0。即使本拍总
 | 周期 | load 状态 | 依赖指令的行为 |
 | --- | --- | --- |
 | T | 在 EX 生成地址，尚未得到数据 | 位于 ID |
-| T+1 起 | EX/MEM 保留 load 元数据，等待请求/响应完成 | 在 EX 等待，`forward_stall=1` |
+| T+1 起 | EX/MEM 保留 load 元数据，等待请求/响应完成 | 在 EX 等待，`operands.stall=1` |
 | R | 响应握手，本拍末 load 进入 MEM/WB | 本拍仍匹配 EX/MEM 的未就绪生产者，继续等待 |
 | R+1 | MEM/WB 中已有对齐并按需扩展的 load 值 | 从 MEM/WB 前递；其他条件允许时，本拍末执行推进 |
 

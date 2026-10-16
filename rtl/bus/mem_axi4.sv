@@ -9,7 +9,6 @@
 module mem_axi4
   import riscv_bus_pkg::*;
 #(
-  parameter int unsigned AddrWidth = 32,
   parameter int unsigned DataWidth = 32,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = MEM_AXI_ID,

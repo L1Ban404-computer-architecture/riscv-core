@@ -28,10 +28,7 @@ module icache_miss
     StateSendAr,
     StateReceiveR
   } state_e;
-  typedef struct packed {
-    logic [DataWidth-1:0] rdata;
-    logic error;
-  } rsp_t;
+  typedef miss.rsp_payload_t rsp_t;
 
   state_e state_q;
   logic [AddrWidth-1:0] beat_addr_q;
