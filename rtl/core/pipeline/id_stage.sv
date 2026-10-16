@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 译码、读取 GPR 并生成 ID/EX 事务。IF 异常优先；GPR 数据相关由 EX 前递处理。
+// 译码、读取 GPR 并生成 ID/EX 事务。IF 异常优先；输出先经前递再锁存。
 module id_stage
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -67,7 +67,7 @@ module id_stage
 
   // 本级握手；ID/EX 寄存器由顶层持有。
 
-  // 普通 GPR 相关不阻止译码；满载且 EX 就绪允许同拍弹出和写入。
+  // GPR 相关通过前递单元的 ready 反压；等待期间继续读取寄存器堆。
   assign input_enable = !serialize_block_i && !flush_i;
   assign if_id.ready = result.ready && input_enable;
 

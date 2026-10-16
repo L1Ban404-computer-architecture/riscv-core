@@ -28,13 +28,13 @@ module riscv_core_impl
 
   // 各级计算输出与寄存后的流水边界。
   if_id_if if_result ();
-  if_id_if if_id ();
+  if_id_if if_result_buffered ();
   id_ex_if id_result ();
-  id_ex_if id_ex ();
+  id_ex_if id_result_buffered ();
   ex_mem_if ex_result ();
-  ex_mem_if ex_mem ();
+  ex_mem_if ex_result_buffered ();
   mem_wb_if mem_result ();
-  mem_wb_if mem_wb ();
+  mem_wb_if mem_result_buffered ();
 
   redirect_if ex_redirect ();
   redirect_if wb_redirect ();
@@ -43,7 +43,7 @@ module riscv_core_impl
   csr_commit_if csr_commit ();
   csr_status_if csr_status ();
   gpr_read_if gpr_read ();
-  execute_operands_if operands ();
+  id_ex_if forward_result ();
   gpr_write_if wb ();
 
   logic serialize_block;
@@ -77,20 +77,29 @@ module riscv_core_impl
     .valid_i(if_result.valid),
     .ready_o(if_result.ready),
     .data_i(if_result.payload),
-    .valid_o(if_id.valid),
-    .ready_i(if_id.ready),
-    .data_o(if_id.payload)
+    .valid_o(if_result_buffered.valid),
+    .ready_i(if_result_buffered.ready),
+    .data_o(if_result_buffered.payload)
   );
 
   id_stage u_id_stage (
     .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
-    .if_id,
+    .if_id(if_result_buffered),
     .result(id_result),
     .gpr_read
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.decode)
 `endif
+  );
+
+  // ID 操作数就绪后才写入 ID/EX；当前 EX 生产者匹配时反压 ID。
+  forwarding_unit u_forwarding_unit (
+    .decoded(id_result),
+    .id_ex(id_result_buffered),
+    .ex_mem(ex_result_buffered),
+    .mem_wb(mem_result_buffered),
+    .result(forward_result)
   );
 
   stream_register #(
@@ -99,19 +108,18 @@ module riscv_core_impl
     .clk_i,
     .rst_ni,
     .flush_i(backend_flush),
-    .valid_i(id_result.valid),
-    .ready_o(id_result.ready),
-    .data_i(id_result.payload),
-    .valid_o(id_ex.valid),
-    .ready_i(id_ex.ready),
-    .data_o(id_ex.payload)
+    .valid_i(forward_result.valid),
+    .ready_o(forward_result.ready),
+    .data_i(forward_result.payload),
+    .valid_o(id_result_buffered.valid),
+    .ready_i(id_result_buffered.ready),
+    .data_o(id_result_buffered.payload)
   );
 
   ex_stage u_ex_stage (
     .flush_i(backend_flush),
     .serialize_ready_i(serialize_ready),
-    .id_ex,
-    .operands,
+    .id_ex(id_result_buffered),
     .csr_read,
     .redirect(ex_redirect),
     .result(ex_result)
@@ -129,9 +137,9 @@ module riscv_core_impl
     .valid_i(ex_result.valid),
     .ready_o(ex_result.ready),
     .data_i(ex_result.payload),
-    .valid_o(ex_mem.valid),
-    .ready_i(ex_mem.ready),
-    .data_o(ex_mem.payload)
+    .valid_o(ex_result_buffered.valid),
+    .ready_i(ex_result_buffered.ready),
+    .data_o(ex_result_buffered.payload)
   );
 
   mem_stage u_mem_stage (
@@ -139,7 +147,7 @@ module riscv_core_impl
     .rst_ni,
     .flush_i(backend_flush),
     .side_effect_block_i(mem_side_effect_block),
-    .ex_mem,
+    .ex_mem(ex_result_buffered),
     .dmem,
     .result(mem_result)
 `ifndef SYNTHESIS
@@ -156,15 +164,15 @@ module riscv_core_impl
     .valid_i(mem_result.valid),
     .ready_o(mem_result.ready),
     .data_i(mem_result.payload),
-    .valid_o(mem_wb.valid),
-    .ready_i(mem_wb.ready),
-    .data_o(mem_wb.payload)
+    .valid_o(mem_result_buffered.valid),
+    .ready_i(mem_result_buffered.ready),
+    .data_o(mem_result_buffered.payload)
   );
 
   wb_stage u_wb_stage (
     .clk_i,
     .rst_ni,
-    .mem_wb,
+    .mem_wb(mem_result_buffered),
     .csr_commit,
     .csr_status,
     .redirect(wb_redirect),
@@ -173,17 +181,6 @@ module riscv_core_impl
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.writeback)
 `endif
-  );
-
-  // 前递统一观察流水边界，向 EX 提供操作数和等待条件。
-
-  forwarding_unit u_forwarding_unit (
-    .clk_i,
-    .rst_ni,
-    .id_ex,
-    .ex_mem,
-    .mem_wb,
-    .operands
   );
 
   // 架构状态：只接受 WB 提交。
@@ -208,9 +205,9 @@ module riscv_core_impl
   // 改道与串行化控制
 
   pipeline_ctrl u_pipeline_ctrl (
-    .id_ex,
-    .ex_mem,
-    .mem_wb,
+    .id_ex(id_result_buffered),
+    .ex_mem(ex_result_buffered),
+    .mem_wb(mem_result_buffered),
     .ex_redirect,
     .wb_redirect,
     .serialize_block_o(serialize_block),

@@ -19,15 +19,6 @@ interface gpr_write_if;
   modport monitor(input valid, rd_addr, wdata);
 endinterface
 
-// 前递单元向 EX 提供已经解析的操作数与数据相关等待条件。
-interface execute_operands_if;
-  riscv_common_pkg::word_t rs1_value;
-  riscv_common_pkg::word_t rs2_value;
-  logic stall;
-  modport producer(output rs1_value, rs2_value, stall);
-  modport consumer(input rs1_value, rs2_value, stall);
-endinterface
-
 // ID 到寄存器堆的两路组合读；写回旁路仍由寄存器堆在内部完成。
 interface gpr_read_if;
   riscv_core_pkg::reg_addr_t rs1_addr;

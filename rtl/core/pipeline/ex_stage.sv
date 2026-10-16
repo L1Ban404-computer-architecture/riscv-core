@@ -1,8 +1,8 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 使用前递后的操作数，生成运算结果、访存请求和提交上下文。
-// 最近生产者未就绪时停顿；串行化指令等待更老事务排空；架构状态只在 WB 提交。
+// 使用 ID/EX 中已就绪的操作数，生成运算结果、访存请求和提交上下文。
+// 串行化指令等待更老事务排空；架构状态只在 WB 提交。
 module ex_stage
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -11,9 +11,8 @@ module ex_stage
   input logic flush_i,
   input logic serialize_ready_i,
 
-  // 流水事务与前递
+  // 已在 ID 完成前递并锁存的流水事务
   id_ex_if.consumer id_ex,
-  execute_operands_if.consumer operands,
 
   // CSR 与改道
   csr_read_if.requester csr_read,
@@ -48,9 +47,9 @@ module ex_stage
 
   assign pc_plus_4 = id_ex.payload.meta.pc + word_t'(4);
   assign operand_a = (id_ex.payload.ctrl.op_a_sel == OP_A_PC) ? id_ex.payload.meta.pc :
-      operands.rs1_value;
+      id_ex.payload.exec_data.rs1_value;
   assign operand_b = (id_ex.payload.ctrl.op_b_sel == OP_B_IMM) ? id_ex.payload.exec_data.imm :
-      operands.rs2_value;
+      id_ex.payload.exec_data.rs2_value;
 
   alu u_alu (
     .alu_op_i(id_ex.payload.ctrl.alu_op),
@@ -63,8 +62,8 @@ module ex_stage
     .execute_fire_i(id_ex.fire),
     .illegal_instr_i(id_ex.payload.exception.valid),
     .branch_op_i(id_ex.payload.ctrl.branch_op),
-    .rs1_value_i(operands.rs1_value),
-    .rs2_value_i(operands.rs2_value),
+    .rs1_value_i(id_ex.payload.exec_data.rs1_value),
+    .rs2_value_i(id_ex.payload.exec_data.rs2_value),
     .alu_target_i(alu_result),
     .redirect(branch_redirect)
   );
@@ -73,7 +72,7 @@ module ex_stage
 
   assign csr_read.addr = id_ex.payload.ctrl.csr_addr;
   assign csr_source = id_ex.payload.ctrl.csr_use_imm ? id_ex.payload.exec_data.imm :
-      operands.rs1_value;
+      id_ex.payload.exec_data.rs1_value;
   assign csr_write_attempt = (id_ex.payload.ctrl.csr_cmd == CSR_RW) ||
       (((id_ex.payload.ctrl.csr_cmd == CSR_RS) || (id_ex.payload.ctrl.csr_cmd == CSR_RC)) &&
        (csr_source != '0));
@@ -162,7 +161,7 @@ module ex_stage
     next_mem_req.sign_ext = id_ex.payload.ctrl.mem_sign_ext;
     next_mem_req.addr = alu_result;
     // 保留未经 lane 对齐的 rs2 数据，移位放在 MEM，写掩码由总线适配器生成。
-    next_mem_req.wdata = operands.rs2_value;
+    next_mem_req.wdata = id_ex.payload.exec_data.rs2_value;
 
     // CSR 指令把旧值放入普通 GPR 写回路径，把新值作为提交请求随指令送到 WB。
     // RS/RC 的零源操作数按规范只读，不形成 CSR 写请求。
@@ -179,12 +178,11 @@ module ex_stage
 
   // 本级握手；EX/MEM 寄存器由顶层持有。
 
-  // 前递数据未就绪时不允许当前 ID/EX 事务进入 EX/MEM 寄存器。
   // ID 已知的异常与 SYSTEM/CSR 一样，必须先等待所有更老事务排空。
   // 这也避免取指错误携带的无意义指令位影响串行化判断。
   assign serialize_stall = (id_ex.payload.ctrl.serialize || id_ex.payload.exception.valid) &&
       !serialize_ready_i;
-  assign input_enable = !operands.stall && !serialize_stall && !flush_i;
+  assign input_enable = !serialize_stall && !flush_i;
   assign id_ex.ready = result.ready && input_enable;
 
   assign result.valid = id_ex.valid && input_enable;
