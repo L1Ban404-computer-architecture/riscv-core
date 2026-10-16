@@ -1,14 +1,11 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 译码、读取 GPR 并生成 ID/EX 事务。IF 异常优先；屏障只阻止新事务进入。
+// 译码、读取 GPR 并生成 ID/EX 事务。IF 异常优先；GPR 数据相关由 EX 前递处理。
 module id_stage
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
-#(
-  // 临时 ID 冒险屏障开关；关闭即可恢复仅靠原有 EX 前递/停顿处理数据相关。
-  parameter bit EnableTemporaryGprStall = 1'b1
-) (
+(
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
@@ -18,9 +15,6 @@ module id_stage
   // 流水事务
   if_id_if.consumer if_id,
   id_ex_if.producer id_ex,
-  // 临时屏障的观察输入，不改变较老流水级的推进或前递行为。
-  ex_mem_if.monitor ex_mem,
-  mem_wb_if.monitor mem_wb,
   gpr_read_if.requester gpr_read
 );
 
@@ -29,7 +23,6 @@ module id_stage
 
   id_ex_payload_t next_payload;
   logic id_ex_input_ready;
-  logic temporary_gpr_stall;
   logic input_enable;
 
   assign gpr_read.req_payload.rs1_addr = decoded.reg_addr.rs1_addr;
@@ -74,24 +67,8 @@ module id_stage
 
   // ID/EX 弹性寄存器
 
-  // 临时逻辑集中在此：停留在 IF/ID，冲突清除后才锁存 GPR 的组合读结果。
-  // 只阻止新事务进入 ID/EX，不阻止其中的较老事务排空，避免等待写回时死锁。
-  if (EnableTemporaryGprStall) begin : gen_temporary_gpr_stall
-    id_gpr_hazard_guard u_id_gpr_hazard_guard (
-      .transaction_valid_i(if_id.valid && !next_payload.exception.valid),
-      .sources_i(decoded.reg_addr),
-      .id_ex_valid_i(id_ex.valid),
-      .id_ex_payload_i(id_ex.payload),
-      .ex_mem,
-      .mem_wb,
-      .stall_o(temporary_gpr_stall)
-    );
-  end else begin : gen_no_temporary_gpr_stall
-    assign temporary_gpr_stall = 1'b0;
-  end
-
-  // 无串行化或临时 GPR 冲突时，满载且 EX 就绪允许同拍弹出和写入。
-  assign input_enable = !serialize_block_i && !flush_i && !temporary_gpr_stall;
+  // 普通 GPR 相关不阻止译码；满载且 EX 就绪允许同拍弹出和写入。
+  assign input_enable = !serialize_block_i && !flush_i;
   assign if_id.ready = id_ex_input_ready && input_enable;
 
   stream_register #(

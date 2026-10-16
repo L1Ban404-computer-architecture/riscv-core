@@ -9,7 +9,7 @@ RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建�
 | 路径 | 责任与边界 |
 | --- | --- |
 | `rtl/core/pipeline/if_stage.sv` | 发出取指，保存请求 PC，将回应交给 IF/ID；改道当拍清前端，下一拍取消旧存储请求 |
-| `rtl/core/pipeline/id_stage.sv` | 译码、立即数与 GPR 读取，形成 ID/EX；临时 RAW 屏障只阻止新事务进入 |
+| `rtl/core/pipeline/id_stage.sv` | 译码、立即数与 GPR 读取，形成 ID/EX；GPR 数据相关由 EX 前递处理 |
 | `rtl/core/pipeline/ex_stage.sv` | 前递、ALU、分支、地址和 CSR 计算；生成提交上下文及独立访存请求 |
 | `rtl/core/pipeline/mem_stage.sv` | 数据对齐、CoreBus 请求和响应；EX/MEM 保留元数据直到响应完成 |
 | `rtl/core/pipeline/wb_stage.sv` | 唯一架构提交点；提交 GPR、CSR、异常、MRET 与 FENCE.I |
@@ -30,6 +30,8 @@ RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建�
 异常随指令传播，已存在的较老异常不被后级覆盖。WB 优先级为 trap、MRET、FENCE.I、普通写回；WB 改道覆盖同拍 EX 改道并冲刷后端，EX 分支只冲刷前端。CSR 和异常构成串行化屏障，执行前等待更老事务排空。
 
 MEM 最多一笔访存在途，允许请求与响应同拍完成。请求握手后，EX/MEM 继续保持元数据，直到响应进入 MEM/WB；flush 不取消已经发出的数据请求。EX 前递选择最近生产者，最近数据未就绪时不能使用更老结果；阻塞期间出现的 MEM/WB 数据需要保存。
+
+前递来源、优先级、load-use 停顿与反压期间的数据保存详见 [数据前递说明](FORWARDING.md)。
 
 IF 的存储回应至少晚于请求一拍。改道当拍仍可能接受旧 PC，所以存储侧 flush 延迟一拍；这个 flush 取消旧请求并保留同拍接受的目标 PC 请求。
 

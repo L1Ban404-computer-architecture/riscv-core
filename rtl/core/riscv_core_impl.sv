@@ -9,9 +9,7 @@ module riscv_core_impl
   import riscv_core_pkg::*;
 #(
   parameter int unsigned ExMaxInflight = 1,
-  parameter int unsigned MemMaxInflight = 1,
-  // 临时 ID RAW 屏障：设为 0 即恢复原有译码行为，EX 数据前递始终保留。
-  parameter bit EnableTemporaryIdGprStall = 1'b1
+  parameter int unsigned MemMaxInflight = 1
 ) (
   // 全局控制
   input logic clk_i,
@@ -72,17 +70,13 @@ module riscv_core_impl
     .if_id
   );
 
-  id_stage #(
-    .EnableTemporaryGprStall(EnableTemporaryIdGprStall)
-  ) u_id_stage (
+  id_stage u_id_stage (
     .clk_i,
     .rst_ni,
     .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
     .if_id,
     .id_ex,
-    .ex_mem,
-    .mem_wb,
     .gpr_read
   );
 
