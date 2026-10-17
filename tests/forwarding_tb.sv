@@ -6,12 +6,10 @@ module forwarding_tb;
 
   id_ex_if decoded ();
   id_ex_if forwarded ();
-  id_ex_if executing ();
-  ex_mem_if executed ();
-  mem_wb_if completed ();
+  writeback_payload_t ex_wb, mem_wb, wb;
 
   forwarding_unit dut (
-    .decoded, .id_ex(executing), .ex_mem(executed), .mem_wb(completed), .result(forwarded)
+    .decoded, .ex_wb_i(ex_wb), .mem_wb_i(mem_wb), .wb_i(wb), .result(forwarded)
   );
 
   task automatic check_result(input string label_text, input bit available,
@@ -33,15 +31,9 @@ module forwarding_tb;
     decoded.valid = 1;
     decoded.payload = '0;
     forwarded.ready = 1;
-    executing.valid = 0;
-    executing.ready = 0;
-    executing.payload = '0;
-    executed.valid = 0;
-    executed.ready = 1;
-    executed.payload = '0;
-    completed.valid = 0;
-    completed.ready = 1;
-    completed.payload = '0;
+    ex_wb = '0;
+    mem_wb = '0;
+    wb = '0;
 
     decoded.payload.meta.pc = 'h30000000;
     decoded.payload.meta.instr = 'h002081b3;
@@ -56,84 +48,62 @@ module forwarding_tb;
     decoded.payload.exec_data.rs2_value = 20;
     check_result("GPR passthrough without a clock", 1, 10, 20);
 
-    executed.valid = 1;
-    executed.payload.commit_ctx.wb_req = '{valid: 1, data_valid: 1, rd_addr: 1, wdata: 30};
-    completed.valid = 1;
-    completed.payload.wb_req = '{valid: 1, data_valid: 1, rd_addr: 1, wdata: 40};
-    check_result("EX/MEM wins over MEM/WB", 1, 30, 20);
+    mem_wb = '{valid: 1, data_valid: 1, rd_addr: 1, wdata: 30};
+    wb = '{valid: 1, data_valid: 1, rd_addr: 1, wdata: 40};
+    check_result("MEM wins over WB", 1, 30, 20);
+    ex_wb = '{valid: 1, data_valid: 1, rd_addr: 1, wdata: 50};
+    check_result("EX wins over both older producers", 1, 50, 20);
+    ex_wb.data_valid = 0;
+    check_result("unready EX blocks both older values", 0, 10, 20);
+    ex_wb.valid = 0;
+    ex_wb.data_valid = 1;
+    check_result("invalid EX candidate ignores ready payload", 1, 30, 20);
 
-    executing.valid = 1;
-    executing.payload.reg_addr.rd_addr = 1;
-    executing.payload.ctrl.wb_sel = WB_ALU;
-    check_result("EX producer blocks both older values even while EX is stalled", 0, 10, 20);
-    executing.ready = 1;
-    check_result("EX producer still blocks on its departure cycle", 0, 10, 20);
-    executing.payload.ctrl.wb_sel = WB_MEM;
-    check_result("EX load also blocks", 0, 10, 20);
-    executing.payload.ctrl.wb_sel = WB_PC4;
-    check_result("EX link register write also blocks", 0, 10, 20);
-    executing.payload.ctrl.wb_sel = WB_CSR;
-    check_result("EX CSR GPR write also blocks", 0, 10, 20);
-    executing.payload.ctrl.wb_sel = WB_NONE;
-    check_result("EX non-writer ignored", 1, 30, 20);
-    executing.payload.ctrl.wb_sel = WB_ALU;
-    executing.payload.exception.valid = 1;
-    check_result("EX instruction with known exception cannot write GPR", 1, 30, 20);
-    executing.payload.exception.valid = 0;
-    executing.payload.reg_addr.rd_addr = 0;
-    check_result("EX write to x0 ignored", 1, 30, 20);
-    executing.payload.reg_addr.rd_addr = 1;
-    executing.valid = 0;
-    check_result("invalid EX transaction ignored", 1, 30, 20);
-
-    executing.valid = 1;
-    executing.payload.reg_addr.rd_addr = 2;
-    check_result("EX dependency on rs2 blocks independently", 0, 30, 20);
+    ex_wb = '{valid: 1, data_valid: 0, rd_addr: 2, wdata: 60};
+    check_result("rs2 can independently block", 0, 30, 20);
     decoded.payload.reg_addr.rs2_used = 0;
     check_result("unused rs2 cannot stall", 1, 30, 20);
     decoded.payload.reg_addr.rs2_used = 1;
-    executing.valid = 0;
+    ex_wb.data_valid = 1;
+    check_result("sources forward from different stages", 1, 30, 60);
+    ex_wb.valid = 0;
 
-    executed.payload.commit_ctx.wb_req.data_valid = 0;
-    check_result("unready MEM producer blocks older WB value", 0, 10, 20);
-    completed.payload.wb_req.rd_addr = 2;
+    mem_wb.data_valid = 0;
+    check_result("unready MEM producer blocks older WB", 0, 10, 20);
+    wb.rd_addr = 2;
     check_result("load wait with independent WB source", 0, 10, 40);
-    executed.valid = 0;
-    completed.payload.wb_req = '{valid: 1, data_valid: 0, rd_addr: 2, wdata: 70};
-    check_result("unready WB blocks", 0, 10, 20);
-    completed.payload.wb_req.data_valid = 1;
+    mem_wb.data_valid = 1;
+    mem_wb.wdata = 70;
     forwarded.ready = 0;
-    check_result("downstream backpressure does not alter data or valid", 1, 10, 70);
+    check_result("MEM response forwards without a handshake", 1, 70, 40);
     forwarded.ready = 1;
-    check_result("release backpressure", 1, 10, 70);
+    check_result("release backpressure", 1, 70, 40);
+    mem_wb.valid = 0;
+    check_result("invalid MEM candidate ignores ready payload", 1, 10, 40);
+    wb.data_valid = 0;
+    check_result("unready WB cannot forward", 0, 10, 20);
+    wb.data_valid = 1;
 
-    completed.valid = 0;
-    executed.valid = 1;
-    executed.payload.commit_ctx.wb_req = '{valid: 1, data_valid: 0, rd_addr: 1, wdata: 80};
+    mem_wb = '{valid: 1, data_valid: 0, rd_addr: 1, wdata: 80};
     decoded.payload.reg_addr.rs1_used = 0;
-    check_result("unused rs1 cannot stall", 1, 10, 20);
+    check_result("unused rs1 cannot stall", 1, 10, 40);
     decoded.payload.reg_addr.rs1_used = 1;
     decoded.payload.reg_addr.rs1_addr = 0;
     decoded.payload.exec_data.rs1_value = 0;
-    executed.payload.commit_ctx.wb_req.rd_addr = 0;
-    executing.valid = 1;
-    executing.payload.reg_addr.rd_addr = 0;
-    check_result("x0 cannot forward or stall", 1, 0, 20);
-    executing.valid = 0;
+    mem_wb.rd_addr = 0;
+    ex_wb = '{valid: 1, data_valid: 1, rd_addr: 0, wdata: 90};
+    check_result("x0 cannot forward or stall", 1, 0, 40);
+    ex_wb.valid = 0;
     decoded.payload.reg_addr.rs1_addr = 1;
-    executed.payload.commit_ctx.wb_req.rd_addr = 1;
-    executed.payload.commit_ctx.wb_req.valid = 0;
-    check_result("invalid writeback request ignored", 1, 0, 20);
-    executed.payload.commit_ctx.wb_req.valid = 1;
-    executed.valid = 0;
-    check_result("invalid MEM producer ignored", 1, 0, 20);
-    completed.valid = 1;
-    completed.payload.wb_req.valid = 0;
-    check_result("invalid WB write ignored", 1, 0, 20);
+    mem_wb.rd_addr = 1;
+    mem_wb.valid = 0;
+    check_result("invalid writeback request ignored", 1, 0, 40);
+    wb.valid = 0;
+    check_result("invalid WB ignored", 1, 0, 20);
     decoded.valid = 0;
     check_result("empty input", 1, 0, 20);
 
-    $display("PASS: ID forwarding priority, EX interlock, source usage and handshake");
+    $display("PASS: EX/MEM/WB candidate priority, unready producers, source usage and handshake");
     $finish;
   end
 endmodule

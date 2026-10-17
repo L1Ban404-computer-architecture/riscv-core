@@ -14,8 +14,11 @@ test: $(TESTS)
 stream_register_tb: EXTRA_SOURCES := ../rtl/common/stream_register.sv
 stream_fifo_tb: EXTRA_SOURCES := ../rtl/common/stream_fifo.sv ../rtl/common/fall_through_register.sv
 forwarding_tb: EXTRA_SOURCES :=
-forwarding_pipeline_tb: EXTRA_SOURCES := ../rtl/core/units/regfile.sv \
-	../rtl/common/stream_fifo.sv ../rtl/common/stream_register.sv
+forwarding_pipeline_tb: EXTRA_SOURCES := ../rtl/bus/riscv_bus_pkg.sv \
+	../rtl/bus/riscv_bus_if.sv ../rtl/core/riscv_debug_pkg.sv \
+	../rtl/core/units/regfile.sv ../rtl/common/stream_register.sv \
+	../rtl/core/pipeline/ex_stage.sv ../rtl/core/pipeline/mem_stage.sv \
+	../rtl/core/pipeline/wb_stage.sv -y ../rtl/core/units
 pipeline_flush_tb: EXTRA_SOURCES := ../rtl/bus/riscv_bus_pkg.sv \
 	../rtl/bus/riscv_bus_if.sv ../rtl/core/riscv_debug_pkg.sv ../rtl/common/stream_fifo.sv \
 	../rtl/common/stream_register.sv ../rtl/common/fall_through_register.sv \

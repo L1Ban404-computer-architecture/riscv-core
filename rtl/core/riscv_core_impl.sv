@@ -91,12 +91,14 @@ module riscv_core_impl
 `endif
   );
 
-  // ID 操作数就绪后才写入 ID/EX；当前 EX 生产者匹配时反压 ID。
+  // 各阶段组合结果直接前递到 ID；最新生产者尚未就绪时反压 ID。
   forwarding_unit u_forwarding_unit (
     .decoded(id_result),
     .id_ex(id_result_buffered),
+    .ex_result(ex_result),
     .ex_mem(ex_result_buffered),
-    .mem_wb(mem_result_buffered),
+    .mem_result(mem_result),
+    .wb,
     .result(forward_result)
   );
 
