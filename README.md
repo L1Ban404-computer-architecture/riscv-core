@@ -4,7 +4,7 @@ RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建�
 
 ## 阅读顺序
 
-先看 `rtl/core/riscv_core_impl.sv` 的连接，再按 IF、ID、EX、MEM、WB 读取流水级。功能事务由 `riscv_core_pkg.sv` 和 `riscv_core_if.sv` 定义，独立调试通路由 `riscv_debug_pkg.sv` 和 `riscv_debug_if.sv` 定义。
+先看 `rtl/core/riscv_core_impl.sv` 的连接，再按 IF、ID、EX、MEM、WB 读取流水级。基础宽度与标量类型（`XLen`、`word_t`）、功能事务由 `riscv_core_pkg.sv` 和 `riscv_core_if.sv` 定义，独立调试通路由 `riscv_debug_pkg.sv` 和 `riscv_debug_if.sv` 定义。
 
 四组级间寄存器和 `forwarding_unit` 统一在 `riscv_core_impl` 实例化，各级计算输出端口统一命名为 `result`。`if_result`、`id_result`、`ex_result`、`mem_result` 是各级计算输出，对应的 `*_result_buffered` 是级间缓冲输出，`forward_result` 是写入 ID/EX 前已完成操作数选择的 ID 事务；IF/ID 保留空载直通。顶层只声明和连接模块，本级握手由 stage 处理，前递候选提取、操作数选择及数据未就绪时的握手阻塞由前递单元处理。
 
@@ -28,21 +28,21 @@ RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建�
 
 ## 必须保持的时序约束
 
-流水边界以 `valid && ready` 完成一次传输。反压时保持事务；`stream_register` 不组合穿透，但允许满载时同拍弹出和写入；`fall_through_register` 在空载时组合穿透。两者不可互换。
+流水边界以 `valid && ready` 完成一次传输。反压时保持事务；`stream_register` 不组合穿透，但允许满载时同拍弹出和写入；`fall_through_register` 在空载时组合穿透。两者与 `stream_fifo` 使用相同的 flush 语义：当拍屏蔽输出 valid、将输入 ready 置高，时钟沿清除旧内容并保留当拍握手的新输入；即使启用直通，flush 当拍也不允许输出新输入。上游负责取消旧路径输入。FIFO 的 usage 为寄存计数，在时钟沿后反映新占用量。
 
-各级计算输出在写入寄存器前可以随操作数更新，寄存器负责保存已经接收的事务。IF/ID 使用 `FlushMask=1`，在改道当拍屏蔽旧事务，并在时钟沿清空；其他三级边界在 WB 改道时清空。MEM/WB 不组合屏蔽输出，保证发起改道的 WB 指令仍能正常提交。
+各级计算输出在写入寄存器前可以随操作数更新，寄存器负责保存已经接收的事务。IF/ID 保留空载直通，在改道当拍屏蔽旧事务；IF 同时取消旧路径输入，因而时钟沿后为空。ID/EX、EX/MEM 在 WB 改道当拍屏蔽旧输出，年轻输入已由上游取消，因而时钟沿后为空；ID、EX、MEM 本级无需重复 flush 门控。MEM/WB 的 flush 固定为零，保证发起改道的 WB 指令正常提交，随后由恒 ready 的 WB 自然弹空，避免改道到自身 valid 的组合反馈。调试影子队列遵循相同的取消与退休边界。
 
 异常随指令传播，已存在的较老异常不被后级覆盖。WB 优先级为 trap、MRET、FENCE.I、普通写回；WB 改道覆盖同拍 EX 改道并冲刷后端，EX 分支只冲刷前端。CSR 和异常构成串行化屏障，执行前等待更老事务排空。CSR 提交使用 NONE、WRITE、TRAP、MRET 操作枚举；WB 在调试输出中提供提交事件与类别。
 
 `wb_sel != WB_NONE` 表示指令产生普通 GPR 写回，EX 再屏蔽 x0 和异常。ECALL/EBREAK 在 ID 转为同步异常，EX 之后的提交上下文直接保存 PC 和 `is_mret`，不再携带完整 SYSTEM 操作；当前没有中断入口，trap 提交的 mcause 中断位固定为零。
 
-MEM 最多一笔访存在途，允许请求与响应同拍完成。请求握手后，EX/MEM 继续保持元数据，直到响应进入 MEM/WB；flush 不取消已经发出的数据请求。ID 前递先检查 ID/EX 生产者，相关时等待；再按 EX/MEM、MEM/WB、GPR 实时读值的顺序选择。最近数据未就绪时不能使用更老结果；WB 离开后从 GPR 读取已提交值，无需前递暂存。
+MEM 最多一笔访存在途，允许请求与响应同拍完成。请求握手后，EX/MEM 继续保持元数据，直到响应进入 MEM/WB；后端冲刷只能发生在没有在途数据请求时。MEM 保留 WB 提交屏障与请求/响应所有权检查，元数据有效性断言同时检查在途访存不被冲刷。ID 前递先检查 ID/EX 生产者，相关时等待；再按 EX/MEM、MEM/WB、GPR 实时读值的顺序选择。最近数据未就绪时不能使用更老结果；WB 离开后从 GPR 读取已提交值，无需前递暂存。
 
 GPR/CSR 组合读接口直接暴露地址和数据，CSR 的 `implemented` 表示地址是否实现。GPR 只组合读取阵列、在时钟沿写入 WB 值；同拍读写相关由前递单元的 MEM/WB 路径处理，寄存器堆不重复旁路。`gpr_write_if` 只表示 WB 已确认的架构写入，流水中的写回候选仍区分生产者有效与数据就绪。
 
 前递来源、优先级、相邻 ALU 依赖与 load-use 停顿详见 [数据前递说明](FORWARDING.md)。
 
-IF 的存储回应至少晚于请求一拍。改道当拍仍可能接受旧 PC，所以存储侧 flush 延迟一拍；这个 flush 取消旧请求并保留同拍接受的目标 PC 请求。
+IF 的存储回应至少晚于请求一拍，因此功能和调试侧取指元数据使用 `stream_register`，不增加回应等待。改道当拍仍可能接受旧 PC，该请求不保存元数据；存储侧 flush 延迟一拍，取消旧请求并保留同拍接受的目标 PC 请求及其新元数据。
 
 I-cache 的查询、回填与回应有不同寿命：
 
@@ -87,7 +87,7 @@ I-cache 的 hit/miss 延迟使用相同边界；命中率按全部已接受并�
 ```sh
 make check RVE=1              # RV32E 综合语义检查
 make check RVE=0              # RV32I 综合语义检查
-make test-forwarding RVE=1    # 前递优先级、EX 相关阻塞、GPR 写回与 ID/EX 锁存；也支持 RVE=0
+make test-forwarding RVE=1    # 前递、寄存器 flush 同拍接收、WB 改道及年轻事务取消；也支持 RVE=0
 make formal-icache           # 默认两字行，复位后 20 拍的有界一致性检查
 make cachesim                # C++ 功能模型
 ```

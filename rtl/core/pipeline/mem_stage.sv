@@ -4,14 +4,12 @@
 // 对齐访存数据，发出 CoreBus 请求，归并响应及异常后交给 MEM/WB。
 // EX/MEM 保留元数据直到响应握手；最多一笔在途，年轻访存不得越过提交屏障。
 module mem_stage
-  import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 (
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
-  input logic flush_i,
   input logic side_effect_block_i,
 
   // 流水事务
@@ -29,7 +27,6 @@ module mem_stage
   logic inflight_q;
 
   logic memory_instruction;
-  logic request_blocked;
 
   mem_wb_payload_t next_payload;
 
@@ -63,20 +60,16 @@ module mem_stage
   assign dmem.req_payload.size = to_core_bus_size(ex_mem.payload.mem_req.size);
   assign dmem.req_payload.wdata = ex_mem.payload.mem_req.write ? aligned_store_data : '0;
   // 请求端只依赖寄存状态及更老事务的阻塞，不依赖当前响应或下游容量。
-  assign request_blocked = flush_i || side_effect_block_i;
-  assign dmem.req_valid = ex_mem.valid && memory_instruction && !inflight_q && !request_blocked;
+  // 后端 flush 已在 EX/MEM 边界屏蔽 valid，本级无需重复门控。
+  assign dmem.req_valid = ex_mem.valid && memory_instruction && !inflight_q && !side_effect_block_i;
 
   // CoreBus 保证响应对应已接受或同拍接受的请求。预先给出 ready，避免
   // 响应 ready 依赖请求 ready；响应和元数据仅在 MEM/WB 可接收时一起转移。
-  assign dmem.rsp_ready = ex_mem.valid && memory_instruction && result.ready && !flush_i;
+  assign dmem.rsp_ready = ex_mem.valid && memory_instruction && result.ready;
 
-  always_comb begin
-    if (flush_i) ex_mem.ready = 1'b0;
-    else if (memory_instruction) ex_mem.ready = dmem.rsp_fire;
-    else ex_mem.ready = result.ready;
-  end
+  assign ex_mem.ready = memory_instruction ? dmem.rsp_fire : result.ready;
 
-  // 响应优先，同拍请求和响应不留下在途事务。flush 不取消已发送的请求。
+  // 响应优先，同拍请求和响应不留下在途事务；在途请求必须保留 EX/MEM 元数据。
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) inflight_q <= 1'b0;
     else if (dmem.rsp_fire) inflight_q <= 1'b0;
@@ -94,7 +87,7 @@ module mem_stage
   // 访存完成、异常归并与 MEM/WB 仲裁
 
   // 非访存直接传递；访存仅在响应有效时形成完成事务。
-  assign result.valid = ex_mem.valid && (!memory_instruction || dmem.rsp_valid) && !flush_i;
+  assign result.valid = ex_mem.valid && (!memory_instruction || dmem.rsp_valid);
 
   always_comb begin
     next_payload = ex_mem.payload.commit_ctx;
@@ -138,10 +131,9 @@ module mem_stage
       !dmem.rsp_fire || inflight_q || dmem.req_fire));
   DmemSingleInflight: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !inflight_q || !dmem.req_fire));
+  // EX/MEM 在后端 flush 当拍变为无效，因此本检查也禁止冲刷尚未完成的访存。
   DmemInflightMetadata: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !inflight_q || (ex_mem.valid && memory_instruction)));
-  DmemInflightNoFlush: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !inflight_q || !flush_i));
 `endif
 
 endmodule

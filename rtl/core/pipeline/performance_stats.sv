@@ -73,7 +73,7 @@ module performance_stats
 
   // 传输、阻塞与局部背压事件
 
-  // fire 只表示边界上真实发生的事务传输。它不使用 flush 额外门控：stage 已经
+  // fire 只表示边界上真实发生的事务传输。它不使用 flush 额外门控：流水边界与 stage 已经
   // 按功能语义决定当拍 valid/ready，统计侧必须保留 trap/MRET 退休等真实握手。
 
   // 原始 stall 表示边界上存在事务需求但接收端不能接受。redirect 或后端 flush

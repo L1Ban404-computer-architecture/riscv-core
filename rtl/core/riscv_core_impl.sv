@@ -68,8 +68,7 @@ module riscv_core_impl
 
   // IF/ID 空载直通；改道当拍屏蔽错误路径，时钟沿清空缓冲。
   fall_through_register #(
-    .T(if_id_payload_t),
-    .FlushMask(1'b1)
+    .T(if_id_payload_t)
   ) u_if_id_register (
     .clk_i,
     .rst_ni,
@@ -83,7 +82,6 @@ module riscv_core_impl
   );
 
   id_stage u_id_stage (
-    .flush_i(backend_flush),
     .serialize_block_i(serialize_block),
     .if_id(if_result_buffered),
     .result(id_result),
@@ -117,7 +115,6 @@ module riscv_core_impl
   );
 
   ex_stage u_ex_stage (
-    .flush_i(backend_flush),
     .serialize_ready_i(serialize_ready),
     .id_ex(id_result_buffered),
     .csr_read,
@@ -145,7 +142,6 @@ module riscv_core_impl
   mem_stage u_mem_stage (
     .clk_i,
     .rst_ni,
-    .flush_i(backend_flush),
     .side_effect_block_i(mem_side_effect_block),
     .ex_mem(ex_result_buffered),
     .dmem,
@@ -160,7 +156,8 @@ module riscv_core_impl
   ) u_mem_wb_register (
     .clk_i,
     .rst_ni,
-    .flush_i(backend_flush),
+    // 发起改道的 WB 指令必须先提交；WB 恒 ready，提交后自然弹空。
+    .flush_i(1'b0),
     .valid_i(mem_result.valid),
     .ready_o(mem_result.ready),
     .data_i(mem_result.payload),
@@ -170,8 +167,6 @@ module riscv_core_impl
   );
 
   wb_stage u_wb_stage (
-    .clk_i,
-    .rst_ni,
     .mem_wb(mem_result_buffered),
     .csr_commit,
     .csr_status,

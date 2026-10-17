@@ -3,7 +3,6 @@
 
 `ifndef SYNTHESIS
 package riscv_debug_pkg;
-  import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 
@@ -24,8 +23,8 @@ package riscv_debug_pkg;
   typedef struct packed {
     retire_mem_op_e mem_op;
     mem_size_e mem_size;
-    riscv_common_pkg::word_t mem_addr;
-    riscv_common_pkg::word_t mem_data;
+    word_t mem_addr;
+    word_t mem_data;
   } retire_mem_payload_t;
 
   typedef struct packed {
@@ -39,7 +38,7 @@ package riscv_debug_pkg;
     instruction_debug_payload_t meta;
     logic gpr_we;
     reg_addr_t gpr_waddr;
-    riscv_common_pkg::word_t gpr_wdata;
+    word_t gpr_wdata;
     retire_mem_payload_t mem;
     retire_redirect_payload_t redirect;
     csr_state_payload_t csr;

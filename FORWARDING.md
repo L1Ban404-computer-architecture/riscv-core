@@ -89,7 +89,7 @@ ID 在等待另一路源或下游容量时，寄存器堆仍持续组合读取�
 
 指令被 ID/EX 接收后，操作数随完整事务一起保存。EX 反压期间这些值保持稳定，不随 GPR 或候选变化。
 
-EX 分支改道通过 IF/ID 的 `FlushMask=1` 当拍屏蔽错误路径，清除前端等待指令；WB 改道同时刷新后端。前递模块无内部状态，不需要额外的取消或复位逻辑。CSR/SYSTEM 与异常仍由 `pipeline_ctrl` 串行化，执行前等待更老事务排空。
+EX 分支改道通过 IF/ID 的直通缓冲当拍屏蔽错误路径，IF 同时取消旧路径输入，清除前端等待指令；WB 改道同时由 ID/EX、EX/MEM 屏蔽旧输出。三种缓冲均在 flush 当拍屏蔽输出并允许接收新输入，但当前后端 flush 已由上游取消年轻输入，因此这两个边界在时钟沿清空。ID、EX 无需再接 flush；MEM/WB 的 flush 固定为零，让发起改道的 WB 指令正常退休后自然弹空。前递模块无内部状态，不需要额外的取消或复位逻辑。CSR/SYSTEM 与异常仍由 `pipeline_ctrl` 串行化，执行前等待更老事务排空。
 
 ALU、分支比较、JALR/load/store 的基址、store 的 rs2 数据和寄存器形式 CSR 源值均使用 ID/EX 的已就绪操作数。MEM 不增加额外的 store 数据旁路。CSR 寄存器之间仍无专用前递网络。
 
@@ -104,6 +104,10 @@ make test-forwarding RVE=1
 make test-forwarding RVE=0
 ```
 
-`forwarding_tb` 检查生产者优先级、EX 相关阻塞、未使用源、x0 和握手。`forwarding_pipeline_tb` 使用真实 GPR 和 ID/EX，检查相邻依赖的排空、等待 load 时另一源的独立写回、操作数锁存与反压稳定性、同拍替换和冲刷。
+`forwarding_tb` 检查生产者优先级、EX 相关阻塞、未使用源、x0 和握手。`forwarding_pipeline_tb` 使用真实 GPR 和 ID/EX，检查相邻依赖的排空、等待 load 时另一源的独立写回、操作数锁存与反压稳定性、同拍替换和冲刷。`stream_register_tb` 检查反压、flush 即时取消及同拍接收新输入；`pipeline_flush_tb` 使用真实 ID/EX/WB，检查 trap、MRET、FENCE.I 正常提交，以及年轻分支和 store 的即时取消。
+
+`stream_fifo_tb` 用队列记分板检查不同深度、直通、同拍读写和 flush 组合，覆盖非二次幂深度及指针回绕；`if_stage_tb` 检查连续回应、反压、改道取消、目标请求立即接收，以及真实退休观察器输出的 PC/指令/instid 对齐。
+
+`mem_stage_tb` 检查提交屏障、单笔在途、延迟和同拍响应、响应反压、访存异常及上游取消。`pipeline_flush_tb` 还验证 WB 改道时真实 MEM 不会发出被取消的年轻 store。
 
 系统差分验证应通过工作台 Makefile 运行 mini-soc 对 NEMU 的 dummy、相关 cpu-tests 和 RT-Thread；命令与环境要求见工作台 `AGENTS.md`。局部检查不能替代系统验证，功能测试也不能替代时序测量。

@@ -3,7 +3,6 @@
 
 // Store 数据整理单元，生成按地址偏移对齐的写数据。
 module store_data_unit
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 访存属性与源数据

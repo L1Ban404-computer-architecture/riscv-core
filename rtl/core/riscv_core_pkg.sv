@@ -13,6 +13,10 @@ package riscv_core_pkg;
 
   // 基础宽度与标量类型
 
+  // 当前实现的数据与地址宽度均为 32 位，每个数据字由 4 个 8 位 byte lane 组成。
+  parameter int unsigned XLen = 32;
+  typedef logic [XLen-1:0] word_t;
+
   // RV32I/E 共用指令编码：指令固定为 32 位，整数寄存器地址固定为 5 位。
   parameter int unsigned ILen = 32;
   parameter int unsigned RegAddrW = 5;
@@ -20,7 +24,7 @@ package riscv_core_pkg;
   localparam logic [RegAddrW-1:0] ZeroReg = '0;
 
   typedef logic [ILen-1:0] instr_t;
-  typedef logic [riscv_common_pkg::XLen-1:0] pc_t;
+  typedef logic [XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
   // 指令编码与执行操作
@@ -181,9 +185,9 @@ package riscv_core_pkg;
 
   // EX 所需的两路寄存器快照和已扩展立即数。
   typedef struct packed {
-    riscv_common_pkg::word_t rs1_value;
-    riscv_common_pkg::word_t rs2_value;
-    riscv_common_pkg::word_t imm;
+    word_t rs1_value;
+    word_t rs2_value;
+    word_t imm;
   } exec_data_payload_t;
 
   // decoder 产生的完整执行控制，字段均描述归一化语义而非原始指令编码。
@@ -218,14 +222,14 @@ package riscv_core_pkg;
   typedef struct packed {
     logic valid;
     exception_cause_e cause;
-    riscv_common_pkg::word_t tval;
+    word_t tval;
   } exception_payload_t;
 
   // 更老异常获胜。existing.valid 时保持原样，否则填入一条同步异常。
   function automatic exception_payload_t raise_exception(
     input exception_payload_t existing,
     input exception_cause_e cause,
-    input riscv_common_pkg::word_t tval
+    input word_t tval
   );
     exception_payload_t result;
     if (existing.valid) return existing;
@@ -242,8 +246,8 @@ package riscv_core_pkg;
     logic write;
     mem_size_e size;
     logic sign_ext;
-    riscv_common_pkg::word_t addr;
-    riscv_common_pkg::word_t wdata;
+    word_t addr;
+    word_t wdata;
   } mem_req_payload_t;
 
   // 通用 GPR 写回候选；data_valid 将“存在生产者”和“结果已就绪”明确分开。
@@ -251,23 +255,23 @@ package riscv_core_pkg;
     logic valid;
     logic data_valid;
     reg_addr_t rd_addr;
-    riscv_common_pkg::word_t wdata;
+    word_t wdata;
   } writeback_payload_t;
 
   // 在 WB 提交的 CSR 写请求，不允许在更年轻流水级提前修改架构状态。
   typedef struct packed {
     logic valid;
     csr_addr_t addr;
-    riscv_common_pkg::word_t wdata;
+    word_t wdata;
   } csr_write_payload_t;
 
   // 已实现 M-mode CSR 的架构状态。
   typedef struct packed {
-    riscv_common_pkg::word_t mstatus;
-    riscv_common_pkg::word_t mtvec;
-    riscv_common_pkg::word_t mepc;
-    riscv_common_pkg::word_t mcause;
-    riscv_common_pkg::word_t mtval;
+    word_t mstatus;
+    word_t mtvec;
+    word_t mepc;
+    word_t mcause;
+    word_t mtval;
   } csr_state_payload_t;
 
   // 随指令送往 WB 的串行化和 MRET/CSR 提交控制。
@@ -295,10 +299,10 @@ package riscv_core_pkg;
   typedef struct packed {
     csr_commit_op_e op;
     csr_addr_t addr;
-    riscv_common_pkg::word_t wdata;
-    riscv_common_pkg::word_t trap_epc;
+    word_t wdata;
+    word_t trap_epc;
     exception_cause_e trap_cause;
-    riscv_common_pkg::word_t trap_tval;
+    word_t trap_tval;
   } csr_commit_payload_t;
 
   // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在访存响应完成时修改

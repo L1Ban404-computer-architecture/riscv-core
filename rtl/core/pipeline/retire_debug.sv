@@ -4,7 +4,6 @@
 // 独立影子流水线只消费调试事件，不向功能流水施加反压。
 `ifndef SYNTHESIS
 module retire_debug
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
   import riscv_debug_pkg::*;
 #(
@@ -57,13 +56,13 @@ module retire_debug
     else if (debug.fetch.request_fire) instid_q <= instid_q + 64'd1;
   end
 
-  fall_through_register #(
+  stream_register #(
     .T(fetch_meta_t)
   ) u_fetch_meta (
     .clk_i,
     .rst_ni,
     .flush_i(debug.control.redirect),
-    .valid_i(debug.fetch.request_fire),
+    .valid_i(debug.fetch.request_fire && !debug.control.redirect),
     .ready_o(  /* 未使用 */),
     .data_i('{pc: debug.fetch.request_pc, instid: instid_q}),
     .valid_o(  /* 未使用 */),
@@ -77,8 +76,7 @@ module retire_debug
   };
 
   fall_through_register #(
-    .T(instruction_trace_t),
-    .FlushMask(1'b1)
+    .T(instruction_trace_t)
   ) u_if_id_trace (
     .clk_i,
     .rst_ni,
@@ -91,6 +89,7 @@ module retire_debug
     .data_o(decoded)
   );
 
+  // flush 时 IF/ID 和 ID/EX 的 valid 已屏蔽，两路入口 fire 都为零，影子队列直接清空。
   retire_inflight_queue #(
     .T(instruction_trace_t)
   ) u_id_ex_trace (
@@ -122,7 +121,8 @@ module retire_debug
   ) u_mem_wb_trace (
     .clk_i,
     .rst_ni,
-    .flush_i(debug.control.flush_backend),
+    // 与功能 MEM/WB 一致：保留当拍退休，靠 out_fire 弹出。
+    .flush_i(1'b0),
     .in_fire_i(memory_fire),
     .in_data_i('{executed: executed, mem: debug.memory.mem}),
     .out_fire_i(writeback_fire),

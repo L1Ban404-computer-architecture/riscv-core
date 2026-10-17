@@ -3,7 +3,6 @@
 
 // 单笔在途取指：保存请求 PC，将回应送入 IF/ID。存储侧回应至少晚一拍。
 module if_stage
-  import riscv_common_pkg::*;
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
 (
@@ -39,14 +38,15 @@ module if_stage
   assign imem.req_payload = '{
       addr: pc_q, write: 1'b0, size: CORE_BUS_SIZE_WORD, wdata: '0
   };
-  // 元数据当拍清空；存储侧下一拍取消旧请求，并保留同拍进入的目标 PC 请求。
-  fall_through_register #(
+  // 回应至少晚一拍，无需组合直通。改道当拍接受的旧请求不保存元数据；
+  // 存储侧下一拍取消旧请求，同时接受目标 PC 请求及其新元数据。
+  stream_register #(
     .T(pc_t)
   ) u_fetch_meta (
     .clk_i,
     .rst_ni,
     .flush_i(redirect.valid),
-    .valid_i(imem.req_fire),
+    .valid_i(imem.req_fire && !redirect.valid),
     .ready_o(meta_ready),
     .data_i(pc_q),
     .valid_o(meta_valid),
@@ -83,7 +83,7 @@ module if_stage
   NoSecondImemRequestWhileOutstanding: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !imem.req_fire || meta_ready));
   ImemResponseHasPendingRequest: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !imem.rsp_valid || meta_valid));
+      !imem.rsp_valid || redirect.valid || meta_valid));
 `endif
 
 endmodule

@@ -13,7 +13,7 @@
 interface gpr_write_if;
   logic valid;
   riscv_core_pkg::reg_addr_t rd_addr;
-  riscv_common_pkg::word_t wdata;
+  riscv_core_pkg::word_t wdata;
   modport producer(output valid, rd_addr, wdata);
   modport consumer(input valid, rd_addr, wdata);
   modport monitor(input valid, rd_addr, wdata);
@@ -23,8 +23,8 @@ endinterface
 interface gpr_read_if;
   riscv_core_pkg::reg_addr_t rs1_addr;
   riscv_core_pkg::reg_addr_t rs2_addr;
-  riscv_common_pkg::word_t rs1_value;
-  riscv_common_pkg::word_t rs2_value;
+  riscv_core_pkg::word_t rs1_value;
+  riscv_core_pkg::word_t rs2_value;
   modport requester(output rs1_addr, rs2_addr, input rs1_value, rs2_value);
   modport responder(input rs1_addr, rs2_addr, output rs1_value, rs2_value);
 endinterface
@@ -34,7 +34,7 @@ endinterface
 // EX 到 CSR 单元的组合读端口，同时返回地址是否实现，供非法指令检查使用。
 interface csr_read_if;
   riscv_core_pkg::csr_addr_t addr;
-  riscv_common_pkg::word_t data;
+  riscv_core_pkg::word_t data;
   logic implemented;
   modport requester(output addr, input data, implemented);
   modport responder(input addr, output data, implemented);
@@ -49,8 +49,8 @@ endinterface
 
 // 提交前的 trap/MRET 控制目标；与 Zicsr 组合读口分离。
 interface csr_status_if;
-  riscv_common_pkg::word_t mtvec;
-  riscv_common_pkg::word_t mepc;
+  riscv_core_pkg::word_t mtvec;
+  riscv_core_pkg::word_t mepc;
   modport producer(output mtvec, mepc);
   modport consumer(input mtvec, mepc);
 endinterface

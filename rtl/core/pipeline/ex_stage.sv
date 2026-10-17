@@ -4,11 +4,9 @@
 // 使用 ID/EX 中已就绪的操作数，生成运算结果、访存请求和提交上下文。
 // 串行化指令等待更老事务排空；架构状态只在 WB 提交。
 module ex_stage
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 全局控制
-  input logic flush_i,
   input logic serialize_ready_i,
 
   // 已在 ID 完成前递并锁存的流水事务
@@ -182,7 +180,8 @@ module ex_stage
   // 这也避免取指错误携带的无意义指令位影响串行化判断。
   assign serialize_stall = (id_ex.payload.ctrl.serialize || id_ex.payload.exception.valid) &&
       !serialize_ready_i;
-  assign input_enable = !serialize_stall && !flush_i;
+  // ID/EX 已在后端 flush 当拍屏蔽旧事务，禁止其产生执行或改道事件。
+  assign input_enable = !serialize_stall;
   assign id_ex.ready = result.ready && input_enable;
 
   assign result.valid = id_ex.valid && input_enable;

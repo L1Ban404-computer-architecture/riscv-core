@@ -3,7 +3,6 @@
 
 // 使用真实 GPR 与 ID/EX，检查等待期间的写回和已接收操作数的稳定性。
 module forwarding_pipeline_tb;
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 
   bit clk = 0;
@@ -146,7 +145,8 @@ module forwarding_pipeline_tb;
     flush = 1;
     executing.ready = 0;
     #1;
-    assert (!forwarded.valid) else $fatal(1, "flush must suppress decode output");
+    assert (!forwarded.valid && !executing.valid)
+      else $fatal(1, "flush must immediately suppress decode and ID/EX output");
     tick();
     assert (!executing.valid) else $fatal(1, "flush must empty ID/EX");
     decode_payload.reg_addr.rs1_addr = 1;

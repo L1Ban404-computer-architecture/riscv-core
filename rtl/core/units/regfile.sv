@@ -4,7 +4,6 @@
 // RV32 整数寄存器堆，提供两路组合读和一路同步写。
 // x0 固定为零；同周期写回值由 ID 前递单元提供。
 module regfile
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 时钟

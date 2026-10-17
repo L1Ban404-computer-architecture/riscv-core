@@ -5,7 +5,7 @@
 //
 // 提供有序事务缓冲，可选空队列组合旁路和满队列同拍读写。
 // 深度必须大于零；输出在反压期间保持稳定；数据阵列不复位，其无效内容始终
-// 由占用计数屏蔽；flush 只清空指针和计数。
+// 由占用计数屏蔽。flush 当拍屏蔽输出并释放入口容量，时钟沿保留当拍新输入。
 
 module stream_fifo #(
   parameter int unsigned Depth = 2,
@@ -52,10 +52,11 @@ module stream_fifo #(
   endfunction
 
   assign stored_valid = (count_q != '0);
-  assign valid_o = stored_valid || (FallThrough && valid_i);
+  assign valid_o = (stored_valid || (FallThrough && valid_i)) && !flush_i;
   assign data_o = (FallThrough && !stored_valid) ? data_i : mem_q[read_ptr_q];
   assign pop = valid_o && ready_i;
-  assign ready_o = (count_q < count_t'(Depth)) || (SameCycleRW && stored_valid && ready_i);
+  assign ready_o = flush_i || (count_q < count_t'(Depth)) ||
+      (SameCycleRW && stored_valid && ready_i);
   assign push = valid_i && ready_o;
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
   assign usage_o = count_q;
@@ -63,7 +64,8 @@ module stream_fifo #(
   // 数据写入与队列状态更新
 
   always_ff @(posedge clk_i) begin
-    if (rst_ni && !flush_i && push && !bypass_pop) mem_q[write_ptr_q] <= data_i;
+    // flush 取消所有旧槽位，新输入从首槽位重新入队；当拍禁止组合旁路出队。
+    if (rst_ni && push && !bypass_pop) mem_q[flush_i ? '0 : write_ptr_q] <= data_i;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -73,8 +75,8 @@ module stream_fifo #(
       count_q <= '0;
     end else if (flush_i) begin
       read_ptr_q <= '0;
-      write_ptr_q <= '0;
-      count_q <= '0;
+      write_ptr_q <= push ? next_ptr('0) : '0;
+      count_q <= count_t'(push);
     end else begin
       if (pop && stored_valid) read_ptr_q <= next_ptr(read_ptr_q);
       if (push && !bypass_pop) write_ptr_q <= next_ptr(write_ptr_q);

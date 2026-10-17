@@ -3,7 +3,6 @@
 
 // 条件分支与跳转判定单元，生成 EX 级控制流改道请求。
 module branch_unit
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 执行条件与操作数

@@ -4,7 +4,6 @@
 // 在 ID/EX 前选择操作数：ID/EX 相关等待，EX/MEM > MEM/WB > GPR 实时读值。
 // 仅使用寄存后的生产者；最近结果未就绪时反压 ID，不增加流水级。
 module forwarding_unit
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 消费译码输出，监视 EX、MEM、WB 的较老生产者。

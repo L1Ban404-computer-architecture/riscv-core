@@ -3,7 +3,6 @@
 
 // Load 数据整理单元，选择目标 byte lane 并完成符号扩展或零扩展。
 module load_data_unit
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 访存属性与返回数据

@@ -3,7 +3,6 @@
 
 // RV32 立即数生成器，按类型重排指令字段并进行符号扩展或零扩展。
 module imm_gen
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 指令字段与立即数

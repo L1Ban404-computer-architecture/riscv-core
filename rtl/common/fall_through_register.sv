@@ -3,10 +3,9 @@
 
 // 单入口 fall-through 弹性寄存器。
 // 空载时组合旁路输入，发生反压时保存一笔事务。
+// flush 当拍禁止输出，仍可接收新输入并在下一拍输出。
 module fall_through_register #(
-  parameter type T = logic,
-  // 前端改道需要当拍屏蔽旧事务；默认仅在时钟沿清空缓冲。
-  parameter bit FlushMask = 1'b0
+  parameter type T = logic
 ) (
   // 全局控制
   input logic clk_i,
@@ -24,28 +23,22 @@ module fall_through_register #(
   output T data_o
 );
 
-  logic fifo_valid;
-  logic transfer_enable;
+  logic valid_q;
+  T data_q;
 
-  assign transfer_enable = !FlushMask || !flush_i;
-  assign valid_o = fifo_valid && transfer_enable;
+  assign ready_o = flush_i || !valid_q || ready_i;
+  assign valid_o = (valid_q || valid_i) && !flush_i;
+  assign data_o = valid_q ? data_q : data_i;
 
-  stream_fifo #(
-    .Depth(1),
-    .FallThrough(1'b1),
-    .SameCycleRW(1'b1),
-    .T(T)
-  ) u_fifo (
-    .clk_i,
-    .rst_ni,
-    .flush_i,
-    .usage_o(  /* 未使用 */),
-    .data_i,
-    .valid_i(valid_i && transfer_enable),
-    .ready_o,
-    .data_o,
-    .valid_o(fifo_valid),
-    .ready_i(ready_i && transfer_enable)
-  );
+  // 空载且输出直接接收时无需保存；flush 当拍禁止直通，必须保存新输入。
+  always_ff @(posedge clk_i) begin
+    if (rst_ni && valid_i && ready_o && (flush_i || valid_q || !ready_i)) data_q <= data_i;
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) valid_q <= 1'b0;
+    else if (flush_i) valid_q <= valid_i;
+    else if (ready_o) valid_q <= valid_i && (valid_q || !ready_i);
+  end
 
 endmodule

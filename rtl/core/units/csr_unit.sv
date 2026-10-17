@@ -4,7 +4,6 @@
 // M-mode CSR：组合读、WB 提交写入及 trap/MRET 状态转换。
 // IALIGN=32，mepc 低两位恒零。
 module csr_unit
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
   // 全局控制

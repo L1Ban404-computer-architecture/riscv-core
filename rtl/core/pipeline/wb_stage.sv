@@ -3,13 +3,8 @@
 
 // 唯一架构提交点，无下游背压。提交优先级：trap > MRET > FENCE.I > 普通写回。
 module wb_stage
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 (
-  // 全局控制
-  input logic clk_i,
-  input logic rst_ni,
-
   // 提交事务
   mem_wb_if.consumer mem_wb,
   csr_commit_if.producer csr_commit,
@@ -80,26 +75,12 @@ module wb_stage
     csr_commit.payload.trap_tval = mem_wb.payload.exception.tval;
   end
 
-`ifdef SYNTHESIS
-  // 综合去掉 assertion 后不再消费时钟复位；保留端口以便仿真期协议检查。
-  logic unused_clk_rst;
-  assign unused_clk_rst = ^{clk_i, rst_ni};
-`endif
-
-  // FENCE.I 的失效请求必须精确对应一次实际提交，并同时重取 PC+4。
-  // 被异常或 flush 丢弃的事务不得产生该外部副作用。
 `ifndef SYNTHESIS
   assign debug_o = '{
     valid: mem_wb.valid, ready: mem_wb.ready, kind: commit_kind,
     gpr_we: wb.valid, gpr_waddr: wb.rd_addr, gpr_wdata: wb.wdata,
     redirect: '{valid: redirect.valid, target_pc: redirect.target_pc}
   };
-
-  FenceIInvalidateExact: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      icache_invalidate_o == fence_i_commit));
-  FenceIRefetchAndFlush: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !fence_i_commit || (redirect.valid &&
-      (redirect.target_pc == (mem_wb.payload.pc + word_t'(4))))));
 `endif
 
 endmodule

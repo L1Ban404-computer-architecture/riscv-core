@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 module forwarding_tb;
-  import riscv_common_pkg::*;
   import riscv_core_pkg::*;
 
   id_ex_if decoded ();
