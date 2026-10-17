@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // RV32 整数寄存器堆，提供两路组合读和一路同步写。
-// x0 固定为零；同周期读写同一地址时，读端旁路本次写入值。
+// x0 固定为零；同周期写回值由 ID 前递单元提供。
 module regfile
   import riscv_common_pkg::*;
   import riscv_core_pkg::*;
@@ -34,27 +34,17 @@ module regfile
     end
   end
 
-  // 组合读取与同拍旁路
+  // 组合读取
 
   always_comb begin
     gpr_read.rs1_value = '0;
     if ((rs1_addr != ZeroReg) && (int'(rs1_addr) < GprCount)) begin
-      // WB 和 ID 同周期访问同一寄存器时显式旁路，避免依赖 SRAM/寄存器阵列
-      // 的 read-during-write 工艺语义。
-      if (wb_write && (wb.rd_addr == rs1_addr)) begin
-        gpr_read.rs1_value = wb.wdata;
-      end else begin
-        gpr_read.rs1_value = regs_q[rs1_addr];
-      end
+      gpr_read.rs1_value = regs_q[rs1_addr];
     end
 
     gpr_read.rs2_value = '0;
     if ((rs2_addr != ZeroReg) && (int'(rs2_addr) < GprCount)) begin
-      if (wb_write && (wb.rd_addr == rs2_addr)) begin
-        gpr_read.rs2_value = wb.wdata;
-      end else begin
-        gpr_read.rs2_value = regs_q[rs2_addr];
-      end
+      gpr_read.rs2_value = regs_q[rs2_addr];
     end
   end
 

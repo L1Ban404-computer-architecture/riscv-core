@@ -19,7 +19,7 @@ interface gpr_write_if;
   modport monitor(input valid, rd_addr, wdata);
 endinterface
 
-// ID 到寄存器堆的两路组合读；写回旁路仍由寄存器堆在内部完成。
+// ID 到寄存器堆的两路组合读；同拍写回值由 ID 前递单元选择。
 interface gpr_read_if;
   riscv_core_pkg::reg_addr_t rs1_addr;
   riscv_core_pkg::reg_addr_t rs2_addr;

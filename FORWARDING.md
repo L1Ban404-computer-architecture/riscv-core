@@ -7,7 +7,7 @@
 ```mermaid
 flowchart LR
   GPR[寄存器堆实时读值] --> ID[ID 译码与读取]
-  WB[WB 提交值] -->|同拍读写旁路| GPR
+  WB[WB 提交值] -->|时钟沿写入| GPR
   ID --> F[组合 forwarding_unit]
   IE[ID/EX 的目的寄存器与写回类型] -->|相关时等待| F
   EM[EX/MEM 写回候选] -->|较近数据源| F
@@ -23,7 +23,7 @@ flowchart LR
 | [`rtl/core/units/forwarding_unit.sv`](rtl/core/units/forwarding_unit.sv) | 检测 EX 相关，选择 EX/MEM、MEM/WB 或 GPR 值，未就绪时反压 ID |
 | [`rtl/core/pipeline/ex_stage.sv`](rtl/core/pipeline/ex_stage.sv) | 使用 ID/EX 锁存的操作数执行，生成 EX/MEM 事务 |
 | [`rtl/core/pipeline/mem_stage.sv`](rtl/core/pipeline/mem_stage.sv) | 完成 load 数据整理，生成进入 MEM/WB 的事务 |
-| [`rtl/core/units/regfile.sv`](rtl/core/units/regfile.sv) | GPR 组合读、WB 同步写，以及 WB 到 ID 的同拍读写旁路 |
+| [`rtl/core/units/regfile.sv`](rtl/core/units/regfile.sv) | GPR 阵列组合读与 WB 同步写；同拍写回值由前递单元选择 |
 | [`rtl/core/pipeline/pipeline_ctrl.sv`](rtl/core/pipeline/pipeline_ctrl.sv) | CSR、SYSTEM、FENCE.I、异常的串行化与改道控制 |
 
 前递单元以 `id_ex_if.consumer decoded` 消费 ID 的组合输出，以 monitor 接口观察 ID/EX、EX/MEM 和 MEM/WB。输出仍为完整的 `id_ex_if` 事务，只改写 `exec_data.rs1_value`、`exec_data.rs2_value`，其他字段透传。模块没有时钟、复位和内部寄存状态，不增加流水级。
@@ -85,7 +85,7 @@ load-use 等待长度取决于实际访存时序，不能统一称为固定一�
 
 ## 等待期间的 GPR 值与冲刷
 
-ID 在等待另一路源或下游容量时，寄存器堆仍持续组合读取。如果某路 MEM/WB 先写回并离开，同拍由 WB 旁路提供数据，下一拍由 GPR 阵列提供已提交值。因此不需要保留之前在 EX 前递中使用的两路 MEM/WB 暂存值。
+ID 在等待另一路源或下游容量时，寄存器堆仍持续组合读取。如果某路 MEM/WB 先写回并离开，同拍由前递单元的 MEM/WB 候选提供数据，下一拍由 GPR 阵列提供已提交值。因此不需要保留之前在 EX 前递中使用的两路 MEM/WB 暂存值。寄存器堆本身不再重复做同拍写回旁路，所有在途生产者的优先级与数据选择统一由前递单元处理。
 
 指令被 ID/EX 接收后，操作数随完整事务一起保存。EX 反压期间这些值保持稳定，不随 GPR 或候选变化。
 
