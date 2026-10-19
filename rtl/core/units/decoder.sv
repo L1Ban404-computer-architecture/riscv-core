@@ -186,12 +186,11 @@ module decoder
 
       // FENCE 在本核的严格顺序数据通路上按保守全栅栏实现，不需要额外动作。
       // FENCE.I 属于 Zifencei：其保留的 imm/rs1/rd 字段必须忽略；经串行化
-      // 后由 WB 在精确提交点触发 I-cache 失效和前端重取指。
+      // 等待更老事务排空后，由 EX 触发取指状态失效和前端重取指。
       OPC_MISC_MEM: begin
         unique case (funct3)
           3'b000: decode_o.illegal = 1'b0;
           3'b001: begin
-            decode_o.ctrl.serialize = 1'b1;
             decode_o.ctrl.fence_i = 1'b1;
             decode_o.illegal = 1'b0;
           end
@@ -202,7 +201,6 @@ module decoder
       OPC_SYSTEM: begin
         decode_o.ctrl.csr_addr = instr_i[31:20];
         if (funct3 == 3'b000) begin
-          decode_o.ctrl.serialize = 1'b1;
           unique case (instr_i)
             32'h0000_0073: begin
               decode_o.ctrl.system_op = SYS_ECALL;
@@ -219,7 +217,6 @@ module decoder
             default: ;
           endcase
         end else begin
-          decode_o.ctrl.serialize = 1'b1;
           decode_o.ctrl.wb_sel = WB_CSR;
           decode_o.ctrl.csr_use_imm = funct3[2];
           decode_o.imm_type = funct3[2] ? IMM_Z : IMM_NONE;

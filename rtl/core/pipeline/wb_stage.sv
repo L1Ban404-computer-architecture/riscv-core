@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 唯一架构提交点，无下游背压。提交优先级：trap > MRET > FENCE.I > 普通写回。
+// 唯一架构提交点，无下游背压。提交优先级：trap > MRET > 普通写回。
 module wb_stage
   import riscv_core_pkg::*;
 (
@@ -10,7 +10,6 @@ module wb_stage
   csr_commit_if.producer csr_commit,
   csr_status_if.consumer csr_status,
   redirect_if.producer redirect,
-  output logic icache_invalidate_o,
   gpr_write_if.producer wb
 `ifndef SYNTHESIS
   , output riscv_debug_pkg::writeback_debug_payload_t debug_o
@@ -20,7 +19,6 @@ module wb_stage
   commit_kind_e commit_kind;
   logic trap_commit;
   logic mret_commit;
-  logic fence_i_commit;
 
   // 架构提交与控制流改道
 
@@ -30,35 +28,28 @@ module wb_stage
   assign commit_kind = commit_kind_from_context(mem_wb.payload);
 
   always_comb begin
-    // 架构提交优先级固定为：trap entry > MRET > FENCE.I > 普通 CSR/GPR 写回。
+    // 架构提交优先级固定为：trap entry > MRET > 普通 CSR/GPR 写回。
     trap_commit = mem_wb.fire && (commit_kind == COMMIT_TRAP);
     mret_commit = mem_wb.fire && (commit_kind == COMMIT_MRET);
-    fence_i_commit = mem_wb.fire && (commit_kind == COMMIT_FENCE_I);
-
-    // trap、MRET 和 FENCE.I 都从 WB 发起全流水 flush；FENCE.I 重新取其顺序
-    // 后继，避免在失效前已经取到的年轻指令继续执行。
+    // trap 和 MRET 从 WB 发起全流水 flush。
     redirect.valid = 1'b0;
-    redirect.target_pc = '0;
-    icache_invalidate_o = fence_i_commit;
+    redirect.payload = '0;
     if (trap_commit) begin
       redirect.valid = 1'b1;
-      redirect.target_pc = csr_status.mtvec;
+      redirect.payload.target_pc = csr_status.mtvec;
     end else if (mret_commit) begin
       // 读取提交前的 mepc；csr_unit 已将 mepc[1:0] 实现为只读零。
       redirect.valid = 1'b1;
-      redirect.target_pc = csr_status.mepc;
-    end else if (fence_i_commit) begin
-      redirect.valid = 1'b1;
-      redirect.target_pc = mem_wb.payload.pc + word_t'(4);
+      redirect.payload.target_pc = csr_status.mepc;
     end
 
     wb.valid = 1'b0;
-    wb.rd_addr = '0;
-    wb.wdata = '0;
+    wb.payload.rd_addr = '0;
+    wb.payload.wdata = '0;
     if (mem_wb.fire && !trap_commit && !mret_commit) begin
       wb.valid = mem_wb.payload.wb_req.valid && mem_wb.payload.wb_req.data_valid;
-      wb.rd_addr = mem_wb.payload.wb_req.rd_addr;
-      wb.wdata = mem_wb.payload.wb_req.wdata;
+      wb.payload.rd_addr = mem_wb.payload.wb_req.rd_addr;
+      wb.payload.wdata = mem_wb.payload.wb_req.wdata;
     end
   end
 
@@ -78,8 +69,8 @@ module wb_stage
 `ifndef SYNTHESIS
   assign debug_o = '{
     valid: mem_wb.valid, ready: mem_wb.ready, kind: commit_kind,
-    gpr_we: wb.valid, gpr_waddr: wb.rd_addr, gpr_wdata: wb.wdata,
-    redirect: '{valid: redirect.valid, target_pc: redirect.target_pc}
+    gpr_we: wb.valid, gpr_waddr: wb.payload.rd_addr, gpr_wdata: wb.payload.wdata,
+    redirect: '{valid: redirect.valid, target_pc: redirect.payload.target_pc}
   };
 `endif
 

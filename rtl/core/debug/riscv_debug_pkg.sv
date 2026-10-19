@@ -71,7 +71,7 @@ package riscv_debug_pkg;
   typedef struct packed {
     logic [63:0] cycle_count;
     logic [63:0] instret_count;
-    // 最终送到 IF 的 redirect 事件总数，包含 EX 改道和 WB trap/MRET/FENCE.I。
+    // 最终送到 IF 的 redirect 事件总数，包含 EX 分支/FENCE.I 改道和 WB trap/MRET。
     logic [63:0] redirect_count;
     logic [63:0] if_local_stall_cycle_count;
     class_performance_payload_t [PerfClassCount-1:0] classes;
@@ -98,7 +98,9 @@ package riscv_debug_pkg;
   typedef struct packed {
     logic valid;
     logic ready;
-    retire_redirect_payload_t redirect;
+    // 实际前端纠错/FENCE.I 事件与架构跳转语义分离。
+    logic redirect;
+    retire_redirect_payload_t branch;
   } execute_debug_payload_t;
 
   typedef struct packed {
@@ -117,11 +119,6 @@ package riscv_debug_pkg;
     word_t gpr_wdata;
     retire_redirect_payload_t redirect;
   } writeback_debug_payload_t;
-
-  typedef struct packed {
-    logic redirect;
-    logic flush_backend;
-  } control_debug_payload_t;
 
   typedef struct packed {
     perf_class_e id_class;

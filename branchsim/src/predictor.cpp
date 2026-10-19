@@ -1,20 +1,15 @@
 #include "predictor.hpp"
 
-Prediction Predict(const BranchInput &input, const Bht &bht,
-                   const Btb &btb, const Ras &ras) {
-  if (IsReturn(input.instr)) {
-    const auto target = ras.Peek();
-    return target ? Prediction{true, *target} : Prediction{};
-  }
-  if (IsJalr(input.instr)) return {};
-
-  const BtbPrediction entry = btb.Lookup(input.pc);
+Prediction Predict(std::uint32_t pc, const Bht &bht, const Btb &btb) {
+  const BtbPrediction entry = btb.Lookup(pc);
   if (!entry.hit) return {};
-  if (entry.type == BtbType::kJal) return {true, entry.target};
-  return {bht.Predict(input.pc, entry.target), entry.target};
+  if (entry.type == BtbType::kJal || bht.Predict(pc, entry.target)) {
+    return {true, entry.target};
+  }
+  return {};
 }
 
-void Update(const BranchRecord &record, Bht &bht, Btb &btb, Ras &ras) {
+void Update(const BranchRecord &record, Bht &bht, Btb &btb) {
   const auto &input = record.input;
   const auto &outcome = record.outcome;
   if (IsBranch(input.instr)) {
@@ -22,12 +17,6 @@ void Update(const BranchRecord &record, Bht &bht, Btb &btb, Ras &ras) {
     btb.Update(input.pc, outcome.target, BtbType::kBranch);
   } else if (IsJal(input.instr)) {
     btb.Update(input.pc, outcome.target, BtbType::kJal);
-  }
-
-  // 包括预测失败和 BTB 冷启动的真实调用；JALR 调用也要维护返回栈。
-  if (outcome.taken) {
-    if (IsReturn(input.instr)) ras.Pop();
-    else if (IsCall(input.instr)) ras.Push(input.pc + 4u);
   }
 }
 

@@ -12,9 +12,8 @@ interface core_debug_if;
   riscv_debug_pkg::execute_debug_payload_t execute;
   riscv_debug_pkg::memory_debug_payload_t memory;
   riscv_debug_pkg::writeback_debug_payload_t writeback;
-  riscv_debug_pkg::control_debug_payload_t control;
   riscv_core_pkg::csr_state_payload_t csr;
-  modport consumer(input fetch, decode, execute, memory, writeback, control, csr);
+  modport consumer(input fetch, decode, execute, memory, writeback, csr);
 endinterface
 `endif
 

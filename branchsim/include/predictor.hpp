@@ -5,17 +5,15 @@
 #include "bht.hpp"
 #include "branch.hpp"
 #include "btb.hpp"
-#include "ras.hpp"
 
 struct Prediction {
   bool taken = false;
   std::uint32_t target = 0;
 };
 
-// 预测只接收 PC/指令；真实结果只能进入统计和更新。
-Prediction Predict(const BranchInput &input, const Bht &bht,
-                   const Btb &btb, const Ras &ras);
-void Update(const BranchRecord &record, Bht &bht, Btb &btb, Ras &ras);
+// 预测只接收 PC；指令类型和真实结果只能进入训练，结果也用于统计。
+Prediction Predict(std::uint32_t pc, const Bht &bht, const Btb &btb);
+void Update(const BranchRecord &record, Bht &bht, Btb &btb);
 
 struct Accuracy {
   std::uint64_t accesses = 0;

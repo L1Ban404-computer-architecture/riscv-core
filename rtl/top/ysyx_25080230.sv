@@ -92,7 +92,7 @@ module ysyx_25080230
   axi4_if mem_axi ();
   axi4_if core_axi ();
   logic rst_ni;
-  logic icache_invalidate;
+  logic imem_invalidate;
   logic imem_flush;
 
 
@@ -107,7 +107,7 @@ module ysyx_25080230
     .imem(imem_bus),
     .dmem(dmem_bus),
     .imem_flush_o(imem_flush),
-    .icache_invalidate_o(icache_invalidate)
+    .imem_invalidate_o(imem_invalidate)
 `ifndef SYNTHESIS
     , .debug_retire_valid_o(gen_debug.retire_valid),
     .debug_retire_o(gen_debug.retire),
@@ -138,7 +138,7 @@ module ysyx_25080230
     .clk_i(clock),
     .rst_ni,
     .flush_i(imem_flush),
-    .invalidate_i(icache_invalidate),
+    .invalidate_i(imem_invalidate),
     .core_bus(imem_bus),
     .axi(if_axi)
 `ifndef SYNTHESIS

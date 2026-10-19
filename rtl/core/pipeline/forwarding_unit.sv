@@ -29,7 +29,8 @@ module forwarding_unit
   writeback_payload_t ex_candidate, mem_candidate, wb_candidate;
 
   always_comb begin
-    // EX 等待串行化或 load 尚未完成时，不能绕过当前生产者取更老的值。
+    // 监视串行化过滤前的 ID/EX；等待中的生产者仍存在，不能绕过它
+    // 选择更老的值。过滤后的 EX 结果决定本拍能否前递。
     ex_candidate = '0;
     ex_candidate.valid = id_ex.valid && !id_ex.payload.exception.valid &&
         (id_ex.payload.ctrl.wb_sel != WB_NONE) &&
@@ -47,7 +48,7 @@ module forwarding_unit
     mem_candidate.wdata = mem_result.payload.wb_req.wdata;
 
     wb_candidate = '{valid: wb.valid, data_valid: wb.valid,
-                     rd_addr: wb.rd_addr, wdata: wb.wdata};
+                     rd_addr: wb.payload.rd_addr, wdata: wb.payload.wdata};
   end
 
   // 前递优先级与阻塞判定

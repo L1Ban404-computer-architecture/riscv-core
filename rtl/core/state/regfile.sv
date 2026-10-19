@@ -25,11 +25,11 @@ module regfile
 
   assign rs1_addr = gpr_read.rs1_addr;
   assign rs2_addr = gpr_read.rs2_addr;
-  assign wb_write = wb.valid && (wb.rd_addr != ZeroReg) && (int'(wb.rd_addr) < GprCount);
+  assign wb_write = wb.valid && (wb.payload.rd_addr != ZeroReg) && (int'(wb.payload.rd_addr) < GprCount);
 
   always_ff @(posedge clk_i) begin
     if (wb_write) begin
-      regs_q[wb.rd_addr] <= wb.wdata;
+      regs_q[wb.payload.rd_addr] <= wb.payload.wdata;
     end
   end
 

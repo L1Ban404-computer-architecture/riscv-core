@@ -23,8 +23,6 @@ BTB ?= table
 BTB_SETS ?= 64
 BTB_WAYS ?= 2
 BTB_POLICY ?= rr
-RAS ?= stack
-RAS_DEPTH ?= 16
 
 SRCS := $(sort $(wildcard src/*.cpp))
 OBJS := $(SRCS:%.cpp=$(OBJ_DIR)/%.o)
@@ -33,8 +31,7 @@ CXXFLAGS ?= -O2 -g
 BRANCHSIM_CPPFLAGS := -Iinclude -I$(YSYX_HOME)/riscv-runner/api/include
 BRANCHSIM_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -MMD -MP
 SIM_ARGS = --trace "$(TRACE)" --bht "$(BHT)" --btb "$(BTB)" \
-  --btb-sets "$(BTB_SETS)" --btb-ways "$(BTB_WAYS)" --btb-policy "$(BTB_POLICY)" \
-  --ras "$(RAS)" --ras-depth "$(RAS_DEPTH)"
+  --btb-sets "$(BTB_SETS)" --btb-ways "$(BTB_WAYS)" --btb-policy "$(BTB_POLICY)"
 
 branchsim: $(TARGET)
 btrace: $(TRACE)

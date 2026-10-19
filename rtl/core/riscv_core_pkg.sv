@@ -27,6 +27,29 @@ package riscv_core_pkg;
   typedef logic [XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
+  // 分支预测器配置与表项类型；CPU 直接使用这些默认值。
+
+  typedef enum logic {
+    BHT_BTFN,
+    BHT_NOT_TAKEN
+  } bht_algorithm_e;
+
+  typedef enum logic {
+    BTB_REPLACEMENT_ROUND_ROBIN,
+    BTB_REPLACEMENT_LRU
+  } btb_replacement_policy_e;
+
+  typedef enum logic {
+    BTB_BRANCH,
+    BTB_JAL
+  } btb_entry_type_e;
+
+  parameter bht_algorithm_e BhtAlgorithm = BHT_BTFN;
+  parameter bit BtbEnable = 1'b1;
+  parameter int unsigned BtbSetCount = 2;
+  parameter int unsigned BtbWayCount = 2;
+  parameter btb_replacement_policy_e BtbReplacementPolicy = BTB_REPLACEMENT_ROUND_ROBIN;
+
   // 指令编码与执行操作
 
   // 核心内部的访存操作宽度。编码等于 log2(访问字节数)，描述 RISC-V load/store
@@ -142,12 +165,11 @@ package riscv_core_pkg;
     SYS_MRET
   } system_op_e;
 
-  // WB 作为唯一架构提交点产出的提交类别；FENCE.I 会前端重取，但不是架构改道。
+  // WB 作为唯一架构提交点产出的提交类别。
   typedef enum logic [1:0] {
     COMMIT_NORMAL,
     COMMIT_TRAP,
-    COMMIT_MRET,
-    COMMIT_FENCE_I
+    COMMIT_MRET
   } commit_kind_e;
 
   // 当前核心支持的同步异常 cause，编码与 RISC-V mcause 的低位定义一致。
@@ -173,6 +195,25 @@ package riscv_core_pkg;
   localparam csr_addr_t CsrMarchid = 12'hf12;
 
   // 执行与提交子事务 payload 类型
+
+  // 无背压事件接口的数据；有效位由对应 interface 单独携带。
+  typedef struct packed {
+    reg_addr_t rd_addr;
+    word_t wdata;
+  } gpr_write_payload_t;
+
+  typedef struct packed {
+    pc_t target_pc;
+    // 取指侧指令状态失效，可同时用于 I-cache 与分支预测器。
+    logic imem_invalidate;
+  } redirect_payload_t;
+
+  // 预测器训练只接受已确认合法的类型与编码目标，不需要实际方向。
+  typedef struct packed {
+    pc_t pc;
+    branch_op_e branch_op;
+    pc_t target_pc;
+  } branch_update_payload_t;
 
   // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
   typedef struct packed {
@@ -204,8 +245,7 @@ package riscv_core_pkg;
     logic csr_use_imm;
     csr_addr_t csr_addr;
     system_op_e system_op;
-    logic serialize;
-    // FENCE.I 需要在精确提交点失效 I-cache 并重取后续指令。
+    // FENCE.I 在 EX 等待更老事务排空后失效取指状态并重取后续指令。
     logic fence_i;
   } execute_ctrl_payload_t;
 
@@ -274,10 +314,8 @@ package riscv_core_pkg;
     word_t mtval;
   } csr_state_payload_t;
 
-  // 随指令送往 WB 的串行化和 MRET/CSR 提交控制。
+  // 随指令送往 WB 的 MRET/CSR 提交控制。
   typedef struct packed {
-    logic serialize;
-    logic fence_i;
     logic is_mret;
     csr_write_payload_t csr_write;
   } commit_ctrl_payload_t;
@@ -286,6 +324,8 @@ package riscv_core_pkg;
   typedef struct packed {
     pc_t pc;
     instr_t instr;
+    // 请求被接受时采纳的方向快照，仅随指令保留到 EX。
+    logic predicted_taken;
   } instruction_meta_payload_t;
 
   // WB 到 CSR 单元的完整架构状态更新请求。
@@ -314,13 +354,12 @@ package riscv_core_pkg;
     commit_ctrl_payload_t commit;
   } commit_context_payload_t;
 
-  // 提交优先级与 WB 一致：trap entry > MRET > FENCE.I > 普通写回。
-  // 只解释 exception/is_mret/fence_i；其余上下文字段有意忽略。
+  // 提交优先级与 WB 一致：trap entry > MRET > 普通写回。
+  // 只解释 exception/is_mret；其余上下文字段有意忽略。
   /* verilator lint_off UNUSEDSIGNAL */
   function automatic commit_kind_e commit_kind_from_context(input commit_context_payload_t ctx);
     if (ctx.exception.valid) return COMMIT_TRAP;
     if (ctx.commit.is_mret) return COMMIT_MRET;
-    if (ctx.commit.fence_i) return COMMIT_FENCE_I;
     return COMMIT_NORMAL;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */

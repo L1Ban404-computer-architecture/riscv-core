@@ -5,9 +5,6 @@
 module id_stage
   import riscv_core_pkg::*;
 (
-  // 全局控制
-  input logic serialize_block_i,
-
   // 流水事务
   if_id_if.consumer if_id,
   id_ex_if.producer result,
@@ -21,7 +18,6 @@ module id_stage
   word_t decoded_imm;
 
   id_ex_payload_t next_payload;
-  logic input_enable;
 
   assign gpr_read.rs1_addr = decoded.reg_addr.rs1_addr;
   assign gpr_read.rs2_addr = decoded.reg_addr.rs2_addr;
@@ -66,11 +62,10 @@ module id_stage
   // 本级握手；ID/EX 寄存器由顶层持有。
 
   // GPR 相关通过前递单元的 ready 反压；等待期间继续读取寄存器堆。
-  // IF/ID 已在改道当拍屏蔽旧事务，本级只处理串行化反压。
-  assign input_enable = !serialize_block_i;
-  assign if_id.ready = result.ready && input_enable;
+  // IF/ID 已在改道当拍屏蔽旧事务；串行化等待通过普通 ready 反压传回。
+  assign if_id.ready = result.ready;
 
-  assign result.valid = if_id.valid && input_enable;
+  assign result.valid = if_id.valid;
   assign result.payload = next_payload;
 
 `ifndef SYNTHESIS

@@ -9,8 +9,11 @@ module if_stage
   input logic clk_i,
   input logic rst_ni,
   input pc_t boot_pc_i,
-  redirect_if.consumer redirect,
+  redirect_if.consumer ex_redirect,
+  redirect_if.consumer wb_redirect,
+  branch_update_if.consumer branch_update,
   output logic imem_flush_o,
+  output logic imem_invalidate_o,
   core_bus_if.master imem,
   if_id_if.producer result
 `ifndef SYNTHESIS
@@ -19,8 +22,30 @@ module if_stage
 );
 
   pc_t pc_q;
-  pc_t pending_pc;
+  typedef struct packed {
+    pc_t pc;
+    logic predicted_taken;
+  } fetch_meta_t;
+  fetch_meta_t pending;
+  branch_predict_if prediction ();
   logic meta_ready, meta_valid;
+  redirect_if resolved_redirect ();
+
+  assign prediction.pc = pc_q;
+  branch_predictor u_branch_predictor (
+    .clk_i, .rst_ni,
+    .invalidate_i(imem_invalidate_o),
+    .predict(prediction),
+    .update(branch_update)
+  );
+
+  // WB 比 EX 更老，精确异常要求 WB 改道优先；目标和失效标志一起选择。
+  assign resolved_redirect.valid = wb_redirect.valid || ex_redirect.valid;
+  assign resolved_redirect.payload = wb_redirect.valid ? wb_redirect.payload : ex_redirect.payload;
+
+  // FENCE.I 在 EX 执行当拍请求取指状态失效；无效改道的 payload 不产生副作用。
+  // 该事件不经过下方 imem_flush_o 的一拍延迟。
+  assign imem_invalidate_o = resolved_redirect.valid && resolved_redirect.payload.imem_invalidate;
 
   // redirect 同拍仍可能接受旧 PC；下一拍 flush 才能覆盖这笔请求。
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -28,9 +53,10 @@ module if_stage
       pc_q <= boot_pc_i;
       imem_flush_o <= 1'b0;
     end else begin
-      imem_flush_o <= redirect.valid;
-      if (redirect.valid) pc_q <= redirect.target_pc;
-      else if (imem.req_fire) pc_q <= pc_q + pc_t'(4);
+      imem_flush_o <= resolved_redirect.valid;
+      if (resolved_redirect.valid) pc_q <= resolved_redirect.payload.target_pc;
+      else if (imem.req_fire)
+        pc_q <= prediction.taken ? prediction.target_pc : pc_q + pc_t'(4);
     end
   end
 
@@ -41,29 +67,30 @@ module if_stage
   // 回应至少晚一拍，无需组合直通。改道当拍接受的旧请求不保存元数据；
   // 存储侧下一拍取消旧请求，同时接受目标 PC 请求及其新元数据。
   stream_register #(
-    .T(pc_t)
+    .T(fetch_meta_t)
   ) u_fetch_meta (
     .clk_i,
     .rst_ni,
-    .flush_i(redirect.valid),
-    .valid_i(imem.req_fire && !redirect.valid),
+    .flush_i(resolved_redirect.valid),
+    .valid_i(imem.req_fire && !resolved_redirect.valid),
     .ready_o(meta_ready),
-    .data_i(pc_q),
+    .data_i('{pc: pc_q, predicted_taken: prediction.taken}),
     .valid_o(meta_valid),
     .ready_i(imem.rsp_fire),
-    .data_o(pending_pc)
+    .data_o(pending)
   );
 
   // 回应携带原请求 PC；访问错误也沿 IF/ID 传递。
-  assign imem.rsp_ready = redirect.valid || result.ready;
-  assign result.valid = imem.rsp_valid && !redirect.valid;
+  assign imem.rsp_ready = resolved_redirect.valid || result.ready;
+  assign result.valid = imem.rsp_valid && !resolved_redirect.valid;
 
   always_comb begin
     result.payload = '0;
-    result.payload.meta.pc = pending_pc;
+    result.payload.meta.pc = pending.pc;
+    result.payload.meta.predicted_taken = pending.predicted_taken;
     result.payload.meta.instr = instr_t'(imem.rsp_payload.rdata);
     if (imem.rsp_payload.error) begin
-      result.payload.exception = raise_exception('0, EXC_INST_ACCESS_FAULT, pending_pc);
+      result.payload.exception = raise_exception('0, EXC_INST_ACCESS_FAULT, pending.pc);
     end
   end
 
@@ -83,7 +110,7 @@ module if_stage
   NoSecondImemRequestWhileOutstanding: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !imem.req_fire || meta_ready));
   ImemResponseHasPendingRequest: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !imem.rsp_valid || redirect.valid || meta_valid));
+      !imem.rsp_valid || resolved_redirect.valid || meta_valid));
 `endif
 
 endmodule

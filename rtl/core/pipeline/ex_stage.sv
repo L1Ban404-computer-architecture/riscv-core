@@ -2,19 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // 使用 ID/EX 中已就绪的操作数，生成运算结果、访存请求和提交上下文。
-// 串行化指令等待更老事务排空；架构状态只在 WB 提交。
+// 输入事务已通过串行化过滤及流水 flush 门控；架构状态只在 WB 提交。
 module ex_stage
   import riscv_core_pkg::*;
 (
-  // 全局控制
-  input logic serialize_ready_i,
-
   // 已在 ID 完成前递并锁存的流水事务
   id_ex_if.consumer id_ex,
 
   // CSR 与改道
   csr_read_if.requester csr_read,
   redirect_if.producer redirect,
+  branch_update_if.producer branch_update,
 
   // 下游事务
   ex_mem_if.producer result
@@ -27,9 +25,6 @@ module ex_stage
   word_t operand_b;
   word_t alu_result;
   word_t pc_plus_4;
-
-  logic serialize_stall;
-  logic input_enable;
 
   commit_context_payload_t next_commit;
   mem_req_payload_t next_mem_req;
@@ -95,9 +90,9 @@ module ex_stage
     // 上游异常不可覆盖。EX 仅在当前 payload 尚无异常时补充控制流目标、
     // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex.payload.exception;
-    if (branch_redirect.valid && (branch_redirect.target_pc[1:0] != 2'b00)) begin
+    if (branch_redirect.valid && (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
       executed_exception = raise_exception(executed_exception, EXC_INST_ADDR_MISALIGNED,
-                                           branch_redirect.target_pc);
+                                           branch_redirect.payload.target_pc);
     end else if ((id_ex.payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned) begin
       executed_exception = raise_exception(executed_exception,
                                            (id_ex.payload.ctrl.mem_cmd == MEM_STORE) ?
@@ -110,13 +105,29 @@ module ex_stage
                                            id_ex.payload.meta.instr);
     end
 
-    redirect.valid = branch_redirect.valid;
-    redirect.target_pc = branch_redirect.target_pc;
-    // taken 控制流若恰好落到顺序 PC+4，不需要产生多余的前端 flush。
-    if (executed_exception.valid ||
-        (branch_redirect.valid && (branch_redirect.target_pc == pc_plus_4)))
-      redirect.valid = 1'b0;
+    // 已采纳的直接分支目标由 BTB 保证；功能路径只核对方向。
+    redirect.valid = id_ex.fire && !executed_exception.valid &&
+        (id_ex.payload.meta.predicted_taken != branch_redirect.valid);
+    redirect.payload = '{
+      target_pc: branch_redirect.valid ? branch_redirect.payload.target_pc : pc_plus_4,
+      imem_invalidate: 1'b0
+    };
+
+    // serialization_ctrl 已保证更老事务排空；交接成功时触发一次失效和前端重取。
+    // FENCE.I 始终重取，独立于普通分支的方向纠错。
+    if (id_ex.fire && id_ex.payload.ctrl.fence_i && !executed_exception.valid) begin
+      redirect.valid = 1'b1;
+      redirect.payload = '{target_pc: pc_plus_4, imem_invalidate: 1'b1};
+    end
   end
+
+  // 未跳转条件分支仍提供编码目标；预测器负责筛选条件分支与 JAL。
+  assign branch_update.valid = id_ex.fire && !executed_exception.valid;
+  assign branch_update.payload = '{
+    pc: id_ex.payload.meta.pc,
+    branch_op: id_ex.payload.ctrl.branch_op,
+    target_pc: alu_result
+  };
 
   // 写回、访存与提交事务生成
 
@@ -163,8 +174,6 @@ module ex_stage
 
     // CSR 指令把旧值放入普通 GPR 写回路径，把新值作为提交请求随指令送到 WB。
     // RS/RC 的零源操作数按规范只读，不形成 CSR 写请求。
-    next_commit.commit.serialize = id_ex.payload.ctrl.serialize || executed_exception.valid;
-    next_commit.commit.fence_i = id_ex.payload.ctrl.fence_i && !executed_exception.valid;
     next_commit.commit.is_mret = id_ex.payload.ctrl.system_op == SYS_MRET;
     next_commit.commit.csr_write.valid = (id_ex.payload.ctrl.csr_cmd != CSR_NONE) &&
         csr_write_attempt && !executed_exception.valid;
@@ -176,21 +185,20 @@ module ex_stage
 
   // 本级握手；EX/MEM 寄存器由顶层持有。
 
-  // ID 已知的异常与 SYSTEM/CSR 一样，必须先等待所有更老事务排空。
-  // 这也避免取指错误携带的无意义指令位影响串行化判断。
-  assign serialize_stall = (id_ex.payload.ctrl.serialize || id_ex.payload.exception.valid) &&
-      !serialize_ready_i;
-  // ID/EX 已在后端 flush 当拍屏蔽旧事务，禁止其产生执行或改道事件。
-  assign input_enable = !serialize_stall;
-  assign id_ex.ready = result.ready && input_enable;
+  // 串行化过滤器及 ID/EX 已屏蔽等待或冲刷的事务，本级只处理普通握手。
+  assign id_ex.ready = result.ready;
 
-  assign result.valid = id_ex.valid && input_enable;
+  assign result.valid = id_ex.valid;
   assign result.payload = next_payload;
 
 `ifndef SYNTHESIS
+  // 流水纠错与架构跳转分别观察，正确预测的分支仍须报告给退休检查器。
   assign debug_o = '{
     valid: id_ex.valid, ready: id_ex.ready,
-    redirect: '{valid: redirect.valid, target_pc: redirect.target_pc}
+    redirect: redirect.valid,
+    branch: '{valid: branch_redirect.valid && !executed_exception.valid &&
+                      (branch_redirect.payload.target_pc != pc_plus_4),
+              target_pc: branch_redirect.payload.target_pc}
   };
 `endif
 

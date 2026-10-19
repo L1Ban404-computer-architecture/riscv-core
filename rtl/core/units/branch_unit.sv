@@ -34,10 +34,11 @@ module branch_unit
     endcase
 
     redirect.valid = execute_fire_i && taken && !illegal_instr_i;
+    redirect.payload.imem_invalidate = 1'b0;
 
     // RISC-V 要求 JALR 目标地址的最低位清零；其他跳转目标直接使用
     // ALU 计算得到的 PC-relative 地址。
-    redirect.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) :
+    redirect.payload.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) :
         alu_target_i;
 
   end

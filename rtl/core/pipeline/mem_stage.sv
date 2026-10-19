@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // 对齐访存数据，发出 CoreBus 请求，归并响应及异常后交给 MEM/WB。
-// EX/MEM 保留元数据直到响应握手；最多一笔在途，年轻访存不得越过提交屏障。
+// EX/MEM 保留元数据直到响应握手；最多一笔在途，WB 改道取消年轻访存。
 module mem_stage
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
@@ -10,7 +10,6 @@ module mem_stage
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
-  input logic side_effect_block_i,
 
   // 流水事务
   ex_mem_if.consumer ex_mem,
@@ -59,9 +58,10 @@ module mem_stage
   assign dmem.req_payload.write = ex_mem.payload.mem_req.write;
   assign dmem.req_payload.size = to_core_bus_size(ex_mem.payload.mem_req.size);
   assign dmem.req_payload.wdata = ex_mem.payload.mem_req.write ? aligned_store_data : '0;
-  // 请求端只依赖寄存状态及更老事务的阻塞，不依赖当前响应或下游容量。
-  // 后端 flush 已在 EX/MEM 边界屏蔽 valid，本级无需重复门控。
-  assign dmem.req_valid = ex_mem.valid && memory_instruction && !inflight_q && !side_effect_block_i;
+  // 请求端不依赖当前响应或下游容量。旧指令在 MEM 结束前已确定全部异常，
+  // 年轻访存最早在旧指令到 WB 时发出；WB 改道在 EX/MEM 边界屏蔽 valid，
+  // 因而不需要额外的提交屏障门控。
+  assign dmem.req_valid = ex_mem.valid && memory_instruction && !inflight_q;
 
   // CoreBus 保证响应对应已接受或同拍接受的请求。预先给出 ready，避免
   // 响应 ready 依赖请求 ready；响应和元数据仅在 MEM/WB 可接收时一起转移。

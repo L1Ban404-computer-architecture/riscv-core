@@ -31,6 +31,9 @@ module performance_stats
   logic mem_local_stall;
   logic wb_local_stall;
   logic retire_fire;
+  logic redirect;
+
+  assign redirect = debug.execute.redirect || debug.writeback.redirect.valid;
 
   assign retire_fire = debug.writeback.valid && debug.writeback.ready;
 
@@ -79,16 +82,16 @@ module performance_stats
   // 原始 stall 表示边界上存在事务需求但接收端不能接受。redirect 或后端 flush
   // 会主动屏蔽 valid/ready 并清除错误路径事务，这种协议行为不是性能阻塞，因而
   // 在对应冲刷当拍从 stall 统计中排除。
-  assign if_id_stall = debug.decode.valid && !debug.decode.ready && !debug.control.redirect;
-  assign id_ex_stall = debug.execute.valid && !debug.execute.ready && !debug.control.flush_backend;
-  assign ex_mem_stall = debug.memory.valid && !debug.memory.ready && !debug.control.flush_backend;
+  assign if_id_stall = debug.decode.valid && !debug.decode.ready && !redirect;
+  assign id_ex_stall = debug.execute.valid && !debug.execute.ready && !debug.writeback.redirect.valid;
+  assign ex_mem_stall = debug.memory.valid && !debug.memory.ready && !debug.writeback.redirect.valid;
   assign mem_wb_stall = debug.writeback.valid && !debug.writeback.ready &&
-      !debug.control.flush_backend;
+      !debug.writeback.redirect.valid;
 
   // IF 没有 core 内部的输入握手，因此不能按其他 stage 的入口阻塞方式统计。
   // 这里把“后端愿意接收而 IF/ID 没有事务”定义为 IF 供给不足；redirect 当拍
   // 不计入，但 redirect 后恢复取指导致的空泡仍会自然计入。
-  assign if_local_stall = debug.decode.ready && !debug.decode.valid && !debug.control.redirect;
+  assign if_local_stall = debug.decode.ready && !debug.decode.valid && !redirect;
 
   // 局部阻塞前沿用于剔除逐级向上传播的背压。某阶段阻挡了入口，而它的出口
   // 边界没有同时阻塞，说明这条背压链在该阶段开始。非相邻阶段可在同一周期
@@ -101,6 +104,7 @@ module performance_stats
   // 这些计数器仅从 stage 接口观察“对上游形成压力”的周期。MEM 将访存
   // 保持在 EX/MEM 直到响应写入 MEM/WB，因此请求等待和响应等待都会表现为
   // EX/MEM stall；EX/MEM 握手对访存表示完成交接，不是请求接受。
+  // 串行化过滤器屏蔽的事务不作为 EX 接口反压计数；对年轻指令的阻塞体现在 ID。
   // 所有 64 位计数器达到最大值后自然回绕，与 cycle/instret 的现有行为一致。
 
   // 性能计数器更新
@@ -115,8 +119,8 @@ module performance_stats
         stats_q.instret_count <= stats_q.instret_count + 64'd1;
 
       // redirect 是无背压的单周期事件。统计仲裁后实际送到 IF 的事件：EX 与
-      // WB 同拍改道只计一次；WB flush 当拍也必须累计，包含 FENCE.I 重取指。
-      if (debug.control.redirect)
+      // WB 同拍改道只计一次；包含 EX 的 FENCE.I 重取和 WB 的 trap/MRET。
+      if (redirect)
         stats_q.redirect_count <= stats_q.redirect_count + 64'd1;
 
       if (retire_fire)

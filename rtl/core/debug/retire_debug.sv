@@ -45,6 +45,9 @@ module retire_debug
   mem_trace_t completed;
   retire_debug_payload_t retired;
   logic decode_fire, execute_fire, memory_fire, writeback_fire;
+  logic redirect;
+
+  assign redirect = debug.execute.redirect || debug.writeback.redirect.valid;
 
   assign decode_fire = debug.decode.valid && debug.decode.ready;
   assign execute_fire = debug.execute.valid && debug.execute.ready;
@@ -61,8 +64,8 @@ module retire_debug
   ) u_fetch_meta (
     .clk_i,
     .rst_ni,
-    .flush_i(debug.control.redirect),
-    .valid_i(debug.fetch.request_fire && !debug.control.redirect),
+    .flush_i(redirect),
+    .valid_i(debug.fetch.request_fire && !redirect),
     .ready_o(  /* 未使用 */),
     .data_i('{pc: debug.fetch.request_pc, instid: instid_q}),
     .valid_o(  /* 未使用 */),
@@ -80,7 +83,7 @@ module retire_debug
   ) u_if_id_trace (
     .clk_i,
     .rst_ni,
-    .flush_i(debug.control.redirect),
+    .flush_i(redirect),
     .valid_i(debug.fetch.result_valid),
     .ready_o(  /* 未使用 */),
     .data_i(fetched),
@@ -95,7 +98,7 @@ module retire_debug
   ) u_id_ex_trace (
     .clk_i,
     .rst_ni,
-    .flush_i(debug.control.flush_backend),
+    .flush_i(debug.writeback.redirect.valid),
     .in_fire_i(decode_fire),
     .in_data_i(decoded),
     .out_fire_i(execute_fire),
@@ -108,9 +111,9 @@ module retire_debug
   ) u_ex_mem_trace (
     .clk_i,
     .rst_ni,
-    .flush_i(debug.control.flush_backend),
+    .flush_i(debug.writeback.redirect.valid),
     .in_fire_i(execute_fire),
-    .in_data_i('{instruction: executing, redirect: debug.execute.redirect}),
+    .in_data_i('{instruction: executing, redirect: debug.execute.branch}),
     .out_fire_i(memory_fire),
     .out_data_o(executed)
   );
@@ -148,8 +151,7 @@ module retire_debug
     if (writeback_fire && ((debug.writeback.kind == COMMIT_TRAP) ||
                           (debug.writeback.kind == COMMIT_MRET)))
       retired.mem.mem_op = RETIRE_MEM_NONE;
-    if (writeback_fire && (debug.writeback.kind != COMMIT_FENCE_I) &&
-        debug.writeback.redirect.valid)
+    if (writeback_fire && debug.writeback.redirect.valid)
       retired.redirect = debug.writeback.redirect;
   end
 

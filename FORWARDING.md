@@ -24,7 +24,8 @@ flowchart LR
 | [`rtl/core/pipeline/ex_stage.sv`](rtl/core/pipeline/ex_stage.sv) | 使用 ID/EX 锁存的操作数执行，生成 EX/MEM 事务 |
 | [`rtl/core/pipeline/mem_stage.sv`](rtl/core/pipeline/mem_stage.sv) | 完成 load 数据整理，生成进入 MEM/WB 的事务 |
 | [`rtl/core/state/regfile.sv`](rtl/core/state/regfile.sv) | GPR 阵列组合读与 WB 同步写；同拍写回值由前递单元选择 |
-| [`rtl/core/pipeline/pipeline_ctrl.sv`](rtl/core/pipeline/pipeline_ctrl.sv) | CSR、SYSTEM、FENCE.I、异常的串行化与改道控制 |
+| [`rtl/core/pipeline/if_stage.sv`](rtl/core/pipeline/if_stage.sv) | 仲裁 EX/WB 改道，WB 优先 |
+| [`rtl/core/pipeline/serialization_ctrl.sv`](rtl/core/pipeline/serialization_ctrl.sv) | ID/EX 后的组合串行化过滤器 |
 
 前递单元以 `id_ex_if.consumer decoded` 消费 ID 的组合输出，以 monitor 接口观察 ID/EX、EX/MEM 和 MEM/WB。输出仍为完整的 `id_ex_if` 事务，只改写 `exec_data.rs1_value`、`exec_data.rs2_value`，其他字段透传。模块没有时钟、复位和内部寄存状态，不增加流水级。
 
@@ -87,9 +88,9 @@ load-use 等待长度取决于实际访存时序，不能统一称为固定一�
 
 ID 在等待另一路源或下游容量时，寄存器堆仍持续组合读取。如果某路 MEM/WB 先写回并离开，同拍由前递单元的 MEM/WB 候选提供数据，下一拍由 GPR 阵列提供已提交值。因此不需要保留之前在 EX 前递中使用的两路 MEM/WB 暂存值。寄存器堆本身不再重复做同拍写回旁路，所有在途生产者的优先级与数据选择统一由前递单元处理。
 
-指令被 ID/EX 接收后，操作数随完整事务一起保存。EX 反压期间这些值保持稳定，不随 GPR 或候选变化。
+指令被 ID/EX 接收后，操作数随完整事务一起保存。EX 反压或串行化等待期间这些值保持稳定，不随 GPR 或候选变化。前递监测过滤前的 ID/EX，等待中的生产者仍有效；过滤后的 EX 结果无效时，依赖该生产者的年轻指令继续等待，不会选用更老的候选值。
 
-EX 分支改道通过 IF/ID 的直通缓冲当拍屏蔽错误路径，IF 同时取消旧路径输入，清除前端等待指令；WB 改道同时由 ID/EX、EX/MEM 屏蔽旧输出。三种缓冲均在 flush 当拍屏蔽输出并允许接收新输入，但当前后端 flush 已由上游取消年轻输入，因此这两个边界在时钟沿清空。ID、EX 无需再接 flush；MEM/WB 的 flush 固定为零，让发起改道的 WB 指令正常退休后自然弹空。前递模块无内部状态，不需要额外的取消或复位逻辑。CSR/SYSTEM 与异常仍由 `pipeline_ctrl` 串行化，执行前等待更老事务排空。
+EX 分支改道通过 IF/ID 的直通缓冲当拍屏蔽错误路径，IF 同时取消旧路径输入，清除前端等待指令；WB 改道同时由 ID/EX、EX/MEM 屏蔽旧输出。三种缓冲均在 flush 当拍屏蔽输出并允许接收新输入，但当前后端 flush 已由上游取消年轻输入，因此这两个边界在时钟沿清空。ID、EX 无需再接 flush；MEM/WB 的 flush 固定为零，让发起改道的 WB 指令正常退休后自然弹空。前递模块无内部状态，不需要额外的取消或复位逻辑。`serialization_ctrl` 在 ID/EX 后同时门控 valid 和 ready，让 CSR 和 FENCE.I 等待更老事务排空，无需 CSR 前递；执行后不阻止普通年轻指令推进。异常和 MRET 按普通握手传到 WB，依靠顺序提交与后端冲刷维持精确状态。
 
 ALU、分支比较、JALR/load/store 的基址、store 的 rs2 数据和寄存器形式 CSR 源值均使用 ID/EX 的已就绪操作数。MEM 不增加额外的 store 数据旁路。CSR 寄存器之间仍无专用前递网络。
 

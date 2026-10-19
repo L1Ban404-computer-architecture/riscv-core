@@ -16,7 +16,6 @@ struct Options {
   std::string trace;
   std::string bht = "btfn";
   BtbConfig btb;
-  RasConfig ras;
 };
 
 void Usage(const char *prog) {
@@ -26,9 +25,7 @@ void Usage(const char *prog) {
       "  --btb none|table          default table\n"
       "  --btb-sets N              default 64 (positive power of two)\n"
       "  --btb-ways N              default 2\n"
-      "  --btb-policy rr|lru       default rr\n"
-      "  --ras none|stack          default stack\n"
-      "  --ras-depth N             default 16\n", prog);
+      "  --btb-policy rr|lru       default rr\n", prog);
 }
 
 std::uint32_t Number(const std::string &text) {
@@ -64,8 +61,6 @@ Options ReadArgs(int argc, char **argv) {
     else if (name == "--btb-sets") options.btb.sets = Number(value);
     else if (name == "--btb-ways") options.btb.ways = Number(value);
     else if (name == "--btb-policy") options.btb.policy = value;
-    else if (name == "--ras") options.ras.method = value;
-    else if (name == "--ras-depth") options.ras.depth = Number(value);
     else throw std::invalid_argument("unknown argument: " + name);
   }
   if (options.trace.empty()) throw std::invalid_argument("missing --trace");
@@ -109,21 +104,18 @@ int main(int argc, char **argv) {
     const Options options = ReadArgs(argc, argv);
     auto bht = MakeBht(options.bht);
     Btb btb(options.btb);
-    Ras ras(options.ras);
     BranchTraceReader reader;
     reader.Open(options.trace.c_str());
     BranchStats stats;
     BranchRecord record;
     while (reader.Next(&record)) {
-      const Prediction prediction = Predict(record.input, *bht, btb, ras);
+      const Prediction prediction = Predict(record.input.pc, *bht, btb);
       stats.Observe(prediction, record.outcome);
-      Update(record, *bht, btb, ras);
+      Update(record, *bht, btb);
     }
-    std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s"
-                " ras=%s ras_depth=%u\n", options.bht.c_str(),
+    std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s\n", options.bht.c_str(),
                 options.btb.method.c_str(), options.btb.sets, options.btb.ways,
-                options.btb.policy.c_str(), options.ras.method.c_str(),
-                options.ras.depth);
+                options.btb.policy.c_str());
     PrintStats(stats);
     return 0;
   } catch (const std::invalid_argument &error) {
