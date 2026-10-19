@@ -4,7 +4,7 @@ RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建�
 
 ## 阅读顺序
 
-先看 `rtl/core/riscv_core_impl.sv` 的连接，再按 IF、ID、EX、MEM、WB 读取流水级。基础宽度与标量类型（`XLen`、`word_t`）、功能事务由 `riscv_core_pkg.sv` 和 `riscv_core_if.sv` 定义，独立调试通路由 `riscv_debug_pkg.sv` 和 `riscv_debug_if.sv` 定义。
+先看 `rtl/core/riscv_core_impl.sv` 的连接，再按 IF、ID、EX、MEM、WB 读取流水级。基础宽度与标量类型（`XLen`、`word_t`）、功能事务由核心根目录的 `riscv_core_pkg.sv` 和 `riscv_core_if.sv` 定义，独立调试通路由 `rtl/core/debug/` 下的 `riscv_debug_pkg.sv` 和 `riscv_debug_if.sv` 定义。
 
 四组级间寄存器和 `forwarding_unit` 统一在 `riscv_core_impl` 实例化，各级计算输出端口统一命名为 `result`。`if_result`、`id_result`、`ex_result`、`mem_result` 是各级计算输出，对应的 `*_result_buffered` 是级间缓冲输出，`forward_result` 是写入 ID/EX 前已完成操作数选择的 ID 事务；IF/ID 保留空载直通。顶层只声明和连接模块，本级握手由 stage 处理，前递候选提取、操作数选择及数据未就绪时的握手阻塞由前递单元处理。
 
@@ -17,7 +17,10 @@ RV32E/RV32I 五级顺序核心，实现 Zicsr 和 Zifencei。默认独立构建�
 | `rtl/core/pipeline/mem_stage.sv` | 数据对齐、CoreBus 请求和响应；EX/MEM 保留元数据直到响应完成 |
 | `rtl/core/pipeline/wb_stage.sv` | 唯一架构提交点；提交 GPR、CSR、异常、MRET 与 FENCE.I |
 | `rtl/core/pipeline/pipeline_ctrl.sv` | 仲裁改道与串行化屏障，阻止年轻访存越过待提交副作用 |
-| `rtl/core/units/` | 运算、译码、前递和架构状态；GPR 与 CSR 单元只接受 WB 的状态更新 |
+| `rtl/core/pipeline/forwarding_unit.sv` | 跨级选择最新操作数，生产者结果未就绪时反压 ID |
+| `rtl/core/units/` | 组合译码、立即数生成、ALU、分支判定与 load/store 数据整理 |
+| `rtl/core/state/` | GPR 与 CSR 架构状态，只接受 WB 的状态更新 |
+| `rtl/core/debug/` | 调试类型与接口、退休影子队列及性能观察，不向功能流水施加反压 |
 | `rtl/icache/` | 指令查询、缺失回填、CPU 回应与失效维护 |
 | `rtl/bus/` | CoreBus 地址路由、AXI 适配与仲裁；协议类型不依赖核心执行类型 |
 | `rtl/common/` | 弹性寄存器、FIFO 和存储原语，时序语义由参数决定 |
@@ -74,6 +77,8 @@ I-cache 的 hit/miss 延迟使用相同边界；命中率按全部已接受并�
 
 ## 代码组织
 
+`rtl/core/` 根目录保留核心装配与公共功能定义；`pipeline/` 负责流水阶段和跨级协调，`units/` 负责组合计算，`state/` 保存架构状态，`debug/` 集中仿真观察通路。通用寄存器和 FIFO 仍归 `rtl/common/`，I-cache 及其性能观察器仍归 `rtl/icache/`。
+
 模块按输入解释、计算与异常、输出事务、握手和状态更新的逻辑展开。信号放在相关功能附近或紧凑的声明区；接口 payload 直接使用，仅为有独立含义的计算结果命名。ID、MEM 的 `next_payload` 表示下一流水事务；EX 分别计算 `next_commit` 与 `next_mem_req`，再组成 EX/MEM。
 
 时序状态使用 `_q`，组合下一状态使用 `_d`；端口使用 `_i`、`_o`，接口名表达角色；类型使用 `_t`，枚举类型使用 `_e`。缩进为两空格。注释说明协议约束、优先级和设计原因，小节标题保持单行。模块拆分以独立协议或状态所有权为依据。
@@ -87,10 +92,12 @@ I-cache 的 hit/miss 延迟使用相同边界；命中率按全部已接受并�
 ```sh
 make check RVE=1              # RV32E 综合语义检查
 make check RVE=0              # RV32I 综合语义检查
-make test-forwarding RVE=1    # 前递、寄存器 flush 同拍接收、WB 改道及年轻事务取消；也支持 RVE=0
-make formal-icache           # 默认两字行，复位后 20 拍的有界一致性检查
+make formal-icache            # 默认两字行，复位后 20 拍的有界一致性检查
 make cachesim                # C++ 功能模型
+make branchsim               # C++ 分支预测功能模型
 ```
+
+本组件保留 I-cache 形式化验证环境，不维护独立仿真测试；保留 RTL 内部断言、调试接口、退休跟踪和性能观察通路。
 
 工作台集成需设置 `YSYX_HOME`、`AM_HOME`、`RISCV_CORE_HOME` 并保持当前平台契约。按工作台 `AGENTS.md` 执行包装 lint、dummy 冒烟和 RT-Thread 差分测试；总线或缓存修改同时验证 `DUT=npc` 与 `DUT=soc` 的实际路径。局部检查不能替代系统验证，20 拍有界检查也不代表任意长度的完整证明。
 

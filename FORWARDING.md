@@ -20,10 +20,10 @@ flowchart LR
 | --- | --- |
 | [`rtl/core/riscv_core_impl.sv`](rtl/core/riscv_core_impl.sv) | 按 ID → 前递 → ID/EX → EX 连接，监视三个寄存后的生产者边界 |
 | [`rtl/core/pipeline/id_stage.sv`](rtl/core/pipeline/id_stage.sv) | 译码源寄存器及使用标志，等待期间持续读取 GPR |
-| [`rtl/core/units/forwarding_unit.sv`](rtl/core/units/forwarding_unit.sv) | 检测 EX 相关，选择 EX/MEM、MEM/WB 或 GPR 值，未就绪时反压 ID |
+| [`rtl/core/pipeline/forwarding_unit.sv`](rtl/core/pipeline/forwarding_unit.sv) | 检测 EX 相关，选择 EX/MEM、MEM/WB 或 GPR 值，未就绪时反压 ID |
 | [`rtl/core/pipeline/ex_stage.sv`](rtl/core/pipeline/ex_stage.sv) | 使用 ID/EX 锁存的操作数执行，生成 EX/MEM 事务 |
 | [`rtl/core/pipeline/mem_stage.sv`](rtl/core/pipeline/mem_stage.sv) | 完成 load 数据整理，生成进入 MEM/WB 的事务 |
-| [`rtl/core/units/regfile.sv`](rtl/core/units/regfile.sv) | GPR 阵列组合读与 WB 同步写；同拍写回值由前递单元选择 |
+| [`rtl/core/state/regfile.sv`](rtl/core/state/regfile.sv) | GPR 阵列组合读与 WB 同步写；同拍写回值由前递单元选择 |
 | [`rtl/core/pipeline/pipeline_ctrl.sv`](rtl/core/pipeline/pipeline_ctrl.sv) | CSR、SYSTEM、FENCE.I、异常的串行化与改道控制 |
 
 前递单元以 `id_ex_if.consumer decoded` 消费 ID 的组合输出，以 monitor 接口观察 ID/EX、EX/MEM 和 MEM/WB。输出仍为完整的 `id_ex_if` 事务，只改写 `exec_data.rs1_value`、`exec_data.rs2_value`，其他字段透传。模块没有时钟、复位和内部寄存状态，不增加流水级。
@@ -100,14 +100,6 @@ ALU、分支比较、JALR/load/store 的基址、store 的 rs2 数据和寄存�
 ```sh
 make check RVE=1
 make check RVE=0
-make test-forwarding RVE=1
-make test-forwarding RVE=0
 ```
 
-`forwarding_tb` 检查生产者优先级、EX 相关阻塞、未使用源、x0 和握手。`forwarding_pipeline_tb` 使用真实 GPR 和 ID/EX，检查相邻依赖的排空、等待 load 时另一源的独立写回、操作数锁存与反压稳定性、同拍替换和冲刷。`stream_register_tb` 检查反压、flush 即时取消及同拍接收新输入；`pipeline_flush_tb` 使用真实 ID/EX/WB，检查 trap、MRET、FENCE.I 正常提交，以及年轻分支和 store 的即时取消。
-
-`stream_fifo_tb` 用队列记分板检查不同深度、直通、同拍读写和 flush 组合，覆盖非二次幂深度及指针回绕；`if_stage_tb` 检查连续回应、反压、改道取消、目标请求立即接收，以及真实退休观察器输出的 PC/指令/instid 对齐。
-
-`mem_stage_tb` 检查提交屏障、单笔在途、延迟和同拍响应、响应反压、访存异常及上游取消。`pipeline_flush_tb` 还验证 WB 改道时真实 MEM 不会发出被取消的年轻 store。
-
-系统差分验证应通过工作台 Makefile 运行 mini-soc 对 NEMU 的 dummy、相关 cpu-tests 和 RT-Thread；命令与环境要求见工作台 `AGENTS.md`。局部检查不能替代系统验证，功能测试也不能替代时序测量。
+本组件不维护独立前递测试，调试接口与 RTL 内部断言保留。系统差分验证应通过工作台 Makefile 运行 mini-soc 对 NEMU 的 dummy、相关 cpu-tests 和 RT-Thread；命令与环境要求见工作台 `AGENTS.md`。综合语义检查不能替代系统验证，功能测试也不能替代时序测量。
