@@ -128,7 +128,9 @@ module ex_stage
   assign branch_update.payload = '{
     pc: id_ex.payload.meta.pc,
     branch_op: id_ex.payload.ctrl.branch_op,
-    target_pc: alu_result
+    target_pc: alu_result,
+    // 直接分支的有符号偏移已在 ID 扩展；地址回绕不改变编码方向。
+    backward: id_ex.payload.exec_data.imm[XLen-1]
   };
 
   // 写回、访存与提交事务生成

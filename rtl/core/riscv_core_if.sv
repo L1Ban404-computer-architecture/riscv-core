@@ -84,7 +84,7 @@ endinterface
 `RISCV_CORE_VALID_IF(redirect_if, riscv_core_pkg::redirect_payload_t)
 
 // 已确认合法的训练结果；valid 在上升沿采样，复位/失效优先。
-// 条件分支无论实际方向如何都须提供编码目标，不传入实际方向。
+// 条件分支无论实际 taken 如何都须提供编码目标与立即数符号，不传入实际 taken。
 `RISCV_CORE_VALID_IF(branch_update_if, riscv_core_pkg::branch_update_payload_t)
 
 // 各级计算输出与寄存后的流水边界共享相同的 stream 协议。

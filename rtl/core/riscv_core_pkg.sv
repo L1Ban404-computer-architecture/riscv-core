@@ -30,25 +30,13 @@ package riscv_core_pkg;
   // 分支预测器配置与表项类型；CPU 直接使用这些默认值。
 
   typedef enum logic {
-    BHT_BTFN,
-    BHT_NOT_TAKEN
-  } bht_algorithm_e;
-
-  typedef enum logic {
-    BTB_REPLACEMENT_ROUND_ROBIN,
-    BTB_REPLACEMENT_LRU
-  } btb_replacement_policy_e;
-
-  typedef enum logic {
     BTB_BRANCH,
     BTB_JAL
   } btb_entry_type_e;
 
-  parameter bht_algorithm_e BhtAlgorithm = BHT_BTFN;
   parameter bit BtbEnable = 1'b0;
-  parameter int unsigned BtbSetCount = 2;
+  parameter int unsigned BtbSetCount = 1;
   parameter int unsigned BtbWayCount = 2;
-  parameter btb_replacement_policy_e BtbReplacementPolicy = BTB_REPLACEMENT_ROUND_ROBIN;
 
   // 指令编码与执行操作
 
@@ -208,11 +196,12 @@ package riscv_core_pkg;
     logic imem_invalidate;
   } redirect_payload_t;
 
-  // 预测器训练只接受已确认合法的类型与编码目标，不需要实际方向。
+  // 预测器训练只接受已确认合法的类型、编码目标与立即数方向，不需要实际 taken。
   typedef struct packed {
     pc_t pc;
     branch_op_e branch_op;
     pc_t target_pc;
+    logic backward;
   } branch_update_payload_t;
 
   // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
