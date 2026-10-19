@@ -22,11 +22,8 @@ module mem_stage
 
   word_t aligned_store_data;
   word_t loaded_data;
-
   logic inflight_q;
-
   logic memory_instruction;
-
   mem_wb_payload_t next_payload;
 
   // 事务转换与数据整理
@@ -49,6 +46,14 @@ module mem_stage
     .aligned_wdata_o(aligned_store_data)
   );
 
+  load_data_unit u_load_data_unit (
+    .size_i(ex_mem.payload.mem_req.size),
+    .sign_ext_i(ex_mem.payload.mem_req.sign_ext),
+    .addr_offset_i(ex_mem.payload.mem_req.addr[1:0]),
+    .rdata_i(dmem.rsp_payload.rdata),
+    .load_data_o(loaded_data)
+  );
+
   assign memory_instruction = ex_mem.payload.mem_req.valid;
 
   // EX/MEM 本身已经满足严格 ready/valid 保持规则，因此 CoreBus 请求可以
@@ -68,21 +73,6 @@ module mem_stage
   assign dmem.rsp_ready = ex_mem.valid && memory_instruction && result.ready;
 
   assign ex_mem.ready = memory_instruction ? dmem.rsp_fire : result.ready;
-
-  // 响应优先，同拍请求和响应不留下在途事务；在途请求必须保留 EX/MEM 元数据。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) inflight_q <= 1'b0;
-    else if (dmem.rsp_fire) inflight_q <= 1'b0;
-    else if (dmem.req_fire) inflight_q <= 1'b1;
-  end
-
-  load_data_unit u_load_data_unit (
-    .size_i(ex_mem.payload.mem_req.size),
-    .sign_ext_i(ex_mem.payload.mem_req.sign_ext),
-    .addr_offset_i(ex_mem.payload.mem_req.addr[1:0]),
-    .rdata_i(dmem.rsp_payload.rdata),
-    .load_data_o(loaded_data)
-  );
 
   // 访存完成、异常归并与 MEM/WB 仲裁
 
@@ -109,7 +99,12 @@ module mem_stage
   // 本级输出送入顶层 MEM/WB 寄存器。
   assign result.payload = next_payload;
 
-  // 协议检查
+  // 响应优先，同拍请求和响应不留下在途事务；在途请求必须保留 EX/MEM 元数据。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) inflight_q <= 1'b0;
+    else if (dmem.rsp_fire) inflight_q <= 1'b0;
+    else if (dmem.req_fire) inflight_q <= 1'b1;
+  end
 
 `ifndef SYNTHESIS
   import riscv_debug_pkg::*;

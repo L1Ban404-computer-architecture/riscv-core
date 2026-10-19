@@ -33,10 +33,6 @@ module performance_stats
   logic retire_fire;
   logic redirect;
 
-  assign redirect = debug.execute.redirect || debug.writeback.redirect.valid;
-
-  assign retire_fire = debug.writeback.valid && debug.writeback.ready;
-
   // 仅保存本模块负责的流水计数；访存统计由各自观察器维护。
   struct packed {
     logic [63:0] cycle_count;
@@ -46,18 +42,6 @@ module performance_stats
     class_performance_payload_t [PerfClassCount-1:0] classes;
   } stats_q;
   memory_performance_payload_t imem_stats, dmem_stats;
-
-  // 计数器输出
-
-  assign performance_o = '{
-    cycle_count: stats_q.cycle_count,
-    instret_count: stats_q.instret_count,
-    redirect_count: stats_q.redirect_count,
-    if_local_stall_cycle_count: stats_q.if_local_stall_cycle_count,
-    classes: stats_q.classes,
-    imem: imem_stats,
-    dmem: dmem_stats
-  };
 
   memory_performance_stats u_imem_stats (
     .clk_i, .rst_ni,
@@ -73,6 +57,10 @@ module performance_stats
     .bus_i(debug.memory.bus),
     .stats_o(dmem_stats)
   );
+
+  assign redirect = debug.execute.redirect || debug.writeback.redirect.valid;
+
+  assign retire_fire = debug.writeback.valid && debug.writeback.ready;
 
   // 传输、阻塞与局部背压事件
 
@@ -106,6 +94,18 @@ module performance_stats
   // EX/MEM stall；EX/MEM 握手对访存表示完成交接，不是请求接受。
   // 串行化过滤器屏蔽的事务不作为 EX 接口反压计数；对年轻指令的阻塞体现在 ID。
   // 所有 64 位计数器达到最大值后自然回绕，与 cycle/instret 的现有行为一致。
+
+  // 计数器输出
+
+  assign performance_o = '{
+    cycle_count: stats_q.cycle_count,
+    instret_count: stats_q.instret_count,
+    redirect_count: stats_q.redirect_count,
+    if_local_stall_cycle_count: stats_q.if_local_stall_cycle_count,
+    classes: stats_q.classes,
+    imem: imem_stats,
+    dmem: dmem_stats
+  };
 
   // 性能计数器更新
 

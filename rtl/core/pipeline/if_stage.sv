@@ -47,19 +47,6 @@ module if_stage
   // 该事件不经过下方 imem_flush_o 的一拍延迟。
   assign imem_invalidate_o = resolved_redirect.valid && resolved_redirect.payload.imem_invalidate;
 
-  // redirect 同拍仍可能接受旧 PC；下一拍 flush 才能覆盖这笔请求。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      pc_q <= boot_pc_i;
-      imem_flush_o <= 1'b0;
-    end else begin
-      imem_flush_o <= resolved_redirect.valid;
-      if (resolved_redirect.valid) pc_q <= resolved_redirect.payload.target_pc;
-      else if (imem.req_fire)
-        pc_q <= prediction.taken ? prediction.target_pc : pc_q + pc_t'(4);
-    end
-  end
-
   assign imem.req_valid = rst_ni;
   assign imem.req_payload = '{
       addr: pc_q, write: 1'b0, size: CORE_BUS_SIZE_WORD, wdata: '0
@@ -91,6 +78,19 @@ module if_stage
     result.payload.meta.instr = instr_t'(imem.rsp_payload.rdata);
     if (imem.rsp_payload.error) begin
       result.payload.exception = raise_exception('0, EXC_INST_ACCESS_FAULT, pending.pc);
+    end
+  end
+
+  // redirect 同拍仍可能接受旧 PC；下一拍 flush 才能覆盖这笔请求。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      pc_q <= boot_pc_i;
+      imem_flush_o <= 1'b0;
+    end else begin
+      imem_flush_o <= resolved_redirect.valid;
+      if (resolved_redirect.valid) pc_q <= resolved_redirect.payload.target_pc;
+      else if (imem.req_fire)
+        pc_q <= prediction.taken ? prediction.target_pc : pc_q + pc_t'(4);
     end
   end
 

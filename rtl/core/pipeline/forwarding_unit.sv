@@ -17,8 +17,6 @@ module forwarding_unit
   id_ex_if.producer result
 );
 
-  // 前递候选与解析结果
-
   typedef struct packed {
     word_t value;
     logic stall;
@@ -51,8 +49,6 @@ module forwarding_unit
                      rd_addr: wb.payload.rd_addr, wdata: wb.payload.wdata};
   end
 
-  // 前递优先级与阻塞判定
-
   // ID 等待时继续读取 GPR，WB 离开后由寄存器堆提供已提交值，无需暂存。
   // 最近候选匹配但未就绪时，不允许绕过到更老的值。
   function automatic forward_result_t resolve_source(
@@ -63,22 +59,22 @@ module forwarding_unit
     input writeback_payload_t mem_candidate,
     input writeback_payload_t wb_candidate
   );
+    writeback_payload_t candidate;
     forward_result_t result;
+
+    // 先选最近的生产者，再判断数据是否就绪；不能因其未就绪而退回旧值。
+    candidate = '0;
+    if (ex_candidate.valid && (ex_candidate.rd_addr == addr))
+      candidate = ex_candidate;
+    else if (mem_candidate.valid && (mem_candidate.rd_addr == addr))
+      candidate = mem_candidate;
+    else if (wb_candidate.valid && (wb_candidate.rd_addr == addr))
+      candidate = wb_candidate;
+
     result = '{value: base_value, stall: 1'b0};
-    if (used && (addr != ZeroReg)) begin
-      if (ex_candidate.valid && (ex_candidate.rd_addr == addr)) begin
-        if (ex_candidate.data_valid) result.value = ex_candidate.wdata;
-        else result.stall = 1'b1;
-      end else if (mem_candidate.valid && (mem_candidate.rd_addr == addr)) begin
-        if (mem_candidate.data_valid) begin
-          result.value = mem_candidate.wdata;
-        end else begin
-          result.stall = 1'b1;
-        end
-      end else if (wb_candidate.valid && (wb_candidate.rd_addr == addr)) begin
-        if (wb_candidate.data_valid) result.value = wb_candidate.wdata;
-        else result.stall = 1'b1;
-      end
+    if (used && (addr != ZeroReg) && candidate.valid) begin
+      if (candidate.data_valid) result.value = candidate.wdata;
+      else result.stall = 1'b1;
     end
     return result;
   endfunction

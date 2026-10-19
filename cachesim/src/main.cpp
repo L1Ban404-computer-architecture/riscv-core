@@ -10,30 +10,6 @@
 
 namespace {
 
-const char *ReadArgs(int argc, char **argv, CacheConfig *config);
-Cache MakeCache(const CacheConfig &config);
-void PrintStats(const CacheStats &stats);
-
-}  // namespace
-
-// 读几何和轨迹，逐条 PC 访问，最后打印命中率。
-int main(int argc, char **argv) {
-  CacheConfig config;
-  const char *trace_path = ReadArgs(argc, argv, &config);
-
-  Cache cache = MakeCache(config);
-  PcTraceReader reader;
-  reader.Open(trace_path);
-
-  std::uint32_t pc = 0;
-  while (reader.Next(&pc)) cache.Access(pc);
-
-  PrintStats(cache.stats());
-  return 0;
-}
-
-namespace {
-
 bool Flag(const char *arg, const char *name) {
   const std::size_t n = std::strlen(name);
   return std::strncmp(arg, name, n) == 0 && (arg[n] == '\0' || arg[n] == '=');
@@ -113,3 +89,19 @@ void PrintStats(const CacheStats &stats) {
 }
 
 }  // namespace
+
+// 读几何和轨迹，逐条 PC 访问，最后打印命中率。
+int main(int argc, char **argv) {
+  CacheConfig config;
+  const char *trace_path = ReadArgs(argc, argv, &config);
+
+  Cache cache = MakeCache(config);
+  PcTraceReader reader;
+  reader.Open(trace_path);
+
+  std::uint32_t pc = 0;
+  while (reader.Next(&pc)) cache.Access(pc);
+
+  PrintStats(cache.stats());
+  return 0;
+}

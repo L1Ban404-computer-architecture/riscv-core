@@ -23,10 +23,6 @@ Btb::Btb(const BtbConfig &config) : config_(config) {
   rr_next_.resize(config.sets, 0);
 }
 
-std::size_t Btb::SetBegin(std::uint32_t pc) const {
-  return static_cast<std::size_t>((pc >> 2) & (config_.sets - 1u)) * config_.ways;
-}
-
 BtbPrediction Btb::Lookup(std::uint32_t pc) const {
   if (config_.method == "none") return {};
   const std::size_t begin = SetBegin(pc);
@@ -83,4 +79,8 @@ void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
     rr_next_[set] = (selected + 1u) % config_.ways;
   }
   entry = {true, pc, target, type, 0};
+}
+
+std::size_t Btb::SetBegin(std::uint32_t pc) const {
+  return static_cast<std::size_t>((pc >> 2) & (config_.sets - 1u)) * config_.ways;
 }

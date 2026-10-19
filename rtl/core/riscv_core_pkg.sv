@@ -45,7 +45,7 @@ package riscv_core_pkg;
   } btb_entry_type_e;
 
   parameter bht_algorithm_e BhtAlgorithm = BHT_BTFN;
-  parameter bit BtbEnable = 1'b1;
+  parameter bit BtbEnable = 1'b0;
   parameter int unsigned BtbSetCount = 2;
   parameter int unsigned BtbWayCount = 2;
   parameter btb_replacement_policy_e BtbReplacementPolicy = BTB_REPLACEMENT_ROUND_ROBIN;

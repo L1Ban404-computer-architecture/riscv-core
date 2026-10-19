@@ -20,6 +20,16 @@ module icache_rsp (
   assign miss.req_valid = lookup.valid && !lookup.payload.hit && !flush_i;
   assign miss.req_payload.addr = lookup.payload.addr;
 
+  // 丢弃旧 miss 不受 CPU 背压影响；新 lookup 的命中仍可正常返回。
+  assign lookup_hit = lookup.valid && lookup.payload.hit;
+  assign core_bus.rsp_valid = !flush_i && (lookup_hit || (miss.rsp_valid && !drop_miss_q));
+  assign core_bus.rsp_payload = '{
+    rdata: lookup_hit ? lookup.payload.rdata : miss.rsp_payload.rdata,
+    error: lookup_hit ? 1'b0 : miss.rsp_payload.error
+  };
+  assign miss.rsp_ready = core_bus.rsp_ready || flush_i || drop_miss_q;
+  assign lookup.ready = core_bus.rsp_fire || flush_i;
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       miss_pending_q <= 1'b0;
@@ -33,16 +43,6 @@ module icache_rsp (
       drop_miss_q <= 1'b1;
     end
   end
-
-  // 丢弃旧 miss 不受 CPU 背压影响；新 lookup 的命中仍可正常返回。
-  assign lookup_hit = lookup.valid && lookup.payload.hit;
-  assign core_bus.rsp_valid = !flush_i && (lookup_hit || (miss.rsp_valid && !drop_miss_q));
-  assign core_bus.rsp_payload = '{
-    rdata: lookup_hit ? lookup.payload.rdata : miss.rsp_payload.rdata,
-    error: lookup_hit ? 1'b0 : miss.rsp_payload.error
-  };
-  assign miss.rsp_ready = core_bus.rsp_ready || flush_i || drop_miss_q;
-  assign lookup.ready = core_bus.rsp_fire || flush_i;
 
 `ifndef SYNTHESIS
   ICacheMissResponseOwned:

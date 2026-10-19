@@ -17,53 +17,48 @@ module wb_stage
 );
 
   commit_kind_e commit_kind;
-  logic trap_commit;
-  logic mret_commit;
 
-  // 架构提交与控制流改道
-
-  // WB 没有下游背压，是唯一架构提交点。所有寄存器、CSR、trap 状态变化都由
-  // mem_wb.fire 门控，避免无效 MEM/WB payload 产生副作用。
+  // WB 恒 ready；提交分类只解释 payload，所有副作用由 fire 门控。
   assign mem_wb.ready = 1'b1;
   assign commit_kind = commit_kind_from_context(mem_wb.payload);
 
   always_comb begin
-    // 架构提交优先级固定为：trap entry > MRET > 普通 CSR/GPR 写回。
-    trap_commit = mem_wb.fire && (commit_kind == COMMIT_TRAP);
-    mret_commit = mem_wb.fire && (commit_kind == COMMIT_MRET);
-    // trap 和 MRET 从 WB 发起全流水 flush。
     redirect.valid = 1'b0;
     redirect.payload = '0;
-    if (trap_commit) begin
-      redirect.valid = 1'b1;
-      redirect.payload.target_pc = csr_status.mtvec;
-    end else if (mret_commit) begin
-      // 读取提交前的 mepc；csr_unit 已将 mepc[1:0] 实现为只读零。
-      redirect.valid = 1'b1;
-      redirect.payload.target_pc = csr_status.mepc;
-    end
-
     wb.valid = 1'b0;
-    wb.payload.rd_addr = '0;
-    wb.payload.wdata = '0;
-    if (mem_wb.fire && !trap_commit && !mret_commit) begin
-      wb.valid = mem_wb.payload.wb_req.valid && mem_wb.payload.wb_req.data_valid;
-      wb.payload.rd_addr = mem_wb.payload.wb_req.rd_addr;
-      wb.payload.wdata = mem_wb.payload.wb_req.wdata;
-    end
-  end
+    wb.payload = '0;
+    csr_commit.payload = '{
+      op: CSR_COMMIT_NONE,
+      addr: mem_wb.payload.commit.csr_write.addr,
+      wdata: mem_wb.payload.commit.csr_write.wdata,
+      trap_epc: mem_wb.payload.pc,
+      trap_cause: mem_wb.payload.exception.cause,
+      trap_tval: mem_wb.payload.exception.tval
+    };
 
-  always_comb begin
-    csr_commit.payload = '0;
-    if (trap_commit) csr_commit.payload.op = CSR_COMMIT_TRAP;
-    else if (mret_commit) csr_commit.payload.op = CSR_COMMIT_MRET;
-    else if (mem_wb.fire && mem_wb.payload.commit.csr_write.valid)
-      csr_commit.payload.op = CSR_COMMIT_WRITE;
-    csr_commit.payload.addr = mem_wb.payload.commit.csr_write.addr;
-    csr_commit.payload.wdata = mem_wb.payload.commit.csr_write.wdata;
-    csr_commit.payload.trap_epc = mem_wb.payload.pc;
-    csr_commit.payload.trap_cause = mem_wb.payload.exception.cause;
-    csr_commit.payload.trap_tval = mem_wb.payload.exception.tval;
+    // 同一个提交分支同时决定 GPR、CSR 和改道，优先级由 commit_kind 统一给出。
+    if (mem_wb.fire) begin
+      case (commit_kind)
+        COMMIT_TRAP: begin
+          csr_commit.payload.op = CSR_COMMIT_TRAP;
+          redirect.valid = 1'b1;
+          redirect.payload.target_pc = csr_status.mtvec;
+        end
+        COMMIT_MRET: begin
+          csr_commit.payload.op = CSR_COMMIT_MRET;
+          redirect.valid = 1'b1;
+          // csr_unit 保证 mepc[1:0] 为零，读取的是提交前的状态。
+          redirect.payload.target_pc = csr_status.mepc;
+        end
+        default: begin
+          wb.valid = mem_wb.payload.wb_req.valid && mem_wb.payload.wb_req.data_valid;
+          wb.payload = '{rd_addr: mem_wb.payload.wb_req.rd_addr,
+                         wdata: mem_wb.payload.wb_req.wdata};
+          if (mem_wb.payload.commit.csr_write.valid)
+            csr_commit.payload.op = CSR_COMMIT_WRITE;
+        end
+      endcase
+    end
   end
 
 `ifndef SYNTHESIS

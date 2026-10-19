@@ -14,11 +14,11 @@ module decoder
   funct3_t funct3;
   funct7_t funct7;
 
-  always_comb begin
-    opcode = opcode_e'(instr_i[6:0]);
-    funct3 = instr_i[14:12];
-    funct7 = instr_i[31:25];
+  assign opcode = opcode_e'(instr_i[6:0]);
+  assign funct3 = instr_i[14:12];
+  assign funct7 = instr_i[31:25];
 
+  always_comb begin
     decode_o = '0;
     decode_o.reg_addr.rs1_addr = instr_i[19:15];
     decode_o.reg_addr.rs2_addr = instr_i[24:20];
@@ -131,18 +131,20 @@ module decoder
         decode_o.imm_type = IMM_I;
         decode_o.ctrl.op_b_sel = OP_B_IMM;
         decode_o.ctrl.wb_sel = WB_ALU;
+        decode_o.illegal = 1'b0;
         case (funct3)
-          3'b000: begin decode_o.ctrl.alu_op = ALU_ADD; decode_o.illegal = 1'b0; end
-          3'b010: begin decode_o.ctrl.alu_op = ALU_SLT; decode_o.illegal = 1'b0; end
-          3'b011: begin decode_o.ctrl.alu_op = ALU_SLTU; decode_o.illegal = 1'b0; end
-          3'b100: begin decode_o.ctrl.alu_op = ALU_XOR; decode_o.illegal = 1'b0; end
-          3'b110: begin decode_o.ctrl.alu_op = ALU_OR; decode_o.illegal = 1'b0; end
-          3'b111: begin decode_o.ctrl.alu_op = ALU_AND; decode_o.illegal = 1'b0; end
+          3'b000: decode_o.ctrl.alu_op = ALU_ADD;
+          3'b010: decode_o.ctrl.alu_op = ALU_SLT;
+          3'b011: decode_o.ctrl.alu_op = ALU_SLTU;
+          3'b100: decode_o.ctrl.alu_op = ALU_XOR;
+          3'b110: decode_o.ctrl.alu_op = ALU_OR;
+          3'b111: decode_o.ctrl.alu_op = ALU_AND;
           3'b001: begin
             decode_o.ctrl.alu_op = ALU_SLL;
             decode_o.illegal = (funct7 != 7'b0000000);
           end
           3'b101: begin
+            decode_o.illegal = 1'b1;
             if (funct7 == 7'b0000000) begin
               decode_o.ctrl.alu_op = ALU_SRL;
               decode_o.illegal = 1'b0;
@@ -151,7 +153,7 @@ module decoder
               decode_o.illegal = 1'b0;
             end
           end
-          default: ;
+          default: decode_o.illegal = 1'b1;
         endcase
         if (decode_o.illegal) begin
           decode_o.ctrl.wb_sel = WB_NONE;
@@ -161,22 +163,29 @@ module decoder
       OPC_OP: begin
         decode_o.ctrl.wb_sel = WB_ALU;
         if (funct7 == 7'b0000000) begin
+          decode_o.illegal = 1'b0;
           case (funct3)
-            3'b000: begin decode_o.ctrl.alu_op = ALU_ADD; decode_o.illegal = 1'b0; end
-            3'b001: begin decode_o.ctrl.alu_op = ALU_SLL; decode_o.illegal = 1'b0; end
-            3'b010: begin decode_o.ctrl.alu_op = ALU_SLT; decode_o.illegal = 1'b0; end
-            3'b011: begin decode_o.ctrl.alu_op = ALU_SLTU; decode_o.illegal = 1'b0; end
-            3'b100: begin decode_o.ctrl.alu_op = ALU_XOR; decode_o.illegal = 1'b0; end
-            3'b101: begin decode_o.ctrl.alu_op = ALU_SRL; decode_o.illegal = 1'b0; end
-            3'b110: begin decode_o.ctrl.alu_op = ALU_OR; decode_o.illegal = 1'b0; end
-            3'b111: begin decode_o.ctrl.alu_op = ALU_AND; decode_o.illegal = 1'b0; end
-            default: ;
+            3'b000: decode_o.ctrl.alu_op = ALU_ADD;
+            3'b001: decode_o.ctrl.alu_op = ALU_SLL;
+            3'b010: decode_o.ctrl.alu_op = ALU_SLT;
+            3'b011: decode_o.ctrl.alu_op = ALU_SLTU;
+            3'b100: decode_o.ctrl.alu_op = ALU_XOR;
+            3'b101: decode_o.ctrl.alu_op = ALU_SRL;
+            3'b110: decode_o.ctrl.alu_op = ALU_OR;
+            3'b111: decode_o.ctrl.alu_op = ALU_AND;
+            default: decode_o.illegal = 1'b1;
           endcase
         end else if (funct7 == 7'b0100000) begin
           case (funct3)
-            3'b000: begin decode_o.ctrl.alu_op = ALU_SUB; decode_o.illegal = 1'b0; end
-            3'b101: begin decode_o.ctrl.alu_op = ALU_SRA; decode_o.illegal = 1'b0; end
-            default: ;
+            3'b000: begin
+              decode_o.ctrl.alu_op = ALU_SUB;
+              decode_o.illegal = 1'b0;
+            end
+            3'b101: begin
+              decode_o.ctrl.alu_op = ALU_SRA;
+              decode_o.illegal = 1'b0;
+            end
+            default: decode_o.illegal = 1'b1;
           endcase
         end
         if (decode_o.illegal) begin

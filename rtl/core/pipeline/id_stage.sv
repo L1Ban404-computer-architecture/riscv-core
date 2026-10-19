@@ -16,14 +16,9 @@ module id_stage
 
   decode_result_t decoded;
   word_t decoded_imm;
-
   id_ex_payload_t next_payload;
 
-  assign gpr_read.rs1_addr = decoded.reg_addr.rs1_addr;
-  assign gpr_read.rs2_addr = decoded.reg_addr.rs2_addr;
-
   // 译码、立即数与寄存器读取
-
   decoder u_decoder (
     .instr_i(if_id.payload.meta.instr),
     .decode_o(decoded)
@@ -35,8 +30,10 @@ module id_stage
     .imm_o(decoded_imm)
   );
 
-  // 异常归并与 ID/EX 事务生成
+  assign gpr_read.rs1_addr = decoded.reg_addr.rs1_addr;
+  assign gpr_read.rs2_addr = decoded.reg_addr.rs2_addr;
 
+  // 异常归并与 ID/EX 事务生成
   always_comb begin
     next_payload = '0;
     next_payload.meta = if_id.payload.meta;
@@ -59,12 +56,9 @@ module id_stage
     end
   end
 
-  // 本级握手；ID/EX 寄存器由顶层持有。
-
   // GPR 相关通过前递单元的 ready 反压；等待期间继续读取寄存器堆。
   // IF/ID 已在改道当拍屏蔽旧事务；串行化等待通过普通 ready 反压传回。
   assign if_id.ready = result.ready;
-
   assign result.valid = if_id.valid;
   assign result.payload = next_payload;
 

@@ -131,33 +131,6 @@ module icache_array
       refill_select_valid[way] = valid_q[way][refill_set];
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      refill_way_locked_q <= 1'b0;
-      refill_way_q <= '0;
-    end else if (refill_start) begin
-      refill_way_q <= refill_victim_combo;
-      refill_way_locked_q <= 1'b1;
-    end else if (refill_done) begin
-      refill_way_locked_q <= 1'b0;
-    end
-  end
-
-  // 分配时清 valid，只有完整且无错误的回填才重新置位。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      for (int unsigned way = 0; way < WayCount; way++)
-        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
-    end else if (invalidate_apply_i) begin
-      for (int unsigned way = 0; way < WayCount; way++)
-        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
-    end else if (refill_start) begin
-      valid_q[refill_victim_combo][refill_set] <= 1'b0;
-    end else if (refill_done && !refill.payload.error) begin
-      valid_q[refill_way_q][refill_set] <= 1'b1;
-    end
-  end
-
   // 查询握手更新命中历史，回填起始选择牺牲路。
   icache_replacement_policy #(
     .SetCount(SetCount),
@@ -210,6 +183,33 @@ module icache_array
       .waddr_i(data_addr_from(refill_set, refill_addr_word)),
       .wdata_i(refill.payload.data)
     );
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      refill_way_locked_q <= 1'b0;
+      refill_way_q <= '0;
+    end else if (refill_start) begin
+      refill_way_q <= refill_victim_combo;
+      refill_way_locked_q <= 1'b1;
+    end else if (refill_done) begin
+      refill_way_locked_q <= 1'b0;
+    end
+  end
+
+  // 分配时清 valid，只有完整且无错误的回填才重新置位。
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      for (int unsigned way = 0; way < WayCount; way++)
+        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
+    end else if (invalidate_apply_i) begin
+      for (int unsigned way = 0; way < WayCount; way++)
+        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
+    end else if (refill_start) begin
+      valid_q[refill_victim_combo][refill_set] <= 1'b0;
+    end else if (refill_done && !refill.payload.error) begin
+      valid_q[refill_way_q][refill_set] <= 1'b1;
+    end
   end
 
 `ifndef SYNTHESIS

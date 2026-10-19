@@ -43,6 +43,38 @@ std::string ValidateCacheConfig(const CacheConfig &config) {
 
 }  // namespace
 
+bool ParseReplacementPolicy(const char *text, ReplacementPolicy *out) {
+  if (text == nullptr || out == nullptr) return false;
+  if (std::strcmp(text, "fixed") == 0) {
+    *out = ReplacementPolicy::kFixed;
+    return true;
+  }
+  if (std::strcmp(text, "rr") == 0) {
+    *out = ReplacementPolicy::kRoundRobin;
+    return true;
+  }
+  if (std::strcmp(text, "plru") == 0) {
+    *out = ReplacementPolicy::kTreePlru;
+    return true;
+  }
+  return false;
+}
+
+Cache::Cache(const CacheConfig &config) : config_(config) {
+  const std::string error = ValidateCacheConfig(config_);
+  if (!error.empty()) throw std::invalid_argument(error);
+
+  block_offset_w_ = FloorLog2(config_.block_bytes);
+  set_index_bits_ = config_.sets > 1 ? FloorLog2(config_.sets) : 0;
+  tree_levels_ = config_.ways > 1 ? FloorLog2(config_.ways) : 0;
+
+  const std::size_t lines = static_cast<std::size_t>(config_.sets) * config_.ways;
+  valid_.assign(lines, 0);
+  tag_.assign(lines, 0);
+  rr_next_.assign(config_.sets, 0);
+  plru_tree_.assign(config_.sets, 0);
+}
+
 // 一次取指：先比 tag。命中时只有 PLRU 会把该路记成最近使用。
 // 缺失则马上占住牺牲路，下一条 PC 就能看见这块，不等 RTL 里的回填拍数。
 bool Cache::Access(std::uint32_t addr) {
@@ -134,36 +166,4 @@ void Cache::UpdatePlru(std::uint32_t set, std::uint32_t way) {
     node = node * 2u + 1u + direction;
   }
   plru_tree_[set] = tree;
-}
-
-Cache::Cache(const CacheConfig &config) : config_(config) {
-  const std::string error = ValidateCacheConfig(config_);
-  if (!error.empty()) throw std::invalid_argument(error);
-
-  block_offset_w_ = FloorLog2(config_.block_bytes);
-  set_index_bits_ = config_.sets > 1 ? FloorLog2(config_.sets) : 0;
-  tree_levels_ = config_.ways > 1 ? FloorLog2(config_.ways) : 0;
-
-  const std::size_t lines = static_cast<std::size_t>(config_.sets) * config_.ways;
-  valid_.assign(lines, 0);
-  tag_.assign(lines, 0);
-  rr_next_.assign(config_.sets, 0);
-  plru_tree_.assign(config_.sets, 0);
-}
-
-bool ParseReplacementPolicy(const char *text, ReplacementPolicy *out) {
-  if (text == nullptr || out == nullptr) return false;
-  if (std::strcmp(text, "fixed") == 0) {
-    *out = ReplacementPolicy::kFixed;
-    return true;
-  }
-  if (std::strcmp(text, "rr") == 0) {
-    *out = ReplacementPolicy::kRoundRobin;
-    return true;
-  }
-  if (std::strcmp(text, "plru") == 0) {
-    *out = ReplacementPolicy::kTreePlru;
-    return true;
-  }
-  return false;
 }

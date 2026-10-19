@@ -14,36 +14,30 @@ module regfile
   gpr_write_if.consumer wb
 );
 
-  // 寄存器阵列与写入
-
   // 普通 GPR 的复位值在 RISC-V 架构中未定义。阵列不接复位可以避免为
   // 普通数据寄存器铺设复位网络；x0 由读写逻辑强制为零。
   word_t regs_q[GprCount-1:1];
   logic wb_write;
-  reg_addr_t rs1_addr;
-  reg_addr_t rs2_addr;
 
-  assign rs1_addr = gpr_read.rs1_addr;
-  assign rs2_addr = gpr_read.rs2_addr;
   assign wb_write = wb.valid && (wb.payload.rd_addr != ZeroReg) && (int'(wb.payload.rd_addr) < GprCount);
-
-  always_ff @(posedge clk_i) begin
-    if (wb_write) begin
-      regs_q[wb.payload.rd_addr] <= wb.payload.wdata;
-    end
-  end
 
   // 组合读取
 
   always_comb begin
     gpr_read.rs1_value = '0;
-    if ((rs1_addr != ZeroReg) && (int'(rs1_addr) < GprCount)) begin
-      gpr_read.rs1_value = regs_q[rs1_addr];
+    if ((gpr_read.rs1_addr != ZeroReg) && (int'(gpr_read.rs1_addr) < GprCount)) begin
+      gpr_read.rs1_value = regs_q[gpr_read.rs1_addr];
     end
 
     gpr_read.rs2_value = '0;
-    if ((rs2_addr != ZeroReg) && (int'(rs2_addr) < GprCount)) begin
-      gpr_read.rs2_value = regs_q[rs2_addr];
+    if ((gpr_read.rs2_addr != ZeroReg) && (int'(gpr_read.rs2_addr) < GprCount)) begin
+      gpr_read.rs2_value = regs_q[gpr_read.rs2_addr];
+    end
+  end
+
+  always_ff @(posedge clk_i) begin
+    if (wb_write) begin
+      regs_q[wb.payload.rd_addr] <= wb.payload.wdata;
     end
   end
 

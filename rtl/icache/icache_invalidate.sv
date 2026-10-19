@@ -19,6 +19,13 @@ module icache_invalidate (
   logic pending_q;
   logic block_req;
 
+  // 当拍就阻止新请求，锁存后等待已有事务排空。
+  assign block_req = invalidate_i || pending_q;
+  assign invalidate_apply_o = pending_q && !lookup_valid_i && !refill_valid_i;
+  assign array_req.req_valid = core_bus.req_valid && !block_req;
+  assign array_req.req_payload = core_bus.req_payload;
+  assign core_bus.req_ready = array_req.req_ready && !block_req;
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       pending_q <= 1'b0;
@@ -26,13 +33,6 @@ module icache_invalidate (
       pending_q <= invalidate_i || (pending_q && !invalidate_apply_o);
     end
   end
-
-  // 当拍就阻止新请求，锁存后等待已有事务排空。
-  assign block_req = invalidate_i || pending_q;
-  assign invalidate_apply_o = pending_q && !lookup_valid_i && !refill_valid_i;
-  assign array_req.req_valid = core_bus.req_valid && !block_req;
-  assign array_req.req_payload = core_bus.req_payload;
-  assign core_bus.req_ready = array_req.req_ready && !block_req;
 
 `ifndef SYNTHESIS
   ICacheInvalidateApplyWhenIdle: assert property (@(posedge clk_i) disable iff (!rst_ni) (

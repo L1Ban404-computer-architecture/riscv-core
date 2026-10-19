@@ -73,15 +73,20 @@ void PrintRate(std::uint64_t hits, std::uint64_t accesses) {
 }
 
 void PrintStats(const BranchStats &stats) {
-  const char *names[] = {"total", "actual_taken", "actual_not_taken",
-                         "predicted_taken", "predicted_not_taken"};
-  const Accuracy *groups[] = {&stats.total, &stats.actual_taken,
-                              &stats.actual_not_taken, &stats.predicted_taken,
-                              &stats.predicted_not_taken};
-  for (unsigned i = 0; i < 5; ++i) {
-    const Accuracy &group = *groups[i];
+  const struct {
+    const char *name;
+    const Accuracy &accuracy;
+  } groups[] = {
+    {"total", stats.total},
+    {"actual_taken", stats.actual_taken},
+    {"actual_not_taken", stats.actual_not_taken},
+    {"predicted_taken", stats.predicted_taken},
+    {"predicted_not_taken", stats.predicted_not_taken},
+  };
+  for (const auto &entry : groups) {
+    const Accuracy &group = entry.accuracy;
     std::printf("%s accesses=%" PRIu64 " hits=%" PRIu64 " misses=%" PRIu64
-                " hit_rate=", names[i], group.accesses, group.hits,
+                " hit_rate=", entry.name, group.accesses, group.hits,
                 group.accesses - group.hits);
     PrintRate(group.hits, group.accesses);
     std::printf("\n");

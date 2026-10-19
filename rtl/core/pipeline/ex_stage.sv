@@ -28,7 +28,6 @@ module ex_stage
 
   commit_context_payload_t next_commit;
   mem_req_payload_t next_mem_req;
-  ex_mem_payload_t next_payload;
   redirect_if branch_redirect ();
   exception_payload_t executed_exception;
   word_t csr_source;
@@ -104,7 +103,10 @@ module ex_stage
       executed_exception = raise_exception(executed_exception, EXC_ILLEGAL_INSTR,
                                            id_ex.payload.meta.instr);
     end
+  end
 
+  // 先确定异常，再产生执行事件；异常指令不改道、不训练预测器。
+  always_comb begin
     // 已采纳的直接分支目标由 BTB 保证；功能路径只核对方向。
     redirect.valid = id_ex.fire && !executed_exception.valid &&
         (id_ex.payload.meta.predicted_taken != branch_redirect.valid);
@@ -133,7 +135,6 @@ module ex_stage
 
   always_comb begin
     next_commit = '0;
-    next_mem_req = '0;
     next_commit.pc = id_ex.payload.meta.pc;
     next_commit.exception = executed_exception;
     next_commit.wb_req.valid = id_ex.payload.ctrl.wb_sel != WB_NONE;
@@ -164,14 +165,6 @@ module ex_stage
     if ((next_commit.wb_req.rd_addr == ZeroReg) || executed_exception.valid)
       next_commit.wb_req.valid = 1'b0;
 
-    next_mem_req.valid = (id_ex.payload.ctrl.mem_cmd != MEM_NONE) && !executed_exception.valid;
-    next_mem_req.write = (id_ex.payload.ctrl.mem_cmd == MEM_STORE);
-    next_mem_req.size = id_ex.payload.ctrl.mem_size;
-    next_mem_req.sign_ext = id_ex.payload.ctrl.mem_sign_ext;
-    next_mem_req.addr = alu_result;
-    // 保留未经 lane 对齐的 rs2 数据，移位放在 MEM，写掩码由总线适配器生成。
-    next_mem_req.wdata = id_ex.payload.exec_data.rs2_value;
-
     // CSR 指令把旧值放入普通 GPR 写回路径，把新值作为提交请求随指令送到 WB。
     // RS/RC 的零源操作数按规范只读，不形成 CSR 写请求。
     next_commit.commit.is_mret = id_ex.payload.ctrl.system_op == SYS_MRET;
@@ -181,15 +174,21 @@ module ex_stage
     next_commit.commit.csr_write.wdata = csr_new_value;
   end
 
-  assign next_payload = '{commit_ctx: next_commit, mem_req: next_mem_req};
-
-  // 本级握手；EX/MEM 寄存器由顶层持有。
+  // 访存请求与提交上下文同寿命；rs2 的 lane 对齐由 MEM 完成。
+  assign next_mem_req = '{
+    valid: (id_ex.payload.ctrl.mem_cmd != MEM_NONE) && !executed_exception.valid,
+    write: id_ex.payload.ctrl.mem_cmd == MEM_STORE,
+    size: id_ex.payload.ctrl.mem_size,
+    sign_ext: id_ex.payload.ctrl.mem_sign_ext,
+    addr: alu_result,
+    wdata: id_ex.payload.exec_data.rs2_value
+  };
 
   // 串行化过滤器及 ID/EX 已屏蔽等待或冲刷的事务，本级只处理普通握手。
   assign id_ex.ready = result.ready;
 
   assign result.valid = id_ex.valid;
-  assign result.payload = next_payload;
+  assign result.payload = '{commit_ctx: next_commit, mem_req: next_mem_req};
 
 `ifndef SYNTHESIS
   // 流水纠错与架构跳转分别观察，正确预测的分支仍须报告给退休检查器。
