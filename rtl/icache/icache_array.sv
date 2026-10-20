@@ -156,7 +156,7 @@ module icache_array
     assign tag_we = refill_start && (refill_victim_combo == way_index_t'(way));
     assign data_we = refill.beat_valid && (refill_way_q == way_index_t'(way));
 
-    mem_1rw #(
+    mem_1r1w #(
       .Width(TagW),
       .Depth(SetCount),
       .CombRead(1'b1)
@@ -170,7 +170,7 @@ module icache_array
       .wdata_i(refill_tag)
     );
 
-    mem_1rw #(
+    mem_1r1w #(
       .Width(DataWidth),
       .Depth(DataDepth),
       .CombRead(1'b1)

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // 对齐访存数据，发出 CoreBus 请求，归并响应及异常后交给 MEM/WB。
-// EX/MEM 保留元数据直到响应握手；最多一笔在途，WB 改道取消年轻访存。
+// EX/MEM 保留元数据直到响应握手；最多一笔在途，WB 改道取消尚未发出的年轻访存。
 module mem_stage
   import riscv_bus_pkg::*;
   import riscv_core_pkg::*;
@@ -40,7 +40,7 @@ module mem_stage
   endfunction
 
   // 请求和响应共用 EX/MEM 中保持至响应握手的元数据。
-  assign mem_addr = ex_mem.payload.commit_ctx.wb_req.data;
+  assign mem_addr = ex_mem.payload.commit_ctx.value;
 
   store_data_unit u_store_data_unit (
     .size_i(ex_mem.payload.mem_req.size),
@@ -90,10 +90,11 @@ module mem_stage
             mem_addr);
       end
       if (next_payload.exception.valid) begin
-        next_payload.wb_req = '0;
-      end else if (!ex_mem.payload.mem_req.write && next_payload.wb_req.valid) begin
-        next_payload.wb_req.data_valid = 1'b1;
-        next_payload.wb_req.data = loaded_data;
+        next_payload.gpr = '0;
+        next_payload.value = '0;
+      end else if (!ex_mem.payload.mem_req.write && next_payload.gpr.write) begin
+        next_payload.gpr.ready = 1'b1;
+        next_payload.value = loaded_data;
       end
     end
   end

@@ -30,7 +30,7 @@ interface icache_lookup_if
   modport monitor(input payload, valid, ready, fire);
 endinterface
 
-// req_fire 后请求归处理器所有，不再依赖 lookup 保持。首拍响应保持到 rsp_fire，
+// req_fire 后 miss 控制器独立保存请求，不再依赖 lookup 保持。首拍响应保持到 rsp_fire，
 // 不受后续 beat 错误影响。回填和响应均完成后才接受下一笔 miss；背景回填不
 // 阻塞其他 lookup 命中。
 interface icache_miss_if

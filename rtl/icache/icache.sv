@@ -45,22 +45,26 @@ module icache
     .DataWidth(DataWidth)
   ) refill ();
 
+  logic invalidate_pending_q;
+  logic invalidate_block;
   logic invalidate_apply;
   core_bus_if #(
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth)
   ) array_req ();
 
-  icache_invalidate u_invalidate (
-    .clk_i,
-    .rst_ni,
-    .invalidate_i,
-    .lookup_valid_i(lookup.valid),
-    .refill_valid_i(refill.valid),
-    .core_bus,
-    .array_req,
-    .invalidate_apply_o(invalidate_apply)
-  );
+  // 失效当拍停止接收请求；已有查询和回填排空后再清 valid，避免旧回填复活缓存行。
+  // pending 保证失效至少延迟一拍，即使收到 invalidate_i 时阵列已经空闲。
+  assign invalidate_block = invalidate_i || invalidate_pending_q;
+  assign invalidate_apply = invalidate_pending_q && !lookup.valid && !refill.valid;
+  assign array_req.req_valid = core_bus.req_valid && !invalidate_block;
+  assign array_req.req_payload = core_bus.req_payload;
+  assign core_bus.req_ready = array_req.req_ready && !invalidate_block;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) invalidate_pending_q <= 1'b0;
+    else invalidate_pending_q <= invalidate_i || (invalidate_pending_q && !invalidate_apply);
+  end
 
   icache_array #(
     .AddrWidth(AddrWidth),
@@ -102,6 +106,9 @@ module icache
   );
 
 `ifndef SYNTHESIS
+  ICacheInvalidateApplyWhenIdle: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !invalidate_apply || (!lookup.valid && !refill.valid)));
+
   icache_debug_if debug_bus ();
   assign debug_bus.bus = '{
     req_valid: core_bus.req_valid, req_ready: core_bus.req_ready,

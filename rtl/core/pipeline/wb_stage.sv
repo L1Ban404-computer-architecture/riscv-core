@@ -23,16 +23,17 @@ module wb_stage
 
   // WB 恒 ready；提交分类只解释 payload，所有副作用由 fire 门控。
   assign mem_wb.ready = 1'b1;
-  assign commit_kind = commit_kind_from_context(mem_wb.payload);
+  assign commit_kind = mem_wb.payload.exception.valid ? COMMIT_TRAP :
+      (mem_wb.payload.commit.is_mret ? COMMIT_MRET : COMMIT_NORMAL);
   assign is_csr = mem_wb.payload.commit.csr.cmd != CSR_NONE;
   assign csr_read.index = mem_wb.payload.commit.csr.index;
 
   // CSR 旧值在提交点读取，新值不再占用流水寄存器或接入 EX 前递。
   always_comb begin
     case (mem_wb.payload.commit.csr.cmd)
-      CSR_RS: csr_new_value = csr_read.data | mem_wb.payload.wb_req.data;
-      CSR_RC: csr_new_value = csr_read.data & ~mem_wb.payload.wb_req.data;
-      default: csr_new_value = mem_wb.payload.wb_req.data;
+      CSR_RS: csr_new_value = csr_read.data | mem_wb.payload.value;
+      CSR_RC: csr_new_value = csr_read.data & ~mem_wb.payload.value;
+      default: csr_new_value = mem_wb.payload.value;
     endcase
   end
 
@@ -65,10 +66,10 @@ module wb_stage
           redirect.payload.target_pc = csr_status.mepc;
         end
         default: begin
-          wb.valid = mem_wb.payload.wb_req.valid &&
-              (mem_wb.payload.wb_req.data_valid || is_csr);
-          wb.payload = '{rd_addr: mem_wb.payload.wb_req.rd_addr,
-                         wdata: is_csr ? csr_read.data : mem_wb.payload.wb_req.data};
+          wb.valid = mem_wb.payload.gpr.write &&
+              (mem_wb.payload.gpr.ready || is_csr);
+          wb.payload = '{rd_addr: mem_wb.payload.gpr.addr,
+                         wdata: is_csr ? csr_read.data : mem_wb.payload.value};
           if (is_csr && mem_wb.payload.commit.csr.write)
             csr_commit.payload.op = CSR_COMMIT_WRITE;
         end

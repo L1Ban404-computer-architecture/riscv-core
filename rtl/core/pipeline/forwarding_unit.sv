@@ -22,31 +22,39 @@ module forwarding_unit
     logic stall;
   } forward_result_t;
 
+  // 前递候选是组合结果，不进入流水寄存器。valid 和 ready 分别表示生产者和数据。
+  typedef struct packed {
+    logic valid;
+    logic ready;
+    reg_addr_t addr;
+    word_t value;
+  } forward_candidate_t;
+
   forward_result_t rs1_result, rs2_result;
   logic source_stall;
-  writeback_payload_t ex_candidate, mem_candidate, wb_candidate;
+  forward_candidate_t ex_candidate, mem_candidate, wb_candidate;
 
   always_comb begin
     // ID/EX 始终标识生产者；结果未就绪时不能绕过它选择更老的值。
-    // CSR 直到 WB 才返回旧值，EX/MEM 的 data 只是源操作数。
+    // CSR 直到 WB 才返回旧值，EX/MEM 的 value 只是源操作数。
     ex_candidate = '0;
     ex_candidate.valid = id_ex.valid && !id_ex.payload.exception.valid &&
         (id_ex.payload.ctrl.wb_sel != WB_NONE) &&
         (id_ex.payload.reg_addr.rd_addr != ZeroReg);
-    ex_candidate.rd_addr = id_ex.payload.reg_addr.rd_addr;
-    ex_candidate.data_valid = ex_result.valid && ex_result.payload.commit_ctx.wb_req.valid &&
-        ex_result.payload.commit_ctx.wb_req.data_valid;
-    ex_candidate.data = ex_result.payload.commit_ctx.wb_req.data;
+    ex_candidate.addr = id_ex.payload.reg_addr.rd_addr;
+    ex_candidate.ready = ex_result.valid && ex_result.payload.commit_ctx.gpr.write &&
+        ex_result.payload.commit_ctx.gpr.ready;
+    ex_candidate.value = ex_result.payload.commit_ctx.value;
 
     // load 等响应时 mem_result.valid 为 0；相关性始终由 EX/MEM 保留的事务判断。
-    mem_candidate = ex_mem.payload.commit_ctx.wb_req;
-    mem_candidate.valid = ex_mem.valid && ex_mem.payload.commit_ctx.wb_req.valid;
-    mem_candidate.data_valid = mem_result.valid && mem_result.payload.wb_req.valid &&
-        mem_result.payload.wb_req.data_valid;
-    mem_candidate.data = mem_result.payload.wb_req.data;
+    mem_candidate.valid = ex_mem.valid && ex_mem.payload.commit_ctx.gpr.write;
+    mem_candidate.addr = ex_mem.payload.commit_ctx.gpr.addr;
+    mem_candidate.ready = mem_result.valid && mem_result.payload.gpr.write &&
+        mem_result.payload.gpr.ready;
+    mem_candidate.value = mem_result.payload.value;
 
-    wb_candidate = '{valid: wb.valid, data_valid: wb.valid,
-                     rd_addr: wb.payload.rd_addr, data: wb.payload.wdata};
+    wb_candidate = '{valid: wb.valid, ready: wb.valid,
+                     addr: wb.payload.rd_addr, value: wb.payload.wdata};
   end
 
   // ID 等待时继续读取 GPR，WB 离开后由寄存器堆提供已提交值，无需暂存。
@@ -55,25 +63,25 @@ module forwarding_unit
     input logic used,
     input reg_addr_t addr,
     input word_t base_value,
-    input writeback_payload_t ex_candidate,
-    input writeback_payload_t mem_candidate,
-    input writeback_payload_t wb_candidate
+    input forward_candidate_t ex_candidate,
+    input forward_candidate_t mem_candidate,
+    input forward_candidate_t wb_candidate
   );
-    writeback_payload_t candidate;
+    forward_candidate_t candidate;
     forward_result_t result;
 
     // 先选最近的生产者，再判断数据是否就绪；不能因其未就绪而退回旧值。
     candidate = '0;
-    if (ex_candidate.valid && (ex_candidate.rd_addr == addr))
+    if (ex_candidate.valid && (ex_candidate.addr == addr))
       candidate = ex_candidate;
-    else if (mem_candidate.valid && (mem_candidate.rd_addr == addr))
+    else if (mem_candidate.valid && (mem_candidate.addr == addr))
       candidate = mem_candidate;
-    else if (wb_candidate.valid && (wb_candidate.rd_addr == addr))
+    else if (wb_candidate.valid && (wb_candidate.addr == addr))
       candidate = wb_candidate;
 
     result = '{value: base_value, stall: 1'b0};
     if (used && (addr != ZeroReg) && candidate.valid) begin
-      if (candidate.data_valid) result.value = candidate.data;
+      if (candidate.ready) result.value = candidate.value;
       else result.stall = 1'b1;
     end
     return result;

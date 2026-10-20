@@ -19,17 +19,15 @@ module csr_unit
 `endif
 );
 
-  // 私有类型与 CSR 状态
-
   // 当前核心只运行于 M-mode。mstatus 仅实现异常进入/返回所需的
   // MIE、MPIE 和 MPP 字段；MPP 固定为唯一支持的 M-mode，其他位读零。
   localparam word_t MstatusMie = word_t'(1 << 3);
   localparam word_t MstatusMpie = word_t'(1 << 7);
   localparam word_t MstatusMpp = word_t'(3 << 11);
+  localparam int unsigned MieBit = 3;
+  localparam int unsigned MpieBit = 7;
 
   csr_state_payload_t state_q, state_d;
-
-  // CSR 组合读取
 
   always_comb begin
     unique case (csr_read.index)
@@ -45,8 +43,6 @@ module csr_unit
     endcase
   end
 
-  // CSR 提交与异常状态转换
-
   always_comb begin
     state_d = state_q;
 
@@ -57,14 +53,14 @@ module csr_unit
         // 当前只接收同步异常，mcause 的 interrupt 位恒为零。
         state_d.mcause = {{(XLen - 4) {1'b0}}, commit.payload.trap_cause};
         state_d.mtval = commit.payload.trap_tval;
-        if ((state_q.mstatus & MstatusMie) != '0) state_d.mstatus = state_q.mstatus | MstatusMpie;
-        else state_d.mstatus = state_q.mstatus & ~MstatusMpie;
-        state_d.mstatus = (state_d.mstatus & ~MstatusMie) | MstatusMpp;
+        state_d.mstatus[MpieBit] = state_q.mstatus[MieBit];
+        state_d.mstatus[MieBit] = 1'b0;
+        state_d.mstatus[12:11] = 2'b11;
       end
       CSR_COMMIT_MRET: begin
-        if ((state_q.mstatus & MstatusMpie) != '0) state_d.mstatus = state_q.mstatus | MstatusMie;
-        else state_d.mstatus = state_q.mstatus & ~MstatusMie;
-        state_d.mstatus = state_d.mstatus | MstatusMpie | MstatusMpp;
+        state_d.mstatus[MieBit] = state_q.mstatus[MpieBit];
+        state_d.mstatus[MpieBit] = 1'b1;
+        state_d.mstatus[12:11] = 2'b11;
       end
       CSR_COMMIT_WRITE: begin
         unique case (commit.payload.index)
@@ -72,7 +68,6 @@ module csr_unit
             state_d.mstatus = (commit.payload.wdata & (MstatusMie | MstatusMpie)) | MstatusMpp;
           end
           CSR_IDX_MTVEC: state_d.mtvec = commit.payload.wdata & word_t'(~3);
-          // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
           CSR_IDX_MEPC: state_d.mepc = commit.payload.wdata & word_t'(~3);
           CSR_IDX_MCAUSE: state_d.mcause = commit.payload.wdata;
           CSR_IDX_MTVAL: state_d.mtval = commit.payload.wdata;
@@ -82,8 +77,6 @@ module csr_unit
       default: ;
     endcase
   end
-
-  // 状态输出与寄存
 
   assign status.mtvec = state_q.mtvec;
   assign status.mepc = state_q.mepc;

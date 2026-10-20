@@ -1,46 +1,34 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 条件分支与跳转判定单元，生成 EX 级控制流改道请求。
+// 组合计算跳转条件和目标；EX 负责握手、异常检查及预测纠错。
 module branch_unit
   import riscv_core_pkg::*;
 (
-  // 执行条件与操作数
-  input logic execute_fire_i,
-  input logic illegal_instr_i,
   input branch_op_e branch_op_i,
   input word_t rs1_value_i,
   input word_t rs2_value_i,
   input word_t alu_target_i,
 
-  // 改道结果
-  redirect_if.producer redirect
+  output logic taken_o,
+  output pc_t target_pc_o
 );
 
-  logic taken;
-
   always_comb begin
-    taken = 1'b0;
+    taken_o = 1'b0;
     case (branch_op_i)
-      BR_NONE: taken = 1'b0;
-      BR_JAL, BR_JALR: taken = 1'b1;
-      BR_BEQ: taken = (rs1_value_i == rs2_value_i);
-      BR_BNE: taken = (rs1_value_i != rs2_value_i);
-      BR_BLT: taken = ($signed(rs1_value_i) < $signed(rs2_value_i));
-      BR_BGE: taken = ($signed(rs1_value_i) >= $signed(rs2_value_i));
-      BR_BLTU: taken = (rs1_value_i < rs2_value_i);
-      BR_BGEU: taken = (rs1_value_i >= rs2_value_i);
+      BR_JAL, BR_JALR: taken_o = 1'b1;
+      BR_BEQ: taken_o = (rs1_value_i == rs2_value_i);
+      BR_BNE: taken_o = (rs1_value_i != rs2_value_i);
+      BR_BLT: taken_o = ($signed(rs1_value_i) < $signed(rs2_value_i));
+      BR_BGE: taken_o = ($signed(rs1_value_i) >= $signed(rs2_value_i));
+      BR_BLTU: taken_o = (rs1_value_i < rs2_value_i);
+      BR_BGEU: taken_o = (rs1_value_i >= rs2_value_i);
       default: ;
     endcase
-
-    redirect.valid = execute_fire_i && taken && !illegal_instr_i;
-    redirect.payload.imem_invalidate = 1'b0;
-
-    // RISC-V 要求 JALR 目标地址的最低位清零；其他跳转目标直接使用
-    // ALU 计算得到的 PC-relative 地址。
-    redirect.payload.target_pc = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) :
-        alu_target_i;
-
   end
+
+  // JALR 清除最低位后，EX 仍须检查 IALIGN=32 的两位对齐要求。
+  assign target_pc_o = (branch_op_i == BR_JALR) ? (alu_target_i & word_t'(~1)) : alu_target_i;
 
 endmodule

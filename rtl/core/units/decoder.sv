@@ -86,25 +86,17 @@ module decoder
         decode_o.ctrl.mem_cmd = MEM_LOAD;
         decode_o.ctrl.wb_sel = WB_MEM;
         case (funct3)
-          3'b000: begin
+          3'b000, 3'b100: begin
             decode_o.ctrl.mem_size = MEM_SIZE_BYTE;
-            decode_o.ctrl.mem_sign_ext = 1'b1;
+            decode_o.ctrl.mem_sign_ext = !funct3[2];
           end
-          3'b001: begin
+          3'b001, 3'b101: begin
             decode_o.ctrl.mem_size = MEM_SIZE_HALF;
-            decode_o.ctrl.mem_sign_ext = 1'b1;
+            decode_o.ctrl.mem_sign_ext = !funct3[2];
           end
           3'b010: begin
             decode_o.ctrl.mem_size = MEM_SIZE_WORD;
             decode_o.ctrl.mem_sign_ext = 1'b1;
-          end
-          3'b100: begin
-            decode_o.ctrl.mem_size = MEM_SIZE_BYTE;
-            decode_o.ctrl.mem_sign_ext = 1'b0;
-          end
-          3'b101: begin
-            decode_o.ctrl.mem_size = MEM_SIZE_HALF;
-            decode_o.ctrl.mem_sign_ext = 1'b0;
           end
           default: begin
             decode_o.ctrl.mem_cmd = MEM_NONE;
@@ -145,13 +137,17 @@ module decoder
           end
           3'b101: begin
             decode_o.illegal = 1'b1;
-            if (funct7 == 7'b0000000) begin
-              decode_o.ctrl.alu_op = ALU_SRL;
-              decode_o.illegal = 1'b0;
-            end else if (funct7 == 7'b0100000) begin
-              decode_o.ctrl.alu_op = ALU_SRA;
-              decode_o.illegal = 1'b0;
-            end
+            case (funct7)
+              7'b0000000: begin
+                decode_o.ctrl.alu_op = ALU_SRL;
+                decode_o.illegal = 1'b0;
+              end
+              7'b0100000: begin
+                decode_o.ctrl.alu_op = ALU_SRA;
+                decode_o.illegal = 1'b0;
+              end
+              default: ;
+            endcase
           end
           default: decode_o.illegal = 1'b1;
         endcase

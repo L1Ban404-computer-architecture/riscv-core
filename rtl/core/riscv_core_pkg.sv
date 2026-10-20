@@ -207,7 +207,7 @@ package riscv_core_pkg;
     endcase
   endfunction
 
-  // 源操作数复用普通写回数据字段，CSR 旧值和新值均在 WB 产生。
+  // CSR 源操作数经 commit_ctx.value 传到 WB，旧值和新值均在 WB 产生。
   typedef struct packed {
     csr_cmd_e cmd;
     csr_index_e index;
@@ -278,14 +278,14 @@ package riscv_core_pkg;
     logic illegal;
   } decode_result_t;
 
-  // 随指令传播的精确异常；一旦 valid 置位，年轻流水级只能保留而不能覆盖。
+  // 随指令传播的精确异常；后续流水级不得覆盖已记录的异常。
   typedef struct packed {
     logic valid;
     exception_cause_e cause;
     word_t tval;
   } exception_payload_t;
 
-  // 更老异常获胜。existing.valid 时保持原样，否则填入一条同步异常。
+  // 先检测出的异常优先。existing.valid 时保持原样，否则记录新异常。
   function automatic exception_payload_t raise_exception(
       input exception_payload_t existing, input exception_cause_e cause, input word_t tval);
     exception_payload_t result;
@@ -297,7 +297,7 @@ package riscv_core_pkg;
     return result;
   endfunction
 
-  // EX 生成、MEM 消费的访存属性。地址复用 EX/MEM 的 wb_req.data，
+  // EX 生成、MEM 消费的访存属性；地址在 commit_ctx.value 中。
   // wdata 保存原始 rs2，MEM 按访问宽度整理总线 lane。
   typedef struct packed {
     logic valid;
@@ -307,15 +307,13 @@ package riscv_core_pkg;
     word_t wdata;
   } mem_req_payload_t;
 
-  // 通用 GPR 写回候选；data_valid 将“存在生产者”和“结果已就绪”明确分开。
-  // EX/MEM 中访存借用 data 保存地址，CSR 借用它保存源操作数；
-  // 两者均保持 data_valid=0；Load 在 MEM 得到结果，CSR 到 WB 才得到旧值。
+  // GPR 目的寄存器与结果就绪状态。write 标识生产者，ready 才允许前递 value。
+  // Load 到 MEM、CSR 到 WB 才就绪；等待时不能绕过它们前递更老的结果。
   typedef struct packed {
-    logic valid;
-    logic data_valid;
-    reg_addr_t rd_addr;
-    word_t data;
-  } writeback_payload_t;
+    logic write;
+    logic ready;
+    reg_addr_t addr;
+  } gpr_dest_t;
 
   // 已实现 M-mode CSR 的架构状态。
   typedef struct packed {
@@ -357,24 +355,17 @@ package riscv_core_pkg;
     word_t trap_tval;
   } csr_commit_payload_t;
 
-  // EX/MEM 与 MEM/WB 之间的公共提交上下文。MEM 只在访存响应完成时修改
-  // 异常和 load 写回数据，其余字段直接整体转移。退休观察字段不进入本结构。
+  // EX/MEM 与 MEM/WB 共用的提交上下文；退休观察字段不进入功能流水。
+  // value 共用一个 XLEN 寄存器：EX 输出运算结果、访存地址或 CSR 源操作数，
+  // MEM 用 load 结果替换地址，WB 用 CSR 旧值完成 GPR 写回。
+  // value 是否可作为 GPR 结果由 gpr.ready 决定，不能仅检查 gpr.write。
   typedef struct packed {
     pc_t pc;
-    writeback_payload_t wb_req;
+    gpr_dest_t gpr;
+    word_t value;
     exception_payload_t exception;
     commit_ctrl_payload_t commit;
   } commit_context_payload_t;
-
-  // 提交优先级与 WB 一致：trap entry > MRET > 普通写回。
-  // 只解释 exception/is_mret；其余上下文字段有意忽略。
-  /* verilator lint_off UNUSEDSIGNAL */
-  function automatic commit_kind_e commit_kind_from_context(input commit_context_payload_t ctx);
-    if (ctx.exception.valid) return COMMIT_TRAP;
-    if (ctx.commit.is_mret) return COMMIT_MRET;
-    return COMMIT_NORMAL;
-  endfunction
-  /* verilator lint_on UNUSEDSIGNAL */
 
   // 流水级边界事务
 
@@ -393,8 +384,6 @@ package riscv_core_pkg;
   } id_ex_payload_t;
 
   typedef struct packed {
-    // "context" is a SystemVerilog keyword in the target toolchain; keep the
-    // same semantic boundary under a tool-safe field name.
     commit_context_payload_t commit_ctx;
     mem_req_payload_t mem_req;
   } ex_mem_payload_t;

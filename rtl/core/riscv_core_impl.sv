@@ -27,15 +27,14 @@ module riscv_core_impl
 );
 
   // 各级计算输出与寄存后的流水边界。
-  if_id_if if_result ();
-  if_id_if if_result_buffered ();
-  id_ex_if id_result ();
-  id_ex_if id_result_buffered ();
-  id_ex_if id_result_serialized ();
-  ex_mem_if ex_result ();
-  ex_mem_if ex_result_buffered ();
-  mem_wb_if mem_result ();
-  mem_wb_if mem_result_buffered ();
+  if_id_if fetch_result ();
+  if_id_if if_id ();
+  id_ex_if decode_result ();
+  id_ex_if id_ex ();
+  ex_mem_if execute_result ();
+  ex_mem_if ex_mem ();
+  mem_wb_if memory_result ();
+  mem_wb_if mem_wb ();
 
   redirect_if ex_redirect ();
   redirect_if wb_redirect ();
@@ -44,7 +43,7 @@ module riscv_core_impl
   csr_commit_if csr_commit ();
   csr_status_if csr_status ();
   gpr_read_if gpr_read ();
-  id_ex_if forward_result ();
+  id_ex_if forwarded ();
   gpr_write_if wb ();
 
   // 流水级与输出寄存器按 IF → ID → EX → MEM → WB 排列。
@@ -59,7 +58,7 @@ module riscv_core_impl
     .imem_flush_o,
     .imem_invalidate_o,
     .imem,
-    .result(if_result)
+    .result(fetch_result)
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.fetch)
 `endif
@@ -77,17 +76,17 @@ module riscv_core_impl
     .rst_ni,
     .flush_i(wb_redirect.valid || ex_redirect.valid),
     .usage_o(  /* 未使用 */),
-    .valid_i(if_result.valid),
-    .ready_o(if_result.ready),
-    .data_i(if_result.payload),
-    .valid_o(if_result_buffered.valid),
-    .ready_i(if_result_buffered.ready),
-    .data_o(if_result_buffered.payload)
+    .valid_i(fetch_result.valid),
+    .ready_o(fetch_result.ready),
+    .data_i(fetch_result.payload),
+    .valid_o(if_id.valid),
+    .ready_i(if_id.ready),
+    .data_o(if_id.payload)
   );
 
   id_stage u_id_stage (
-    .if_id(if_result_buffered),
-    .result(id_result),
+    .if_id(if_id),
+    .result(decode_result),
     .gpr_read
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.decode)
@@ -96,13 +95,13 @@ module riscv_core_impl
 
   // 各阶段组合结果直接前递到 ID；最新生产者尚未就绪时反压 ID。
   forwarding_unit u_forwarding_unit (
-    .decoded(id_result),
-    .id_ex(id_result_buffered),
-    .ex_result(ex_result),
-    .ex_mem(ex_result_buffered),
-    .mem_result(mem_result),
+    .decoded(decode_result),
+    .id_ex(id_ex),
+    .ex_result(execute_result),
+    .ex_mem(ex_mem),
+    .mem_result(memory_result),
     .wb,
-    .result(forward_result)
+    .result(forwarded)
   );
 
   stream_register #(
@@ -111,27 +110,20 @@ module riscv_core_impl
     .clk_i,
     .rst_ni,
     .flush_i(wb_redirect.valid),
-    .valid_i(forward_result.valid),
-    .ready_o(forward_result.ready),
-    .data_i(forward_result.payload),
-    .valid_o(id_result_buffered.valid),
-    .ready_i(id_result_buffered.ready),
-    .data_o(id_result_buffered.payload)
-  );
-
-  // 前递监视过滤前的生产者；EX 只接收允许执行的事务。
-  serialization_ctrl u_serialization_ctrl (
-    .upstream(id_result_buffered),
-    .downstream(id_result_serialized),
-    .ex_mem(ex_result_buffered),
-    .mem_wb(mem_result_buffered)
+    .valid_i(forwarded.valid),
+    .ready_o(forwarded.ready),
+    .data_i(forwarded.payload),
+    .valid_o(id_ex.valid),
+    .ready_i(id_ex.ready),
+    .data_o(id_ex.payload)
   );
 
   ex_stage u_ex_stage (
-    .id_ex(id_result_serialized),
+    .id_ex(id_ex),
+    .older_inflight_i(ex_mem.valid || mem_wb.valid),
     .redirect(ex_redirect),
     .branch_update,
-    .result(ex_result)
+    .result(execute_result)
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.execute)
 `endif
@@ -143,20 +135,20 @@ module riscv_core_impl
     .clk_i,
     .rst_ni,
     .flush_i(wb_redirect.valid),
-    .valid_i(ex_result.valid),
-    .ready_o(ex_result.ready),
-    .data_i(ex_result.payload),
-    .valid_o(ex_result_buffered.valid),
-    .ready_i(ex_result_buffered.ready),
-    .data_o(ex_result_buffered.payload)
+    .valid_i(execute_result.valid),
+    .ready_o(execute_result.ready),
+    .data_i(execute_result.payload),
+    .valid_o(ex_mem.valid),
+    .ready_i(ex_mem.ready),
+    .data_o(ex_mem.payload)
   );
 
   mem_stage u_mem_stage (
     .clk_i,
     .rst_ni,
-    .ex_mem(ex_result_buffered),
+    .ex_mem(ex_mem),
     .dmem,
-    .result(mem_result)
+    .result(memory_result)
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.memory)
 `endif
@@ -169,16 +161,16 @@ module riscv_core_impl
     .rst_ni,
     // 发起改道的 WB 指令必须先提交；WB 恒 ready，提交后自然弹空。
     .flush_i(1'b0),
-    .valid_i(mem_result.valid),
-    .ready_o(mem_result.ready),
-    .data_i(mem_result.payload),
-    .valid_o(mem_result_buffered.valid),
-    .ready_i(mem_result_buffered.ready),
-    .data_o(mem_result_buffered.payload)
+    .valid_i(memory_result.valid),
+    .ready_o(memory_result.ready),
+    .data_i(memory_result.payload),
+    .valid_o(mem_wb.valid),
+    .ready_i(mem_wb.ready),
+    .data_o(mem_wb.payload)
   );
 
   wb_stage u_wb_stage (
-    .mem_wb(mem_result_buffered),
+    .mem_wb(mem_wb),
     .csr_read,
     .csr_commit,
     .csr_status,
