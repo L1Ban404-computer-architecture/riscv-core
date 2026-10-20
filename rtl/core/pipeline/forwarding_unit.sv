@@ -27,8 +27,8 @@ module forwarding_unit
   writeback_payload_t ex_candidate, mem_candidate, wb_candidate;
 
   always_comb begin
-    // 监视串行化过滤前的 ID/EX；等待中的生产者仍存在，不能绕过它
-    // 选择更老的值。过滤后的 EX 结果决定本拍能否前递。
+    // ID/EX 始终标识生产者；结果未就绪时不能绕过它选择更老的值。
+    // CSR 直到 WB 才返回旧值，EX/MEM 的 data 只是源操作数。
     ex_candidate = '0;
     ex_candidate.valid = id_ex.valid && !id_ex.payload.exception.valid &&
         (id_ex.payload.ctrl.wb_sel != WB_NONE) &&
@@ -36,17 +36,17 @@ module forwarding_unit
     ex_candidate.rd_addr = id_ex.payload.reg_addr.rd_addr;
     ex_candidate.data_valid = ex_result.valid && ex_result.payload.commit_ctx.wb_req.valid &&
         ex_result.payload.commit_ctx.wb_req.data_valid;
-    ex_candidate.wdata = ex_result.payload.commit_ctx.wb_req.wdata;
+    ex_candidate.data = ex_result.payload.commit_ctx.wb_req.data;
 
     // load 等响应时 mem_result.valid 为 0；相关性始终由 EX/MEM 保留的事务判断。
     mem_candidate = ex_mem.payload.commit_ctx.wb_req;
     mem_candidate.valid = ex_mem.valid && ex_mem.payload.commit_ctx.wb_req.valid;
     mem_candidate.data_valid = mem_result.valid && mem_result.payload.wb_req.valid &&
         mem_result.payload.wb_req.data_valid;
-    mem_candidate.wdata = mem_result.payload.wb_req.wdata;
+    mem_candidate.data = mem_result.payload.wb_req.data;
 
     wb_candidate = '{valid: wb.valid, data_valid: wb.valid,
-                     rd_addr: wb.payload.rd_addr, wdata: wb.payload.wdata};
+                     rd_addr: wb.payload.rd_addr, data: wb.payload.wdata};
   end
 
   // ID 等待时继续读取 GPR，WB 离开后由寄存器堆提供已提交值，无需暂存。
@@ -73,7 +73,7 @@ module forwarding_unit
 
     result = '{value: base_value, stall: 1'b0};
     if (used && (addr != ZeroReg) && candidate.valid) begin
-      if (candidate.data_valid) result.value = candidate.wdata;
+      if (candidate.data_valid) result.value = candidate.data;
       else result.stall = 1'b1;
     end
     return result;

@@ -208,7 +208,6 @@ module decoder
       end
 
       OPC_SYSTEM: begin
-        decode_o.ctrl.csr_addr = instr_i[31:20];
         if (funct3 == 3'b000) begin
           unique case (instr_i)
             32'h0000_0073: begin
@@ -228,21 +227,26 @@ module decoder
         end else begin
           decode_o.ctrl.wb_sel = WB_CSR;
           decode_o.ctrl.csr_use_imm = funct3[2];
+          decode_o.ctrl.csr.index = csr_index(instr_i[31:20]);
           decode_o.imm_type = funct3[2] ? IMM_Z : IMM_NONE;
 
           unique case (funct3[1:0])
-            2'b01: decode_o.ctrl.csr_cmd = CSR_RW;
-            2'b10: decode_o.ctrl.csr_cmd = CSR_RS;
-            2'b11: decode_o.ctrl.csr_cmd = CSR_RC;
-            default: decode_o.ctrl.csr_cmd = CSR_NONE;
+            2'b01: decode_o.ctrl.csr.cmd = CSR_RW;
+            2'b10: decode_o.ctrl.csr.cmd = CSR_RS;
+            2'b11: decode_o.ctrl.csr.cmd = CSR_RC;
+            default: decode_o.ctrl.csr.cmd = CSR_NONE;
           endcase
 
-          // 地址实现性由 CSR 单元的组合读端口统一判断；decoder 只负责
-          // Zicsr 的 funct3 语法。
-          decode_o.illegal = (decode_o.ctrl.csr_cmd == CSR_NONE);
+          // RS/RC 是否尝试写入取决于 rs1 编号（或 zimm），而非寄存器的值。
+          // 当前仅支持 M-mode，地址实现性和只读属性均可在 ID 静态判定。
+          decode_o.ctrl.csr.write = (decode_o.ctrl.csr.cmd == CSR_RW) ||
+              (instr_i[19:15] != '0);
+          decode_o.illegal = (decode_o.ctrl.csr.cmd == CSR_NONE) ||
+              (decode_o.ctrl.csr.index == CSR_IDX_INVALID) ||
+              (decode_o.ctrl.csr.write && (instr_i[31:30] == 2'b11));
 
           if (decode_o.illegal) begin
-            decode_o.ctrl.csr_cmd = CSR_NONE;
+            decode_o.ctrl.csr = '0;
             decode_o.ctrl.wb_sel = WB_NONE;
           end
         end
@@ -256,7 +260,7 @@ module decoder
     decode_o.reg_addr.rs1_used = (opcode == OPC_JALR) || (opcode == OPC_BRANCH) ||
         (opcode == OPC_LOAD) || (opcode == OPC_STORE) || (opcode == OPC_OP_IMM) ||
         (opcode == OPC_OP) ||
-        ((opcode == OPC_SYSTEM) && (decode_o.ctrl.csr_cmd != CSR_NONE) &&
+        ((opcode == OPC_SYSTEM) && (decode_o.ctrl.csr.cmd != CSR_NONE) &&
          !decode_o.ctrl.csr_use_imm);
     decode_o.reg_addr.rs2_used = (opcode == OPC_BRANCH) || (opcode == OPC_STORE) ||
         (opcode == OPC_OP);

@@ -173,7 +173,7 @@ package riscv_core_pkg;
     EXC_ECALL_M = 4'd11
   } exception_cause_e;
 
-  // 已实现的 M-mode CSR 地址；只读机器标识寄存器也由 csr_unit 统一解码。
+  // 已实现的 M-mode CSR 地址；ID 将这些架构地址映射为内部编号。
   localparam csr_addr_t CsrMstatus = 12'h300;
   localparam csr_addr_t CsrMtvec = 12'h305;
   localparam csr_addr_t CsrMepc = 12'h341;
@@ -181,6 +181,38 @@ package riscv_core_pkg;
   localparam csr_addr_t CsrMtval = 12'h343;
   localparam csr_addr_t CsrMvendorid = 12'hf11;
   localparam csr_addr_t CsrMarchid = 12'hf12;
+
+  // 完整 CSR 地址只在 ID 检查一次；后续流水级携带紧凑编号。
+  typedef enum logic [2:0] {
+    CSR_IDX_INVALID,
+    CSR_IDX_MSTATUS,
+    CSR_IDX_MTVEC,
+    CSR_IDX_MEPC,
+    CSR_IDX_MCAUSE,
+    CSR_IDX_MTVAL,
+    CSR_IDX_MVENDORID,
+    CSR_IDX_MARCHID
+  } csr_index_e;
+
+  function automatic csr_index_e csr_index(input csr_addr_t addr);
+    case (addr)
+      CsrMstatus: return CSR_IDX_MSTATUS;
+      CsrMtvec: return CSR_IDX_MTVEC;
+      CsrMepc: return CSR_IDX_MEPC;
+      CsrMcause: return CSR_IDX_MCAUSE;
+      CsrMtval: return CSR_IDX_MTVAL;
+      CsrMvendorid: return CSR_IDX_MVENDORID;
+      CsrMarchid: return CSR_IDX_MARCHID;
+      default: return CSR_IDX_INVALID;
+    endcase
+  endfunction
+
+  // 源操作数复用普通写回数据字段，CSR 旧值和新值均在 WB 产生。
+  typedef struct packed {
+    csr_cmd_e cmd;
+    csr_index_e index;
+    logic write;
+  } csr_op_payload_t;
 
   // 执行与提交子事务 payload 类型
 
@@ -191,7 +223,7 @@ package riscv_core_pkg;
   } gpr_write_payload_t;
 
   typedef struct packed {
-    pc_t target_pc;
+    pc_t  target_pc;
     // 取指侧指令状态失效，可同时用于 I-cache 与分支预测器。
     logic imem_invalidate;
   } redirect_payload_t;
@@ -230,9 +262,8 @@ package riscv_core_pkg;
     mem_size_e mem_size;
     logic mem_sign_ext;
     wb_sel_e wb_sel;
-    csr_cmd_e csr_cmd;
+    csr_op_payload_t csr;
     logic csr_use_imm;
-    csr_addr_t csr_addr;
     system_op_e system_op;
     // FENCE.I 在 EX 等待更老事务排空后失效取指状态并重取后续指令。
     logic fence_i;
@@ -256,10 +287,7 @@ package riscv_core_pkg;
 
   // 更老异常获胜。existing.valid 时保持原样，否则填入一条同步异常。
   function automatic exception_payload_t raise_exception(
-    input exception_payload_t existing,
-    input exception_cause_e cause,
-    input word_t tval
-  );
+      input exception_payload_t existing, input exception_cause_e cause, input word_t tval);
     exception_payload_t result;
     if (existing.valid) return existing;
     result = '0;
@@ -269,30 +297,25 @@ package riscv_core_pkg;
     return result;
   endfunction
 
-  // EX 生成、MEM 消费的架构访存请求。wdata 在此仍未按总线 lane 对齐。
+  // EX 生成、MEM 消费的访存属性。地址复用 EX/MEM 的 wb_req.data，
+  // wdata 保存原始 rs2，MEM 按访问宽度整理总线 lane。
   typedef struct packed {
     logic valid;
     logic write;
     mem_size_e size;
     logic sign_ext;
-    word_t addr;
     word_t wdata;
   } mem_req_payload_t;
 
   // 通用 GPR 写回候选；data_valid 将“存在生产者”和“结果已就绪”明确分开。
+  // EX/MEM 中访存借用 data 保存地址，CSR 借用它保存源操作数；
+  // 两者均保持 data_valid=0；Load 在 MEM 得到结果，CSR 到 WB 才得到旧值。
   typedef struct packed {
     logic valid;
     logic data_valid;
     reg_addr_t rd_addr;
-    word_t wdata;
+    word_t data;
   } writeback_payload_t;
-
-  // 在 WB 提交的 CSR 写请求，不允许在更年轻流水级提前修改架构状态。
-  typedef struct packed {
-    logic valid;
-    csr_addr_t addr;
-    word_t wdata;
-  } csr_write_payload_t;
 
   // 已实现 M-mode CSR 的架构状态。
   typedef struct packed {
@@ -306,7 +329,7 @@ package riscv_core_pkg;
   // 随指令送往 WB 的 MRET/CSR 提交控制。
   typedef struct packed {
     logic is_mret;
-    csr_write_payload_t csr_write;
+    csr_op_payload_t csr;
   } commit_ctrl_payload_t;
 
   // 前端执行与异常检测所需的指令元数据。
@@ -327,7 +350,7 @@ package riscv_core_pkg;
 
   typedef struct packed {
     csr_commit_op_e op;
-    csr_addr_t addr;
+    csr_index_e index;
     word_t wdata;
     word_t trap_epc;
     exception_cause_e trap_cause;

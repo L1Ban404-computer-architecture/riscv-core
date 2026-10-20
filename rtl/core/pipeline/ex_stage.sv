@@ -9,8 +9,7 @@ module ex_stage
   // 已在 ID 完成前递并锁存的流水事务
   id_ex_if.consumer id_ex,
 
-  // CSR 与改道
-  csr_read_if.requester csr_read,
+  // 改道
   redirect_if.producer redirect,
   branch_update_if.producer branch_update,
 
@@ -31,8 +30,6 @@ module ex_stage
   redirect_if branch_redirect ();
   exception_payload_t executed_exception;
   word_t csr_source;
-  word_t csr_new_value;
-  logic csr_write_attempt;
   logic data_misaligned;
 
   // ALU 与控制流执行
@@ -60,23 +57,10 @@ module ex_stage
     .redirect(branch_redirect)
   );
 
-  // CSR 访问与同步异常检测
+  // CSR 源操作数与同步异常检测
 
-  assign csr_read.addr = id_ex.payload.ctrl.csr_addr;
   assign csr_source = id_ex.payload.ctrl.csr_use_imm ? id_ex.payload.exec_data.imm :
       id_ex.payload.exec_data.rs1_value;
-  assign csr_write_attempt = (id_ex.payload.ctrl.csr_cmd == CSR_RW) ||
-      (((id_ex.payload.ctrl.csr_cmd == CSR_RS) || (id_ex.payload.ctrl.csr_cmd == CSR_RC)) &&
-       (csr_source != '0));
-
-  always_comb begin
-    unique case (id_ex.payload.ctrl.csr_cmd)
-      CSR_RW: csr_new_value = csr_source;
-      CSR_RS: csr_new_value = csr_read.data | csr_source;
-      CSR_RC: csr_new_value = csr_read.data & ~csr_source;
-      default: csr_new_value = '0;
-    endcase
-  end
 
   always_comb begin
     unique case (id_ex.payload.ctrl.mem_size)
@@ -87,7 +71,7 @@ module ex_stage
     endcase
 
     // 上游异常不可覆盖。EX 仅在当前 payload 尚无异常时补充控制流目标、
-    // 数据地址或 CSR 合法性异常，并立即关闭普通 redirect/访存/写回副作用。
+    // 数据地址异常，并立即关闭普通 redirect/访存/写回副作用。
     executed_exception = id_ex.payload.exception;
     if (branch_redirect.valid && (branch_redirect.payload.target_pc[1:0] != 2'b00)) begin
       executed_exception = raise_exception(executed_exception, EXC_INST_ADDR_MISALIGNED,
@@ -97,11 +81,6 @@ module ex_stage
                                            (id_ex.payload.ctrl.mem_cmd == MEM_STORE) ?
                                                EXC_STORE_ADDR_MISALIGNED :
                                                EXC_LOAD_ADDR_MISALIGNED, alu_result);
-    end else if ((id_ex.payload.ctrl.csr_cmd != CSR_NONE) &&
-                 (!csr_read.implemented ||
-                  (csr_write_attempt && (id_ex.payload.ctrl.csr_addr[11:10] == 2'b11)))) begin
-      executed_exception = raise_exception(executed_exception, EXC_ILLEGAL_INSTR,
-                                           id_ex.payload.meta.instr);
     end
   end
 
@@ -141,39 +120,31 @@ module ex_stage
     next_commit.exception = executed_exception;
     next_commit.wb_req.valid = id_ex.payload.ctrl.wb_sel != WB_NONE;
     next_commit.wb_req.rd_addr = id_ex.payload.reg_addr.rd_addr;
+    // ALU 结果与访存地址共用 EX/MEM 的数据字段。
+    // Load 尚未返回数据，Store 不写回 GPR，均不开放 data_valid。
+    next_commit.wb_req.data = alu_result;
 
     case (id_ex.payload.ctrl.wb_sel)
-      WB_NONE: next_commit.wb_req = '0;
-      WB_ALU: begin
-        next_commit.wb_req.data_valid = 1'b1;
-        next_commit.wb_req.wdata = alu_result;
-      end
-      WB_MEM: begin
-        next_commit.wb_req.data_valid = 1'b0;
-        next_commit.wb_req.wdata = '0;
-      end
+      WB_ALU: next_commit.wb_req.data_valid = 1'b1;
+      WB_MEM: ;
       WB_PC4: begin
         next_commit.wb_req.data_valid = 1'b1;
-        next_commit.wb_req.wdata = pc_plus_4;
+        next_commit.wb_req.data = pc_plus_4;
       end
       WB_CSR: begin
-        next_commit.wb_req.data_valid = 1'b1;
-        next_commit.wb_req.wdata = csr_read.data;
+        next_commit.wb_req.data_valid = 1'b0;
+        next_commit.wb_req.data = csr_source;
       end
-      default: next_commit.wb_req = '0;
+      default: next_commit.wb_req.valid = 1'b0;
     endcase
 
     // x0 写入在这里提前消除，减少后续前递和写回端的无效比较活动。
     if ((next_commit.wb_req.rd_addr == ZeroReg) || executed_exception.valid)
       next_commit.wb_req.valid = 1'b0;
 
-    // CSR 指令把旧值放入普通 GPR 写回路径，把新值作为提交请求随指令送到 WB。
-    // RS/RC 的零源操作数按规范只读，不形成 CSR 写请求。
+    // CSR 在 WB 执行；这里只有源操作数和紧凑操作信息，不访问架构状态。
     next_commit.commit.is_mret = id_ex.payload.ctrl.system_op == SYS_MRET;
-    next_commit.commit.csr_write.valid = (id_ex.payload.ctrl.csr_cmd != CSR_NONE) &&
-        csr_write_attempt && !executed_exception.valid;
-    next_commit.commit.csr_write.addr = id_ex.payload.ctrl.csr_addr;
-    next_commit.commit.csr_write.wdata = csr_new_value;
+    next_commit.commit.csr = id_ex.payload.ctrl.csr;
   end
 
   // 访存请求与提交上下文同寿命；rs2 的 lane 对齐由 MEM 完成。
@@ -182,7 +153,6 @@ module ex_stage
     write: id_ex.payload.ctrl.mem_cmd == MEM_STORE,
     size: id_ex.payload.ctrl.mem_size,
     sign_ext: id_ex.payload.ctrl.mem_sign_ext,
-    addr: alu_result,
     wdata: id_ex.payload.exec_data.rs2_value
   };
 

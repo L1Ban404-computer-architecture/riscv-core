@@ -129,7 +129,6 @@ module riscv_core_impl
 
   ex_stage u_ex_stage (
     .id_ex(id_result_serialized),
-    .csr_read,
     .redirect(ex_redirect),
     .branch_update,
     .result(ex_result)
@@ -180,6 +179,7 @@ module riscv_core_impl
 
   wb_stage u_wb_stage (
     .mem_wb(mem_result_buffered),
+    .csr_read,
     .csr_commit,
     .csr_status,
     .redirect(wb_redirect),

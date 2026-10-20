@@ -41,13 +41,12 @@ endinterface
 
 // CSR 与全局控制接口
 
-// EX 到 CSR 单元的组合读端口，同时返回地址是否实现，供非法指令检查使用。
+// WB 到 CSR 单元的组合读端口；地址合法性已在 ID 检查。
 interface csr_read_if;
-  riscv_core_pkg::csr_addr_t addr;
+  riscv_core_pkg::csr_index_e index;
   riscv_core_pkg::word_t data;
-  logic implemented;
-  modport requester(output addr, input data, implemented);
-  modport responder(input addr, output data, implemented);
+  modport requester(output index, input data);
+  modport responder(input index, output data);
 endinterface
 
 // WB 提交 CSR、trap 或 MRET 的互斥状态更新请求；NONE 表示无操作，无独立 valid。

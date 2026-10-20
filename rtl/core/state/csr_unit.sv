@@ -32,20 +32,16 @@ module csr_unit
   // CSR 组合读取
 
   always_comb begin
-    csr_read.implemented = 1'b1;
-    unique case (csr_read.addr)
+    unique case (csr_read.index)
       // ysyx 厂商标识和本核学号标识由硬件常量提供，不占用可写状态。
-      CsrMvendorid: csr_read.data = 32'h7973_7978;
-      CsrMarchid: csr_read.data = 32'd25080230;
-      CsrMstatus: csr_read.data = state_q.mstatus;
-      CsrMtvec: csr_read.data = state_q.mtvec;
-      CsrMepc: csr_read.data = state_q.mepc;
-      CsrMcause: csr_read.data = state_q.mcause;
-      CsrMtval: csr_read.data = state_q.mtval;
-      default: begin
-        csr_read.implemented = 1'b0;
-        csr_read.data = '0;
-      end
+      CSR_IDX_MVENDORID: csr_read.data = 32'h7973_7978;
+      CSR_IDX_MARCHID: csr_read.data = 32'd25080230;
+      CSR_IDX_MSTATUS: csr_read.data = state_q.mstatus;
+      CSR_IDX_MTVEC: csr_read.data = state_q.mtvec;
+      CSR_IDX_MEPC: csr_read.data = state_q.mepc;
+      CSR_IDX_MCAUSE: csr_read.data = state_q.mcause;
+      CSR_IDX_MTVAL: csr_read.data = state_q.mtval;
+      default: csr_read.data = '0;
     endcase
   end
 
@@ -71,15 +67,15 @@ module csr_unit
         state_d.mstatus = state_d.mstatus | MstatusMpie | MstatusMpp;
       end
       CSR_COMMIT_WRITE: begin
-        unique case (commit.payload.addr)
-          CsrMstatus: begin
+        unique case (commit.payload.index)
+          CSR_IDX_MSTATUS: begin
             state_d.mstatus = (commit.payload.wdata & (MstatusMie | MstatusMpie)) | MstatusMpp;
           end
-          CsrMtvec: state_d.mtvec = commit.payload.wdata & word_t'(~3);
+          CSR_IDX_MTVEC: state_d.mtvec = commit.payload.wdata & word_t'(~3);
           // 本核只支持 IALIGN=32，mepc[1:0] 按规范恒为零。
-          CsrMepc: state_d.mepc = commit.payload.wdata & word_t'(~3);
-          CsrMcause: state_d.mcause = commit.payload.wdata;
-          CsrMtval: state_d.mtval = commit.payload.wdata;
+          CSR_IDX_MEPC: state_d.mepc = commit.payload.wdata & word_t'(~3);
+          CSR_IDX_MCAUSE: state_d.mcause = commit.payload.wdata;
+          CSR_IDX_MTVAL: state_d.mtval = commit.payload.wdata;
           default: ;
         endcase
       end

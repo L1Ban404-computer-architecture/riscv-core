@@ -7,6 +7,7 @@ module wb_stage
 (
   // 提交事务
   mem_wb_if.consumer mem_wb,
+  csr_read_if.requester csr_read,
   csr_commit_if.producer csr_commit,
   csr_status_if.consumer csr_status,
   redirect_if.producer redirect,
@@ -17,10 +18,23 @@ module wb_stage
 );
 
   commit_kind_e commit_kind;
+  logic is_csr;
+  word_t csr_new_value;
 
   // WB 恒 ready；提交分类只解释 payload，所有副作用由 fire 门控。
   assign mem_wb.ready = 1'b1;
   assign commit_kind = commit_kind_from_context(mem_wb.payload);
+  assign is_csr = mem_wb.payload.commit.csr.cmd != CSR_NONE;
+  assign csr_read.index = mem_wb.payload.commit.csr.index;
+
+  // CSR 旧值在提交点读取，新值不再占用流水寄存器或接入 EX 前递。
+  always_comb begin
+    case (mem_wb.payload.commit.csr.cmd)
+      CSR_RS: csr_new_value = csr_read.data | mem_wb.payload.wb_req.data;
+      CSR_RC: csr_new_value = csr_read.data & ~mem_wb.payload.wb_req.data;
+      default: csr_new_value = mem_wb.payload.wb_req.data;
+    endcase
+  end
 
   always_comb begin
     redirect.valid = 1'b0;
@@ -29,8 +43,8 @@ module wb_stage
     wb.payload = '0;
     csr_commit.payload = '{
       op: CSR_COMMIT_NONE,
-      addr: mem_wb.payload.commit.csr_write.addr,
-      wdata: mem_wb.payload.commit.csr_write.wdata,
+      index: mem_wb.payload.commit.csr.index,
+      wdata: csr_new_value,
       trap_epc: mem_wb.payload.pc,
       trap_cause: mem_wb.payload.exception.cause,
       trap_tval: mem_wb.payload.exception.tval
@@ -51,10 +65,11 @@ module wb_stage
           redirect.payload.target_pc = csr_status.mepc;
         end
         default: begin
-          wb.valid = mem_wb.payload.wb_req.valid && mem_wb.payload.wb_req.data_valid;
+          wb.valid = mem_wb.payload.wb_req.valid &&
+              (mem_wb.payload.wb_req.data_valid || is_csr);
           wb.payload = '{rd_addr: mem_wb.payload.wb_req.rd_addr,
-                         wdata: mem_wb.payload.wb_req.wdata};
-          if (mem_wb.payload.commit.csr_write.valid)
+                         wdata: is_csr ? csr_read.data : mem_wb.payload.wb_req.data};
+          if (is_csr && mem_wb.payload.commit.csr.write)
             csr_commit.payload.op = CSR_COMMIT_WRITE;
         end
       endcase
