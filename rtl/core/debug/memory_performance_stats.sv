@@ -31,7 +31,7 @@ module memory_performance_stats
       (waiting_q ? !response_seen_q : req_fire);
   assign stats_o = stats_q;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       stats_q <= '0;
       waiting_q <= 1'b0;

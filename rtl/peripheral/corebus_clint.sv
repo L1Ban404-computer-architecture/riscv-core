@@ -46,7 +46,7 @@ module corebus_clint
 
   // 计时与 CoreBus 事务处理
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       mtime_q <= 64'b0;
       rsp_valid_q <= 1'b0;

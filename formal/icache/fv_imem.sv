@@ -36,7 +36,7 @@ module fv_imem #(
     invalidate_q = 1'b0;
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       image_q <= 1'b0;
       invalidate_q <= 1'b0;

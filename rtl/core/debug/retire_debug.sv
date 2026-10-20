@@ -54,7 +54,7 @@ module retire_debug
   assign memory_fire = debug.memory.valid && debug.memory.ready;
   assign writeback_fire = debug.writeback.valid && debug.writeback.ready;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) instid_q <= 64'd1;
     else if (debug.fetch.request_fire) instid_q <= instid_q + 64'd1;
   end

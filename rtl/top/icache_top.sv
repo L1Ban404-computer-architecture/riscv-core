@@ -21,6 +21,7 @@ module icache_top
 ) (
   // 全局控制
   input logic clk_i,
+  // 低有效同步复位，由上游保持多个 clk_i 周期。
   input logic rst_ni,
   input logic flush_i,
   input logic invalidate_i,

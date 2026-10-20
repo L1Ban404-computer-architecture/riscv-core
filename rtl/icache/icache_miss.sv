@@ -111,7 +111,7 @@ module icache_miss
   );
 
   // 请求 → AR → R；首拍回应与背景回填的寿命分别管理。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       state_q <= StateIdle;
       beat_addr_q <= '0;

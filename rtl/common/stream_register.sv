@@ -34,7 +34,7 @@ module stream_register #(
     if (rst_ni && valid_i && ready_o) data_q <= data_i;
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) valid_q <= 1'b0;
     else if (ready_o) valid_q <= valid_i;
   end

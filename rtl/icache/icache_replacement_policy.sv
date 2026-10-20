@@ -52,7 +52,7 @@ module icache_replacement_policy
 
     assign full_victim = next_way_q[select_set_i];
 
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
       if (!rst_ni) begin
         for (int unsigned set = 0; set < SetCount; set++) next_way_q[set] <= '0;
       end else if (select_en_i) begin
@@ -126,7 +126,7 @@ module icache_replacement_policy
     assign full_victim = select_plru_way(plru_q[select_set_i]);
 
     // 命中和分配牺牲路都代表真实访问。同拍两者指向同一组时以后者覆盖。
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
       if (!rst_ni) begin
         for (int unsigned set = 0; set < SetCount; set++) plru_q[set] <= '0;
       end else begin

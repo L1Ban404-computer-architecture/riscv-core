@@ -81,7 +81,7 @@ module csr_unit
   assign status.mtvec = state_q.mtvec;
   assign status.mepc = state_q.mepc;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       state_q <= '{mstatus: MstatusMpp, mtvec: '0, mepc: '0, mcause: '0, mtval: '0};
     end else begin

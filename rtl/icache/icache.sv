@@ -61,7 +61,7 @@ module icache
   assign array_req.req_payload = core_bus.req_payload;
   assign core_bus.req_ready = array_req.req_ready && !invalidate_block;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) invalidate_pending_q <= 1'b0;
     else invalidate_pending_q <= invalidate_i || (invalidate_pending_q && !invalidate_apply);
   end

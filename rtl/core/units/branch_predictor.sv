@@ -105,7 +105,7 @@ module branch_predictor
     end
 
     // 状态更新：失效只清 valid；训练写入表项，新分配时推进轮转指针。
-    always_ff @(posedge clk_i or negedge rst_ni) begin
+    always_ff @(posedge clk_i) begin
       if (!rst_ni) begin
         for (int unsigned set_idx = 0; set_idx < SetCount; set_idx++) begin
           next_way_q[set_idx] <= '0;

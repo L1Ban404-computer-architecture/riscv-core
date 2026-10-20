@@ -82,7 +82,7 @@ module axi4_fixed_priority_arb
 
   // AR 所有权状态更新
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       ar_locked_q <= 1'b0;
       ar_owner_mem_q <= 1'b0;

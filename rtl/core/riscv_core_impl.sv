@@ -10,6 +10,7 @@ module riscv_core_impl
 (
   // 全局控制
   input logic clk_i,
+  // 低有效同步复位，由上游保持多个 clk_i 周期。
   input logic rst_ni,
   input pc_t boot_pc_i,
 

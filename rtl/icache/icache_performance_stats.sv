@@ -26,7 +26,7 @@ module icache_performance_stats
   assign sample_response = debug.bus.rsp_valid && debug.lookup_valid && !response_seen_q;
   assign performance_o = stats_q;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       stats_q <= '0;
       request_accepted_q <= 1'b0;

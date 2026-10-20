@@ -30,7 +30,7 @@ module icache_rsp (
   assign miss.rsp_ready = core_bus.rsp_ready || flush_i || drop_miss_q;
   assign lookup.ready = core_bus.rsp_fire || flush_i;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       miss_pending_q <= 1'b0;
       drop_miss_q <= 1'b0;

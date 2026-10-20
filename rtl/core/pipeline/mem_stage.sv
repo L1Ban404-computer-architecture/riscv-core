@@ -103,7 +103,7 @@ module mem_stage
   assign result.payload = next_payload;
 
   // 响应优先，同拍请求和响应不留下在途事务；在途请求必须保留 EX/MEM 元数据。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) inflight_q <= 1'b0;
     else if (dmem.rsp_fire) inflight_q <= 1'b0;
     else if (dmem.req_fire) inflight_q <= 1'b1;

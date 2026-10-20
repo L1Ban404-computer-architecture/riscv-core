@@ -20,7 +20,7 @@ CLK_PORT_NAME ?= clock
 else
 CLK_PORT_NAME ?= clk_i
 endif
-CLK_FREQ_MHZ ?= 5000
+CLK_FREQ_MHZ ?= 1000
 PDK ?= nangate45
 # 本次综合产物目录。不传时仍是 build/perf；DSE 为每个几何传入独立路径。
 PERF_OUT ?= build/perf

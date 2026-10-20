@@ -87,7 +87,7 @@ module axi4_burst_splitter
 
   // 突发状态与 beat 计数
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       busy_q <= 1'b0;
       waiting_r_q <= 1'b0;

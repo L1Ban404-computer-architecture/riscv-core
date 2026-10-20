@@ -74,7 +74,7 @@ module fv_axi_rom
     wrap_mask_q = '0;
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       state_q <= FV_AXI_IDLE;
       addr_q <= '0;

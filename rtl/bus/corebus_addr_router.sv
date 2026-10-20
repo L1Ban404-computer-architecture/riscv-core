@@ -57,7 +57,7 @@ module corebus_addr_router
 
   // 目标所有权寄存
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       busy_q <= 1'b0;
       owner_device_q <= 1'b0;

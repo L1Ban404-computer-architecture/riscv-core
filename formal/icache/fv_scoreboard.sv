@@ -38,7 +38,7 @@ module fv_scoreboard
     DataWidth32: assert (DataWidth == 32);
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       scoreboard_addr_q <= '0;
       waiting_q <= 1'b0;

@@ -82,7 +82,7 @@ module if_stage
   end
 
   // redirect 同拍仍可能接受旧 PC；下一拍 flush 才能覆盖这笔请求。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       pc_q <= boot_pc_i;
       imem_flush_o <= 1'b0;

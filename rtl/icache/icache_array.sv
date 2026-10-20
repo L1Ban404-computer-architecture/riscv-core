@@ -185,7 +185,7 @@ module icache_array
     );
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       refill_way_locked_q <= 1'b0;
       refill_way_q <= '0;
@@ -198,7 +198,7 @@ module icache_array
   end
 
   // 分配时清 valid，只有完整且无错误的回填才重新置位。
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       for (int unsigned way = 0; way < WayCount; way++)
         for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;

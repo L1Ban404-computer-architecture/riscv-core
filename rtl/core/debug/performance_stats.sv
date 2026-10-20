@@ -109,7 +109,7 @@ module performance_stats
 
   // 性能计数器更新
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       stats_q <= '0;
     end else begin

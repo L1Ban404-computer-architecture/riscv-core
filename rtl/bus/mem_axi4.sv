@@ -112,7 +112,7 @@ module mem_axi4
 
   // 状态更新逻辑
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       state_q <= StateIdle;
       aw_sent_q <= 1'b0;

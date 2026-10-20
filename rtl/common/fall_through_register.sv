@@ -35,7 +35,7 @@ module fall_through_register #(
     if (rst_ni && valid_i && ready_o && (flush_i || valid_q || !ready_i)) data_q <= data_i;
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) valid_q <= 1'b0;
     else if (flush_i) valid_q <= valid_i;
     else if (ready_o) valid_q <= valid_i && (valid_q || !ready_i);

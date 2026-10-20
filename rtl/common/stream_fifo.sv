@@ -68,7 +68,7 @@ module stream_fifo #(
     if (rst_ni && push && !bypass_pop) mem_q[flush_i ? '0 : write_ptr_q] <= data_i;
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       read_ptr_q <= '0;
       write_ptr_q <= '0;

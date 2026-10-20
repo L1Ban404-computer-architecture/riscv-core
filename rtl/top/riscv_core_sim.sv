@@ -19,6 +19,7 @@ module riscv_core_sim
   parameter int unsigned DmemMaxOutstanding  = 1
 ) (
   input logic clk_i,
+  // 低有效同步复位，由仿真环境保持多个 clk_i 周期。
   input logic rst_ni,
   input pc_t boot_pc_i
 `ifndef SYNTHESIS
@@ -241,7 +242,7 @@ module mem_sim
     error: response_valid ? responses_q[head_q].error : 1'b0
   };
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin : mem_sim_state
+  always_ff @(posedge clk_i) begin : mem_sim_state
     int unsigned dpi_rdata;
     bit dpi_error;
     byte unsigned dpi_size;

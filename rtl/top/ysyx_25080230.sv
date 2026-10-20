@@ -16,6 +16,7 @@ module ysyx_25080230
 (
   // 全局控制
   input clock,
+  // 高有效同步复位，由上游保持多个 clock 周期。
   input reset,
   input io_interrupt,
 

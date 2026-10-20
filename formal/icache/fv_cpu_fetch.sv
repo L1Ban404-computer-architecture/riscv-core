@@ -37,7 +37,7 @@ module fv_cpu_fetch
     req_addr_q = '0;
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
+  always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
       req_valid_q <= 1'b0;
       req_addr_q <= '0;
