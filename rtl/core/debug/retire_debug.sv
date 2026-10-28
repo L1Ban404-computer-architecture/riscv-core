@@ -79,16 +79,17 @@ module retire_debug
   };
 
   // 与功能 IF/ID 使用相同容量和握手规则，保持退休元数据对齐。
-  stream_fifo #(
-    .Depth(2),
-    .FallThrough(1'b0),
-    .SameCycleRW(1'b0),
+  fall_through_register #(
+  // stream_fifo #(
+  //   .Depth(1),
+  //   .FallThrough(1'b1),
+  //   .SameCycleRW(1'b1),
     .T(instruction_trace_t)
   ) u_if_id_trace (
     .clk_i,
     .rst_ni,
     .flush_i(redirect),
-    .usage_o(  /* 未使用 */),
+    // .usage_o(  /* 未使用 */),
     .valid_i(debug.fetch.result_valid),
     .ready_o(  /* 未使用 */),
     .data_i(fetched),

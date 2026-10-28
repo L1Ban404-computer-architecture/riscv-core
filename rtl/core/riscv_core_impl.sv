@@ -67,16 +67,17 @@ module riscv_core_impl
 
   // IF/ID 缓冲两笔事务，不直通；满队列即使当拍出队也不接受新输入。
   // 改道当拍屏蔽错误路径，时钟沿清空缓冲。
-  stream_fifo #(
-    .Depth(2),
-    .FallThrough(1'b0),
-    .SameCycleRW(1'b0),
+  fall_through_register #(
+  // stream_fifo #(
+  //   .Depth(1),
+  //   .FallThrough(1'b1),
+  //   .SameCycleRW(1'b1),
     .T(if_id_payload_t)
   ) u_if_id_register (
     .clk_i,
     .rst_ni,
     .flush_i(wb_redirect.valid || ex_redirect.valid),
-    .usage_o(  /* 未使用 */),
+    // .usage_o(  /* 未使用 */),
     .valid_i(fetch_result.valid),
     .ready_o(fetch_result.ready),
     .data_i(fetch_result.payload),
