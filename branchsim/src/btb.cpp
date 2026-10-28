@@ -2,6 +2,14 @@
 
 #include <stdexcept>
 
+namespace {
+
+std::uint32_t LowMask(std::uint32_t bits) {
+  return bits == 32 ? 0xffffffffu : (std::uint32_t{1} << bits) - 1u;
+}
+
+}  // namespace
+
 Btb::Btb(const BtbConfig &config) : config_(config) {
   if (config.method != "none" && config.method != "table") {
     throw std::invalid_argument("btb must be none or table");
@@ -14,6 +22,12 @@ Btb::Btb(const BtbConfig &config) : config_(config) {
   }
   if (config.policy != "rr" && config.policy != "lru") {
     throw std::invalid_argument("btb-policy must be rr or lru");
+  }
+  if (config.pc_bits < 1 || config.pc_bits > 30) {
+    throw std::invalid_argument("pc-bits must be in [1, 30]");
+  }
+  if (config.target_bits < 2 || config.target_bits > 32) {
+    throw std::invalid_argument("target-bits must be in [2, 32]");
   }
   if (config.method == "none") return;
   if (config.ways > entries_.max_size() / config.sets) {
@@ -28,7 +42,10 @@ BtbPrediction Btb::Lookup(std::uint32_t pc) const {
   const std::size_t begin = SetBegin(pc);
   for (std::uint32_t way = 0; way < config_.ways; ++way) {
     const Entry &entry = entries_[begin + way];
-    if (entry.valid && entry.pc == pc) return {true, entry.target, entry.type};
+    if (entry.valid && entry.pc == Tag(pc)) {
+      const std::uint32_t target = (pc & ~LowMask(config_.target_bits)) | entry.target;
+      return {true, target, entry.type, entry.backward};
+    }
   }
   return {};
 }
@@ -41,7 +58,7 @@ void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
   // 先找已有项；未命中时优先选编号最小的空路。
   for (std::uint32_t way = 0; way < config_.ways; ++way) {
     const Entry &entry = entries_[begin + way];
-    if (entry.valid && entry.pc == pc) {
+    if (entry.valid && entry.pc == Tag(pc)) {
       selected = way;
       break;
     }
@@ -78,9 +95,15 @@ void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
   } else if (!hit) {
     rr_next_[set] = (selected + 1u) % config_.ways;
   }
-  entry = {true, pc, target, type, 0};
+  const bool backward = ((target - pc) & 0x80000000u) != 0;
+  entry = {true, Tag(pc), target & LowMask(config_.target_bits), type, 0, backward};
 }
 
 std::size_t Btb::SetBegin(std::uint32_t pc) const {
   return static_cast<std::size_t>((pc >> 2) & (config_.sets - 1u)) * config_.ways;
+}
+
+std::uint32_t Btb::Tag(std::uint32_t pc) const {
+  // PC[1:0] 是固定的 4 字节指令对齐位，不写入标签。
+  return (pc >> 2) & LowMask(config_.pc_bits);
 }

@@ -26,11 +26,14 @@ struct Accuracy {
 
 struct BranchStats {
   Accuracy total;
+  Accuracy control_flow;
+  Accuracy non_control_flow;
   Accuracy actual_taken;
   Accuracy actual_not_taken;
   Accuracy predicted_taken;
   Accuracy predicted_not_taken;
   std::uint64_t direction_hits = 0;
 
-  void Observe(const Prediction &prediction, const BranchOutcome &outcome);
+  void Observe(const Prediction &prediction, const BranchOutcome &outcome,
+               bool is_control_flow = true);
 };

@@ -12,12 +12,15 @@ struct BtbConfig {
   std::uint32_t sets = 64;
   std::uint32_t ways = 2;
   std::string policy = "rr";
+  std::uint32_t pc_bits = 8;
+  std::uint32_t target_bits = 16;
 };
 
 struct BtbPrediction {
   bool hit = false;
   std::uint32_t target = 0;
   BtbType type = BtbType::kBranch;
+  bool backward = false;
 };
 
 class Btb {
@@ -33,9 +36,11 @@ class Btb {
     std::uint32_t target = 0;
     BtbType type = BtbType::kBranch;
     std::uint32_t age = 0;
+    bool backward = false;
   };
 
   std::size_t SetBegin(std::uint32_t pc) const;
+  std::uint32_t Tag(std::uint32_t pc) const;
   BtbConfig config_;
   std::vector<Entry> entries_;
   std::vector<std::uint32_t> rr_next_;

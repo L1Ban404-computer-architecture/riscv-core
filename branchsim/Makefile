@@ -4,12 +4,15 @@
 .DEFAULT_GOAL := branchsim
 .DELETE_ON_ERROR:
 CXX ?= g++
+PYTHON ?= python3
 BUILD_DIR ?= build
 TARGET := $(BUILD_DIR)/branchsim
+MODEL_TEST := $(BUILD_DIR)/check-model
 OBJ_DIR := $(BUILD_DIR)/obj
 RUNNER_TRACE := $(BUILD_DIR)/runner-insttrace.bin
 TRACE ?= $(RUNNER_TRACE)
 SIM_REPORT := $(BUILD_DIR)/sim.log
+DSE_ARGS ?=
 
 YSYX_HOME ?= $(abspath ../..)
 AM_HOME ?= $(YSYX_HOME)/abstract-machine
@@ -20,10 +23,13 @@ MAINARGS ?= train
 export AM_HOME
 
 BHT ?= btfn
+BHT_ENTRIES ?= 32
 BTB ?= table
 BTB_SETS ?= 64
 BTB_WAYS ?= 2
 BTB_POLICY ?= rr
+PC_BITS ?= 8
+TARGET_BITS ?= 16
 
 SRCS := $(sort $(wildcard src/*.cpp))
 OBJS := $(SRCS:%.cpp=$(OBJ_DIR)/%.o)
@@ -31,8 +37,9 @@ DEPS := $(OBJS:.o=.d)
 CXXFLAGS ?= -O2 -g
 BRANCHSIM_CPPFLAGS := -Iinclude -I$(YSYX_HOME)/riscv-runner/api/include
 BRANCHSIM_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -MMD -MP
-SIM_ARGS = --trace "$(TRACE)" --bht "$(BHT)" --btb "$(BTB)" \
-  --btb-sets "$(BTB_SETS)" --btb-ways "$(BTB_WAYS)" --btb-policy "$(BTB_POLICY)"
+SIM_ARGS = --trace "$(TRACE)" --bht "$(BHT)" --bht-entries "$(BHT_ENTRIES)" --btb "$(BTB)" \
+  --btb-sets "$(BTB_SETS)" --btb-ways "$(BTB_WAYS)" --btb-policy "$(BTB_POLICY)" \
+  --pc-bits "$(PC_BITS)" --target-bits "$(TARGET_BITS)"
 
 branchsim: $(TARGET)
 
@@ -43,7 +50,20 @@ sim: $(TARGET)
 	@cat "$(SIM_REPORT)"
 
 run: $(TARGET) $(TRACE)
-	@$(MAKE) sim
+	$(PYTHON) -m dse --branchsim "$(abspath $(TARGET))" \
+	  --trace "$(abspath $(TRACE))" --build-dir "$(abspath $(BUILD_DIR))" $(DSE_ARGS)
+
+check-dse: $(TARGET)
+	BRANCHSIM="$(abspath $(TARGET))" $(PYTHON) -m unittest dse.test_dse
+
+check-model: $(MODEL_TEST) $(TARGET)
+	$(MODEL_TEST)
+	$(PYTHON) tests/check_alias_trace.py "$(abspath $(TARGET))"
+
+$(MODEL_TEST): tests/model.cpp src/btb.cpp src/bht.cpp src/predictor.cpp $(wildcard include/*.hpp)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(BRANCHSIM_CPPFLAGS) -std=c++17 -Wall -Wextra -Werror \
+	  -o $@ tests/model.cpp src/btb.cpp src/bht.cpp src/predictor.cpp $(LDFLAGS) $(LDLIBS)
 
 $(TRACE):
 	@mkdir -p "$(BUILD_DIR)"
@@ -68,4 +88,4 @@ clean:
 	-rm -rf $(BUILD_DIR)
 
 -include $(DEPS)
-.PHONY: branchsim sim run clean
+.PHONY: branchsim sim run check-model check-dse clean

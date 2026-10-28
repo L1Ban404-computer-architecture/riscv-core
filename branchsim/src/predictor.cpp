@@ -3,7 +3,7 @@
 Prediction Predict(std::uint32_t pc, const Bht &bht, const Btb &btb) {
   const BtbPrediction entry = btb.Lookup(pc);
   if (!entry.hit) return {};
-  if (entry.type == BtbType::kJal || bht.Predict(pc, entry.target)) {
+  if (entry.type == BtbType::kJal || bht.Predict(pc, entry.backward)) {
     return {true, entry.target};
   }
   return {};
@@ -21,11 +21,12 @@ void Update(const BranchRecord &record, Bht &bht, Btb &btb) {
 }
 
 void BranchStats::Observe(const Prediction &prediction,
-                          const BranchOutcome &outcome) {
+                          const BranchOutcome &outcome, bool is_control_flow) {
   const bool direction_hit = prediction.taken == outcome.taken;
   const bool hit = direction_hit &&
                    (!outcome.taken || prediction.target == outcome.target);
   total.Observe(hit);
+  (is_control_flow ? control_flow : non_control_flow).Observe(hit);
   (outcome.taken ? actual_taken : actual_not_taken).Observe(hit);
   (prediction.taken ? predicted_taken : predicted_not_taken).Observe(hit);
   direction_hits += direction_hit ? 1u : 0u;

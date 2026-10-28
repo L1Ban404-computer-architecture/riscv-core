@@ -15,17 +15,21 @@ namespace {
 struct Options {
   std::string trace;
   std::string bht = "btfn";
+  std::uint32_t bht_entries = 32;
   BtbConfig btb;
 };
 
 void Usage(const char *prog) {
   std::printf(
       "Usage: %s --trace PATH [options]\n"
-      "  --bht not-taken|btfn      default btfn\n"
+      "  --bht not-taken|btfn|bimodal  default btfn\n"
+      "  --bht-entries N           bimodal counters, default 32 (power of two)\n"
       "  --btb none|table          default table\n"
       "  --btb-sets N              default 64 (positive power of two)\n"
       "  --btb-ways N              default 2\n"
-      "  --btb-policy rr|lru       default rr\n", prog);
+      "  --btb-policy rr|lru       default rr\n"
+      "  --pc-bits N               default 8 (PC[N+1:2], range 1..30)\n"
+      "  --target-bits N           default 16 (target low N bits, range 2..32)\n", prog);
 }
 
 std::uint32_t Number(const std::string &text) {
@@ -57,10 +61,13 @@ Options ReadArgs(int argc, char **argv) {
     }
     if (name == "--trace") options.trace = value;
     else if (name == "--bht") options.bht = value;
+    else if (name == "--bht-entries") options.bht_entries = Number(value);
     else if (name == "--btb") options.btb.method = value;
     else if (name == "--btb-sets") options.btb.sets = Number(value);
     else if (name == "--btb-ways") options.btb.ways = Number(value);
     else if (name == "--btb-policy") options.btb.policy = value;
+    else if (name == "--pc-bits") options.btb.pc_bits = Number(value);
+    else if (name == "--target-bits") options.btb.target_bits = Number(value);
     else throw std::invalid_argument("unknown argument: " + name);
   }
   if (options.trace.empty()) throw std::invalid_argument("missing --trace");
@@ -78,6 +85,8 @@ void PrintStats(const BranchStats &stats, std::uint64_t instructions) {
     const Accuracy &accuracy;
   } groups[] = {
     {"total", stats.total},
+    {"control_flow", stats.control_flow},
+    {"non_control_flow", stats.non_control_flow},
     {"actual_taken", stats.actual_taken},
     {"actual_not_taken", stats.actual_not_taken},
     {"predicted_taken", stats.predicted_taken},
@@ -114,7 +123,7 @@ int main(int argc, char **argv) {
   }
   try {
     const Options options = ReadArgs(argc, argv);
-    auto bht = MakeBht(options.bht);
+    auto bht = MakeBht(options.bht, options.bht_entries);
     Btb btb(options.btb);
     TraceReader reader;
     reader.Open(options.trace.c_str());
@@ -123,16 +132,17 @@ int main(int argc, char **argv) {
     std::uint64_t instructions = 0;
     while (reader.Next(&instruction)) {
       ++instructions;
-      if (instruction.kind == RV_INSTTRACE_KIND_NONE) continue;
       const BranchRecord record = {{instruction.pc, instruction.instr},
                                    {instruction.target, instruction.taken}};
       const Prediction prediction = Predict(record.input.pc, *bht, btb);
-      stats.Observe(prediction, record.outcome);
-      Update(record, *bht, btb);
+      stats.Observe(prediction, record.outcome, instruction.kind != RV_INSTTRACE_KIND_NONE);
+      if (instruction.kind != RV_INSTTRACE_KIND_NONE) Update(record, *bht, btb);
     }
-    std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s\n", options.bht.c_str(),
+    const bool dynamic = options.bht == "bimodal" && options.btb.method != "none";
+    std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s pc_bits=%u target_bits=%u bht_entries=%u bht_ff=%" PRIu64 "\n", options.bht.c_str(),
                 options.btb.method.c_str(), options.btb.sets, options.btb.ways,
-                options.btb.policy.c_str());
+                options.btb.policy.c_str(), options.btb.pc_bits, options.btb.target_bits,
+                dynamic ? options.bht_entries : 0u, dynamic ? bht->StorageBits() : 0u);
     PrintStats(stats, instructions);
     return 0;
   } catch (const std::invalid_argument &error) {

@@ -8,8 +8,9 @@
 class Bht {
  public:
   virtual ~Bht() = default;
-  virtual bool Predict(std::uint32_t pc, std::uint32_t target) const = 0;
+  virtual bool Predict(std::uint32_t pc, bool backward) const = 0;
   virtual void Update(std::uint32_t pc, std::uint32_t target, bool taken) = 0;
+  virtual std::uint64_t StorageBits() const { return 0; }
 };
 
-std::unique_ptr<Bht> MakeBht(const std::string &method);
+std::unique_ptr<Bht> MakeBht(const std::string &method, std::uint32_t entries = 32);
