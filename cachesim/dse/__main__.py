@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -20,11 +21,6 @@ LAT_HEAD = 68.0
 LAT_BEAT = 43.0
 
 CACHESIM_DIR = Path(__file__).resolve().parents[1]
-CACHESIM = CACHESIM_DIR / "build" / "cachesim"
-TRACE = CACHESIM_DIR / "build" / "runner-pctrace.bin"
-WORK_ROOT = CACHESIM_DIR / "build" / "dse"
-OUTPUT = CACHESIM_DIR / "build" / "dse.csv"
-PLOT = CACHESIM_DIR / "build" / "dse.html"
 
 # 数据容量 = sets * ways * block_bytes，单位是字节，上下限都包含。
 # 组数、路数、块大小在这个区间里取所有 2 的幂组合。块至少 4 字节，路数至多 8。
@@ -95,9 +91,9 @@ def run_point(
     sets, ways, block_bytes, policy = point
     work = Path(work_root) / PDK / geom_name(sets, ways, block_bytes, policy)
 
-    # 面积和命中率互不依赖，先综合再回放，失败时子进程退出码直接抛出。
-    freq, area = synthesize(work, sets, ways, block_bytes, policy)
+    # 先回放，让缺失或损坏的轨迹在综合前报错。
     parsed = replay(cachesim, trace, sets, ways, block_bytes, policy)
+    freq, area = synthesize(work, sets, ways, block_bytes, policy)
     hit = None if parsed["hit_rate"] == "-" else float(parsed["hit_rate"])
     estimated = "-" if hit is None else amt(hit, miss_penalty(block_bytes))
     return {
@@ -161,19 +157,37 @@ def sort_key(row: Dict[str, object]) -> tuple:
     )
 
 
-def main() -> int:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--build-dir", type=Path, default=CACHESIM_DIR / "build")
+    parser.add_argument("--cachesim", type=Path)
+    parser.add_argument("--trace", type=Path)
+    args = parser.parse_args(argv)
+    args.build_dir = args.build_dir.resolve()
+    args.cachesim = (args.cachesim or args.build_dir / "cachesim").resolve()
+    args.trace = (args.trace or args.build_dir / "runner-insttrace.bin").resolve()
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    work_root = args.build_dir / "dse"
+    output = args.build_dir / "dse.csv"
+    plot = args.build_dir / "dse.html"
     points = geometries(BYTES_MIN, BYTES_MAX, POLICIES)
     if not points:
         raise RuntimeError(
             f"no power-of-two geometries in [{BYTES_MIN}, {BYTES_MAX}] bytes"
         )
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    print(f"sweep {len(points)} configs -> {OUTPUT}, {PLOT}", file=sys.stderr)
+    args.build_dir.mkdir(parents=True, exist_ok=True)
+    print(f"sweep {len(points)} configs -> {output}, {plot}", file=sys.stderr)
 
     rows: List[Dict[str, object]] = []
     with ProcessPoolExecutor(max_workers=JOBS) as pool:
         futures = [
-            pool.submit(run_point, str(CACHESIM), str(TRACE), str(WORK_ROOT), point)
+            pool.submit(
+                run_point, str(args.cachesim), str(args.trace), str(work_root), point
+            )
             for point in points
         ]
         for index, future in enumerate(as_completed(futures), start=1):
@@ -186,8 +200,8 @@ def main() -> int:
             )
 
     rows.sort(key=sort_key)
-    write_csv(OUTPUT, rows)
-    write_plot(PLOT, rows)
+    write_csv(output, rows)
+    write_plot(plot, rows)
     return 0
 
 

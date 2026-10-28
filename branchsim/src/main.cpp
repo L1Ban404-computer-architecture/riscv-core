@@ -8,7 +8,7 @@
 #include <string>
 
 #include "predictor.hpp"
-#include "trace.hpp"
+#include "trace_reader.hpp"
 
 namespace {
 
@@ -72,7 +72,7 @@ void PrintRate(std::uint64_t hits, std::uint64_t accesses) {
   else std::printf("%.6f", static_cast<double>(hits) / accesses);
 }
 
-void PrintStats(const BranchStats &stats) {
+void PrintStats(const BranchStats &stats, std::uint64_t instructions) {
   const struct {
     const char *name;
     const Accuracy &accuracy;
@@ -94,6 +94,13 @@ void PrintStats(const BranchStats &stats) {
   std::printf("direction hits=%" PRIu64 " hit_rate=", stats.direction_hits);
   PrintRate(stats.direction_hits, stats.total.accesses);
   std::printf("\n");
+  const std::uint64_t mispredictions = stats.total.accesses - stats.total.hits;
+  std::printf("instructions=%" PRIu64 " mpki=", instructions);
+  if (instructions == 0) std::printf("-");
+  else {
+    std::printf("%.6f", 1000.0 * mispredictions / static_cast<double>(instructions));
+  }
+  std::printf("\n");
 }
 
 }  // namespace
@@ -109,11 +116,16 @@ int main(int argc, char **argv) {
     const Options options = ReadArgs(argc, argv);
     auto bht = MakeBht(options.bht);
     Btb btb(options.btb);
-    BranchTraceReader reader;
+    TraceReader reader;
     reader.Open(options.trace.c_str());
     BranchStats stats;
-    BranchRecord record;
-    while (reader.Next(&record)) {
+    TraceRecord instruction;
+    std::uint64_t instructions = 0;
+    while (reader.Next(&instruction)) {
+      ++instructions;
+      if (instruction.kind == RV_INSTTRACE_KIND_NONE) continue;
+      const BranchRecord record = {{instruction.pc, instruction.instr},
+                                   {instruction.target, instruction.taken}};
       const Prediction prediction = Predict(record.input.pc, *bht, btb);
       stats.Observe(prediction, record.outcome);
       Update(record, *bht, btb);
@@ -121,7 +133,7 @@ int main(int argc, char **argv) {
     std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s\n", options.bht.c_str(),
                 options.btb.method.c_str(), options.btb.sets, options.btb.ways,
                 options.btb.policy.c_str());
-    PrintStats(stats);
+    PrintStats(stats, instructions);
     return 0;
   } catch (const std::invalid_argument &error) {
     std::fprintf(stderr, "%s\n", error.what());

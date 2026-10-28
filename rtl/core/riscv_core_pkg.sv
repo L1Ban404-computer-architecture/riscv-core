@@ -34,9 +34,9 @@ package riscv_core_pkg;
     BTB_JAL
   } btb_entry_type_e;
 
-  parameter bit BtbEnable = 1'b0;
-  parameter int unsigned BtbSetCount = 1;
-  parameter int unsigned BtbWayCount = 4;
+  parameter bit BtbEnable = 1'b1;
+  parameter int unsigned BtbSetCount = 4;
+  parameter int unsigned BtbWayCount = 1;
 
   // 指令编码与执行操作
 

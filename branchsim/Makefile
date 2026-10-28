@@ -7,7 +7,8 @@ CXX ?= g++
 BUILD_DIR ?= build
 TARGET := $(BUILD_DIR)/branchsim
 OBJ_DIR := $(BUILD_DIR)/obj
-TRACE ?= $(BUILD_DIR)/runner-btrace.bin
+RUNNER_TRACE := $(BUILD_DIR)/runner-insttrace.bin
+TRACE ?= $(RUNNER_TRACE)
 SIM_REPORT := $(BUILD_DIR)/sim.log
 
 YSYX_HOME ?= $(abspath ../..)
@@ -34,11 +35,10 @@ SIM_ARGS = --trace "$(TRACE)" --bht "$(BHT)" --btb "$(BTB)" \
   --btb-sets "$(BTB_SETS)" --btb-ways "$(BTB_WAYS)" --btb-policy "$(BTB_POLICY)"
 
 branchsim: $(TARGET)
-btrace: $(TRACE)
 
 # sim 只回放；run 则允许在轨迹缺失时先采集。
 sim: $(TARGET)
-	@test -f "$(TRACE)" || { echo "missing $(TRACE); build it with: make btrace" >&2; exit 1; }
+	@test -f "$(TRACE)" || { echo "missing $(TRACE); build it with: make run" >&2; exit 1; }
 	@$(TARGET) $(SIM_ARGS) > "$(SIM_REPORT).tmp" && mv "$(SIM_REPORT).tmp" "$(SIM_REPORT)"
 	@cat "$(SIM_REPORT)"
 
@@ -48,10 +48,10 @@ run: $(TARGET) $(TRACE)
 $(TRACE):
 	@mkdir -p "$(BUILD_DIR)"
 	$(MAKE) -C "$(MICROBENCH_DIR)" ARCH=$(ARCH) DUT=$(DUT) mainargs=$(MAINARGS) \
-	  LOG_DIR="$(abspath $(BUILD_DIR))" BTRACE=1 run
-	@if [ "$(abspath $(TRACE))" != "$(abspath $(BUILD_DIR))/runner-btrace.bin" ]; then \
+	  LOG_DIR="$(abspath $(BUILD_DIR))" INSTTRACE=1 run
+	@if [ "$(abspath $(TRACE))" != "$(abspath $(RUNNER_TRACE))" ]; then \
 	  mkdir -p "$(dir $(TRACE))"; \
-	  mv "$(BUILD_DIR)/runner-btrace.bin" "$(TRACE)"; \
+	  mv "$(RUNNER_TRACE)" "$(TRACE)"; \
 	fi
 
 $(TARGET): $(OBJS)
@@ -68,4 +68,4 @@ clean:
 	-rm -rf $(BUILD_DIR)
 
 -include $(DEPS)
-.PHONY: branchsim btrace sim run clean
+.PHONY: branchsim sim run clean

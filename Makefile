@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # 综合检查、面积分析、I-cache 形式化与离线仿真分别在组件目录里。
-.PHONY: check perf formal-icache cachesim pctrace branchsim btrace \
+.PHONY: check perf formal-icache cachesim branchsim \
         cachesim-sim cachesim-run branchsim-sim branchsim-run sim run clean
 
 check perf:
