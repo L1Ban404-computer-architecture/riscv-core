@@ -64,15 +64,14 @@ interface csr_status_if;
   modport consumer(input mtvec, mepc);
 endinterface
 
-// 仅 PC 的持续组合查询，无 valid/ready；调用方决定何时采纳预测。
-// taken 为零时 target_pc 为零；失效当拍同样返回零。
+// 截断 PC 标签的持续组合查询，无 valid/ready；调用方决定何时采纳预测。
+// 目标仅传低位，由请求方拼接当前 PC 高位；taken 为零时 target 为零。
 interface branch_predict_if;
-  riscv_core_pkg::pc_t pc;
-  logic taken;
-  riscv_core_pkg::pc_t target_pc;
-  modport requester(output pc, input taken, target_pc);
-  modport responder(input pc, output taken, target_pc);
-  modport monitor(input pc, taken, target_pc);
+  riscv_core_pkg::btb_tag_t tag;
+  riscv_core_pkg::branch_prediction_payload_t payload;
+  modport requester(output tag, input payload);
+  modport responder(input tag, output payload);
+  modport monitor(input tag, payload);
 endinterface
 
 // WB 确认的 GPR 写入。
@@ -83,7 +82,7 @@ endinterface
 `RISCV_CORE_VALID_IF(redirect_if, riscv_core_pkg::redirect_payload_t)
 
 // 已确认合法的训练结果；valid 在上升沿采样，复位/失效优先。
-// 条件分支无论实际 taken 如何都须提供编码目标与立即数符号，不传入实际 taken。
+// 条件分支无论实际 taken 如何都提供编码目标；JAL 不更新 BHT。
 `RISCV_CORE_VALID_IF(branch_update_if, riscv_core_pkg::branch_update_payload_t)
 
 // 各级计算输出与寄存后的流水边界共享相同的 stream 协议。

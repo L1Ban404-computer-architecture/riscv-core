@@ -59,9 +59,10 @@ module ex_stage
 
   branch_unit u_branch_unit (
     .branch_op_i(id_ex.payload.ctrl.branch_op),
+    .direct_target_i(id_ex.payload.exec_data.direct_target),
+    .alu_target_i(alu_result),
     .rs1_value_i(id_ex.payload.exec_data.rs1_value),
     .rs2_value_i(id_ex.payload.exec_data.rs2_value),
-    .alu_target_i(alu_result),
     .taken_o(branch_taken),
     .target_pc_o(branch_target)
   );
@@ -95,9 +96,11 @@ module ex_stage
 
   // 先确定异常，再产生执行事件；异常指令不改道、不训练预测器。
   always_comb begin
-    // 已采纳的直接分支目标由 BTB 保证；功能路径只核对方向。
+    // 核对取指时锁存的方向和目标，不依赖前端当前状态。
     redirect.valid = id_ex.fire && !executed_exception.valid &&
-        (id_ex.payload.meta.predicted_taken != branch_taken);
+        ((id_ex.payload.meta.prediction.taken != branch_taken) ||
+         (branch_taken && (btb_target_pc(id_ex.payload.meta.pc,
+             id_ex.payload.meta.prediction.target) != branch_target)));
     redirect.payload = '{
       target_pc: branch_taken ? branch_target : pc_plus_4,
       imem_invalidate: 1'b0
@@ -111,14 +114,17 @@ module ex_stage
     end
   end
 
-  // 未跳转条件分支仍提供编码目标；预测器负责筛选条件分支与 JAL。
-  assign branch_update.valid = id_ex.fire && !executed_exception.valid;
+  // 合法 B/J 不产生访存异常；训练只检查上游异常和实际跳转的目标对齐。
+  // 未跳转条件分支仍训练，目标直接使用 ID 快照，不经过 JALR/ALU 路径。
+  assign branch_update.valid = id_ex.fire && !id_ex.payload.exception.valid &&
+      (id_ex.payload.ctrl.branch_op inside
+          {BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU, BR_JAL}) &&
+      !(branch_taken && (id_ex.payload.exec_data.direct_target[1:0] != 2'b00));
   assign branch_update.payload = '{
-    pc: id_ex.payload.meta.pc,
-    branch_op: id_ex.payload.ctrl.branch_op,
-    target_pc: alu_result,
-    // 直接分支的有符号偏移已在 ID 扩展；地址回绕不改变编码方向。
-    backward: id_ex.payload.exec_data.imm[XLen-1]
+    tag: btb_tag_t'(id_ex.payload.meta.pc >> 2),
+    target: id_ex.payload.exec_data.direct_target[BtbTargetWidth-1:1],
+    kind: (id_ex.payload.ctrl.branch_op == BR_JAL) ? BTB_JAL : BTB_BRANCH,
+    taken: branch_taken
   };
 
   // 写回、访存与提交事务生成

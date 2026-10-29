@@ -29,7 +29,7 @@ module riscv_core_impl
 
   // 各级计算输出与寄存后的流水边界。
   if_id_if fetch_result ();
-  if_id_if if_id ();
+  // if_id_if if_id ();
   id_ex_if decode_result ();
   id_ex_if id_ex ();
   ex_mem_if execute_result ();
@@ -65,29 +65,25 @@ module riscv_core_impl
 `endif
   );
 
-  // IF/ID 缓冲两笔事务，不直通；满队列即使当拍出队也不接受新输入。
+  // 临时旁路 IF/ID：fetch_result 直接交给 ID，回应由 ID ready 反压。
+  // IF/ID 单入口弹性缓冲，空载直通。
   // 改道当拍屏蔽错误路径，时钟沿清空缓冲。
-  fall_through_register #(
-  // stream_fifo #(
-  //   .Depth(1),
-  //   .FallThrough(1'b1),
-  //   .SameCycleRW(1'b1),
-    .T(if_id_payload_t)
-  ) u_if_id_register (
-    .clk_i,
-    .rst_ni,
-    .flush_i(wb_redirect.valid || ex_redirect.valid),
-    // .usage_o(  /* 未使用 */),
-    .valid_i(fetch_result.valid),
-    .ready_o(fetch_result.ready),
-    .data_i(fetch_result.payload),
-    .valid_o(if_id.valid),
-    .ready_i(if_id.ready),
-    .data_o(if_id.payload)
-  );
+  // fall_through_register #(
+  //   .T(if_id_payload_t)
+  // ) u_if_id_register (
+  //   .clk_i,
+  //   .rst_ni,
+  //   .flush_i(wb_redirect.valid || ex_redirect.valid),
+  //   .valid_i(fetch_result.valid),
+  //   .ready_o(fetch_result.ready),
+  //   .data_i(fetch_result.payload),
+  //   .valid_o(if_id.valid),
+  //   .ready_i(if_id.ready),
+  //   .data_o(if_id.payload)
+  // );
 
   id_stage u_id_stage (
-    .if_id(if_id),
+    .if_id(fetch_result),
     .result(decode_result),
     .gpr_read
 `ifndef SYNTHESIS

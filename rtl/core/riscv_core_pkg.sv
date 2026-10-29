@@ -27,7 +27,7 @@ package riscv_core_pkg;
   typedef logic [XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
-  // 分支预测器配置与表项类型；CPU 直接使用这些默认值。
+  // 分支预测器：RR BTB + PC 索引的两位饱和计数器 BHT。
 
   typedef enum logic {
     BTB_BRANCH,
@@ -37,6 +37,25 @@ package riscv_core_pkg;
   parameter bit BtbEnable = 1'b1;
   parameter int unsigned BtbSetCount = 1;
   parameter int unsigned BtbWayCount = 4;
+  parameter int unsigned BtbPcWidth = 8;
+  parameter int unsigned BtbTargetWidth = 16;
+  parameter int unsigned BhtEntryCount = 16;
+
+  typedef logic [BtbPcWidth-1:0] btb_tag_t;
+  // B/J 编码目标的 bit 0 恒为零；保留 bit 1，以覆盖未跳转的非对齐分支。
+  typedef logic [BtbTargetWidth-1:1] btb_target_t;
+  typedef struct packed {
+    logic taken;
+    btb_target_t target;
+  } branch_prediction_payload_t;
+
+  // 预测接口只传目标低位，高位由取指 PC 重建。
+  function automatic pc_t btb_target_pc(input pc_t pc, input btb_target_t target);
+    pc_t result;
+    result = pc;
+    result[BtbTargetWidth-1:0] = {target, 1'b0};
+    return result;
+  endfunction
 
   // 指令编码与执行操作
 
@@ -228,12 +247,12 @@ package riscv_core_pkg;
     logic imem_invalidate;
   } redirect_payload_t;
 
-  // 预测器训练只接受已确认合法的类型、编码目标与立即数方向，不需要实际 taken。
+  // EX 筛选合法条件分支/JAL，仅传训练需要的低位；BHT 用实际 taken 更新。
   typedef struct packed {
-    pc_t pc;
-    branch_op_e branch_op;
-    pc_t target_pc;
-    logic backward;
+    btb_tag_t tag;
+    btb_target_t target;
+    btb_entry_type_e kind;
+    logic taken;
   } branch_update_payload_t;
 
   // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
@@ -245,11 +264,12 @@ package riscv_core_pkg;
     logic rs2_used;
   } reg_addr_payload_t;
 
-  // EX 所需的两路寄存器快照和已扩展立即数。
+  // EX 所需的寄存器快照、立即数和 ID 预计算的 B/J 目标。
   typedef struct packed {
     word_t rs1_value;
     word_t rs2_value;
     word_t imm;
+    pc_t direct_target;
   } exec_data_payload_t;
 
   // decoder 产生的完整执行控制，字段均描述归一化语义而非原始指令编码。
@@ -334,8 +354,8 @@ package riscv_core_pkg;
   typedef struct packed {
     pc_t pc;
     instr_t instr;
-    // 请求被接受时采纳的方向快照，仅随指令保留到 EX。
-    logic predicted_taken;
+    // 请求被接受时采纳的预测快照，仅保留到 EX，用于方向和目标纠错。
+    branch_prediction_payload_t prediction;
   } instruction_meta_payload_t;
 
   // WB 到 CSR 单元的完整架构状态更新请求。

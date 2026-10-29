@@ -78,27 +78,29 @@ module retire_debug
     perf_class: classify_opcode(debug.fetch.instr[6:0], debug.fetch.access_fault)
   };
 
+  // 与功能通路一致，取指退休元数据直接送到 ID。
+  assign decoded = fetched;
   // 与功能 IF/ID 使用相同容量和握手规则，保持退休元数据对齐。
-  fall_through_register #(
-  // stream_fifo #(
-  //   .Depth(1),
-  //   .FallThrough(1'b1),
-  //   .SameCycleRW(1'b1),
-    .T(instruction_trace_t)
-  ) u_if_id_trace (
-    .clk_i,
-    .rst_ni,
-    .flush_i(redirect),
-    // .usage_o(  /* 未使用 */),
-    .valid_i(debug.fetch.result_valid),
-    .ready_o(  /* 未使用 */),
-    .data_i(fetched),
-    .valid_o(  /* 未使用 */),
-    .ready_i(debug.decode.ready),
-    .data_o(decoded)
-  );
+  // fall_through_register #(
+  // // stream_fifo #(
+  // //   .Depth(1),
+  // //   .FallThrough(1'b1),
+  // //   .SameCycleRW(1'b1),
+  //   .T(instruction_trace_t)
+  // ) u_if_id_trace (
+  //   .clk_i,
+  //   .rst_ni,
+  //   .flush_i(redirect),
+  //   // .usage_o(  /* 未使用 */),
+  //   .valid_i(debug.fetch.result_valid),
+  //   .ready_o(  /* 未使用 */),
+  //   .data_i(fetched),
+  //   .valid_o(  /* 未使用 */),
+  //   .ready_i(debug.decode.ready),
+  //   .data_o(decoded)
+  // );
 
-  // flush 时 IF/ID 和 ID/EX 的 valid 已屏蔽，两路入口 fire 都为零，影子队列直接清空。
+  // flush 时取指输出和 ID/EX 的 valid 已屏蔽，两路入口 fire 都为零，影子队列直接清空。
   retire_inflight_queue #(
     .T(instruction_trace_t)
   ) u_id_ex_trace (

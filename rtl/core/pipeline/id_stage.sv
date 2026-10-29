@@ -38,7 +38,9 @@ module id_stage
     result.payload.meta = if_id.payload.meta;
     result.payload.reg_addr = decoded.reg_addr;
     result.payload.exec_data = '{
-      rs1_value: gpr_read.rs1_value, rs2_value: gpr_read.rs2_value, imm: decoded_imm
+      rs1_value: gpr_read.rs1_value, rs2_value: gpr_read.rs2_value, imm: decoded_imm,
+      // B/J 的目标只依赖 PC 和立即数；锁存后 EX 无需重新相加。
+      direct_target: if_id.payload.meta.pc + decoded_imm
     };
     result.payload.ctrl = decoded.ctrl;
     // 优先保留 IF 的访问异常；只有取指成功后才解释译码异常。
@@ -54,7 +56,7 @@ module id_stage
   end
 
   // GPR 相关通过前递单元的 ready 反压；等待期间继续读取寄存器堆。
-  // IF/ID 已在改道当拍屏蔽旧事务；EX 等待通过普通 ready 反压传回。
+  // 取指侧已在改道当拍屏蔽旧事务；EX 等待通过普通 ready 反压传回。
   assign if_id.ready = result.ready;
   assign result.valid = if_id.valid;
 

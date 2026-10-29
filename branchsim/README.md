@@ -55,6 +55,71 @@ BHT 触发器数 = Bimodal: 2 × M；BTFN/not-taken: 0
 
 核算保留标签中的组索引重合位，以及目标字段的低两位对齐位，不做综合常量或冗余消除；因此它描述逻辑存储成本，综合后的 DFF 单元数、面积和时序需要另测。软件 `Entry` 的 `uint32_t` 容器大小不计入硬件成本。
 
+## 对应的 RTL 实现
+
+核心默认采用本次选定的 **Bimodal[16]、1 组 4 路 RR、P=8/T=16**，配置集中在 [`riscv_core_pkg.sv`](../rtl/core/riscv_core_pkg.sv)。[`branch_predictor.sv`](../rtl/core/units/branch_predictor.sv) 管理 BTB、RR 指针和 BHT；IF 负责采纳并锁存预测，当前临时旁路 IF/ID 缓冲，快照随取指回应直达 ID，再经 ID/EX 送到 EX；EX 负责执行、纠错和筛选训练事件。
+
+RTL 比扫描的通用存储格式更紧凑：移除 Bimodal 不使用的 `backward` 位，省去 B/J 目标恒零的 bit 0，保留 bit 1 以正确处理未跳转的非对齐分支目标。因此预测器存储为：
+
+```text
+BTB = 4 × (valid 1 + tag 8 + target[15:1] 15 + kind 1) + RR 2 = 102 位
+BHT = 16 × 2 = 32 位
+预测器合计 = 134 位
+```
+
+这与图中的 **142 位逻辑预算**描述同一配置，差额来自格式优化。查询接口只传 8 位标签、返回 16 位预测结果（taken + target[15:1]）；EX→IF 训练 payload 从 69 位缩为 25 位（tag 8 + target 15 + kind 1 + taken 1）。目标高位在 IF 用当前 PC 重建，不经过训练总线。
+
+取指请求被接受时锁存预测方向和压缩目标，随指令传到 EX。EX 比较方向，并在实际跳转时将快照目标与本条指令 PC 高位拼接，再核对完整实际目标，覆盖普通指令假跳转、JALR 别名及跨 64 KiB 的错误目标。BTB 后续训练、替换和前端停顿均不改变已采纳的预测快照。
+
+每处快照为 **16 位 = taken 1 + target[15:1] 15**。保留 IF/ID 缓冲时，取指元数据、IF/ID、ID/EX 三处合计 48 位；当前直连版本仅在取指元数据和 ID/EX 保存，共 **32 位**。EX 只依赖自身 ID/EX 输入，不观察前端 PC 或缓冲占用状态。
+
+ID 计算 B 型分支和 JAL 的 `PC+imm`，在 ID/EX 的 `exec_data.direct_target` 中独立保存完整 32 位目标。EX 不再为 B/J 重新相加；JALR 通过通用 ALU 计算 `rs1+imm`，再由 [`branch_unit.sv`](../rtl/core/units/branch_unit.sv) 清除 bit 0。分支单元只判断条件和选择目标，已移除上一轮专用 EX 分支加法器。
+
+EX 的预测纠错、目标非对齐异常和退休分支目标使用分支单元输出。BTB/BHT 训练仅接受合法 B/J，目标直接来自 ID/EX 的 `direct_target`，使能只检查上游异常和实际跳转时的目标对齐，避开通用 EX 的访存异常及 JALR/ALU 目标选择链。定向测试检查真实 B/J 编码的 ID 预计算、负偏移、地址回绕、ID/EX 背压保持，并故意修改 EX 立即数与 ALU 控制以确认 B/J 只使用锁存目标；JALR 则验证原有 ALU 路径和对齐规则。
+
+预测器只复位 valid、RR 和 BHT；标签、目标、类型由 valid 屏蔽。FENCE.I 当拍屏蔽预测，并在时钟沿清空 BTB 和复位 BHT，优先于同拍训练，同时通过正常 flush 取消旧指令及其预测快照。
+
+回归入口：
+
+```sh
+make -C riscv-core check-branch-predictor
+make -C riscv-core check RVE=1
+make -C mini-soc lint
+make -C ysyx-soc lint
+make -C riscv-core perf RVE=1 PERF_OUT=../build/direct-branch-training/mapped
+make -C am-kernels/tests/cpu-tests ARCH=runner ALL=dummy DUT=npc REF=nemu run
+make -C am-kernels/rt-thread-am/bsp/abstract-machine ARCH=runner DUT=npc REF=nemu run
+make -C am-kernels/tests/cpu-tests ARCH=runner ALL=dummy DUT=soc REF=nemu run
+make -C am-kernels/rt-thread-am/bsp/abstract-machine ARCH=runner DUT=soc REF=nemu run
+```
+
+`check-branch-predictor` 将 RTL 与 branchsim 模型逐拍比较，覆盖 1×4/BHT16、2×2/BHT8，每组 2,570,235 次查询，另测 IF 直连 ID 时取指快照在训练/替换和背压下的保持、EX 目标纠错、异常和 FENCE.I。保留 IF/ID 的综合结果位于 `../build/branch-predictor/mapped-register/`，旁路 IF/ID、共用 ALU 的结果位于 `../build/no-if-id/`，已撤销的专用 EX 分支加法器对照位于 `../build/dedicated-branch-adder/`，ID 预计算版本的验证与综合结果位于 `../build/id-branch-target/`，训练控制解耦的综合结果位于 `../build/direct-branch-training/`，已回退的 ALU 独立加法输出实验结果位于 `../build/alu-add-output/`。离线 MPKI 对应退休轨迹顺序训练；RTL 在 EX 训练，流水线延迟和推测执行会影响实际统计。
+
+当前保留 `fetch_result` 直连 ID，功能 IF/ID 缓冲与退休观察侧的对应缓冲继续注释。ID 的背压直接传给取指回应；IF 仍在改道当拍取消错误路径输出，ID/EX 的预测快照和原有刷新规则保留。
+
+综合使用相同的 RV32E、`ysyx_25080230` 顶层（含 I-cache、AXI 适配与 CLINT）、Nangate45、1000 MHz 约束和仓库 `perf` 流程：
+
+| 指标 | 训练控制解耦（当前） | ALU 独立加法输出（已回退） |
+| --- | ---: | ---: |
+| 预测器存储位数 | 134 | 134 |
+| 完整顶层 DFF_X1 数量 | 2834 | 2834 |
+| 映射单元面积（µm²） | 24145.618 | 23890.258 |
+| 全局最差 setup slack（ns） | -0.151 | -0.242 |
+| 最长数据到达时间（ns） | 1.109 | 1.210 |
+| 报告估算频率（MHz） | 868.456 | 805.193 |
+
+已回退的实验只在 ALU 增加 `add_result_o`，ADD 指令与 JALR 共用同一加法表达式，JALR 绕过最终运算结果选择；保留原有操作数选择、预测目标比较和训练控制。综合面积下降 **1.06%**，DFF 数不变，全局最差 slack 恶化 **91 ps**，本次测量没有时序收益。新最慢路径仍从 ID/EX 的 `op_b_sel` 出发，经过 EX 纠错及前端控制，到 I-cache 的 `miss.rsp_valid` 寄存器；IF PC 路径也仍有 -0.231 ns 违例。该实验已按要求回退，RTL 恢复到训练控制解耦版本：最差 slack -0.151 ns，面积 24145.618 µm²，2834 个 DFF。1 GHz 约束仍未收敛。以上时序为综合后的理想连线 STA。
+
+前一轮训练控制解耦将 BHT 训练门控 slack 从 -0.139 ns 改善到 -0.070 ns，面积从 24268.510 µm² 降到 24145.618 µm²，但全局 slack 从 -0.139 ns 变为 -0.151 ns；当前继续保留该修改。
+
+上一步 B/J 目标提前到 ID，DFF 从 2802 增加到 2834，面积从 23767.100 µm² 增加到 24268.510 µm²，slack 从 -0.211 ns 改善到 -0.139 ns；本轮继续保留该结构。
+
+前次旁路 IF/ID 将 DFF 从 2916 降到 2802，面积从 24584.518 µm² 降到 23767.100 µm²，slack 从 -0.206 ns 变为 -0.211 ns；当前继续保留该直连结构。上一轮专用 EX 分支加法器的 slack 为 -0.217 ns、面积为 24292.716 µm²，未显示收益，已按要求撤销。
+
+ID 目标预计算版本的 mini-soc 与完整 SoC 的 dummy 外层汇总及 NEMU 差分均为 PASS；两种 DUT 的 RT-Thread 均完成启动、help 全部输出并返回 `msh >`，无差分错误。完整 SoC 验证覆盖实际 I-cache 取指与背压路径。RT-Thread 在看到完整 shell 输出后仅向本次 sim-runner 发送 SIGINT，保留外层 make 完成自动追踪；退出码 130 是主动结束常驻 shell 的结果。
+
+训练控制解耦和已回退的 ALU 独立加法输出实验均按要求只运行综合和 STA，未重复运行功能验证；上述功能回归对应训练控制解耦之前的 ID 目标预计算版本。本次回退逐字节核对了三个 RTL 文件与该实验前的备份，未重新综合或运行功能验证。
+
 ## 运行
 
 在工作区根目录执行，使用当前 runner 契约和 Python 3.11+，无需额外 Python 包：

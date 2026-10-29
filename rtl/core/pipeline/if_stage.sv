@@ -24,14 +24,14 @@ module if_stage
   pc_t pc_q;
   typedef struct packed {
     pc_t pc;
-    logic predicted_taken;
+    branch_prediction_payload_t prediction;
   } fetch_meta_t;
   fetch_meta_t pending;
   branch_predict_if prediction ();
   logic meta_ready, meta_valid;
   redirect_if resolved_redirect ();
 
-  assign prediction.pc = pc_q;
+  assign prediction.tag = btb_tag_t'(pc_q >> 2);
   branch_predictor u_branch_predictor (
     .clk_i, .rst_ni,
     .invalidate_i(imem_invalidate_o),
@@ -61,7 +61,7 @@ module if_stage
     .flush_i(resolved_redirect.valid),
     .valid_i(imem.req_fire && !resolved_redirect.valid),
     .ready_o(meta_ready),
-    .data_i('{pc: pc_q, predicted_taken: prediction.taken}),
+    .data_i('{pc: pc_q, prediction: prediction.payload}),
     .valid_o(meta_valid),
     .ready_i(imem.rsp_fire),
     .data_o(pending)
@@ -74,7 +74,7 @@ module if_stage
   always_comb begin
     result.payload = '0;
     result.payload.meta.pc = pending.pc;
-    result.payload.meta.predicted_taken = pending.predicted_taken;
+    result.payload.meta.prediction = pending.prediction;
     result.payload.meta.instr = instr_t'(imem.rsp_payload.rdata);
     if (imem.rsp_payload.error) begin
       result.payload.exception = raise_exception('0, EXC_INST_ACCESS_FAULT, pending.pc);
@@ -90,7 +90,8 @@ module if_stage
       imem_flush_o <= resolved_redirect.valid;
       if (resolved_redirect.valid) pc_q <= resolved_redirect.payload.target_pc;
       else if (imem.req_fire)
-        pc_q <= prediction.taken ? prediction.target_pc : pc_q + pc_t'(4);
+        pc_q <= prediction.payload.taken ? btb_target_pc(pc_q, prediction.payload.target) :
+            pc_q + pc_t'(4);
     end
   end
 
