@@ -5,12 +5,13 @@
 //
 // 提供有序事务缓冲，可选空队列组合旁路和满队列同拍读写。
 // 深度必须大于零；输出在反压期间保持稳定；数据阵列不复位，其无效内容始终
-// 由占用计数屏蔽。flush 当拍屏蔽输出并释放入口容量，时钟沿保留当拍新输入。
+// 由占用计数屏蔽。默认 flush 清空并停止接收；AcceptInputOnFlush 允许清旧接新。
 
 module stream_fifo #(
   parameter int unsigned Depth = 2,
   parameter bit FallThrough = 1'b0,
   parameter bit SameCycleRW = 1'b0,
+  parameter bit AcceptInputOnFlush = 1'b0,
   parameter type T = logic,
   parameter int unsigned PtrW = (Depth > 1) ? $clog2(Depth) : 1,
   parameter int unsigned CountW = (Depth > 1) ? $clog2(Depth + 1) : 1
@@ -55,8 +56,8 @@ module stream_fifo #(
   assign valid_o = (stored_valid || (FallThrough && valid_i)) && !flush_i;
   assign data_o = (FallThrough && !stored_valid) ? data_i : mem_q[read_ptr_q];
   assign pop = valid_o && ready_i;
-  assign ready_o = flush_i || (count_q < count_t'(Depth)) ||
-      (SameCycleRW && stored_valid && ready_i);
+  assign ready_o = flush_i ? AcceptInputOnFlush :
+      ((count_q < count_t'(Depth)) || (SameCycleRW && stored_valid && ready_i));
   assign push = valid_i && ready_o;
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
   assign usage_o = count_q;

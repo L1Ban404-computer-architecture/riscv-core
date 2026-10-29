@@ -35,15 +35,12 @@ module id_stage
   // 异常归并与 ID/EX 事务生成
   always_comb begin
     result.payload = '0;
+    result.payload.pc = if_id.payload.meta.pc;
     result.payload.reg_addr = decoded.reg_addr;
     result.payload.gpr = decoded.gpr;
-    result.payload.prediction = '{
-      taken: if_id.payload.meta.prediction.taken,
-      target_pc: btb_target_pc(if_id.payload.meta.pc, if_id.payload.meta.prediction.target)
-    };
+    result.payload.prediction = if_id.payload.meta.prediction;
     result.payload.exec_data = '{
       rs1_value: gpr_read.rs1_value, rs2_value: gpr_read.rs2_value, imm: immediate,
-      pc_plus4: if_id.payload.meta.pc + pc_t'(4),
       // B/J 的目标只依赖 PC 和立即数；锁存后 EX 无需重新相加。
       direct_target: if_id.payload.meta.pc + pc_offset
     };
@@ -59,7 +56,7 @@ module id_stage
     end else if (decoded.system_op == SYS_EBREAK) begin
       result.payload.exception = raise_exception(result.payload.exception, EXC_BREAKPOINT, '0);
     end
-    // 原 PC/指令到此结束传播；异常不作为 GPR 生产者，前递单元直接放行异常。
+    // 异常不作为 GPR 生产者，前递单元直接放行异常。
     if (result.payload.exception.valid || (decoded.gpr.addr == ZeroReg))
       result.payload.gpr = '0;
   end

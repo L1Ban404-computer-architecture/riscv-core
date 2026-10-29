@@ -9,14 +9,14 @@ module store_data_unit
   // 访存属性与源数据
   input mem_size_e size_i,
   input word_t wdata_i,
-  output word_t aligned_wdata_o
+  output word_t lane_data_o
 );
 
   always_comb begin
     case (size_i)
-      MEM_SIZE_BYTE: aligned_wdata_o = {(XLen / 8) {wdata_i[7:0]}};
-      MEM_SIZE_HALF: aligned_wdata_o = {(XLen / 16) {wdata_i[15:0]}};
-      default: aligned_wdata_o = wdata_i;
+      MEM_SIZE_BYTE: lane_data_o = {(XLen / 8) {wdata_i[7:0]}};
+      MEM_SIZE_HALF: lane_data_o = {(XLen / 16) {wdata_i[15:0]}};
+      default: lane_data_o = wdata_i;
     endcase
   end
 

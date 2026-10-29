@@ -24,13 +24,15 @@ module icache_miss
 );
 
   typedef enum logic [1:0] {
-    StateIdle,
-    StateSendAr,
-    StateReceiveR
-  } state_e;
+    RefillIdle,
+    RefillSendAddress,
+    RefillReceiveData
+  } refill_state_e;
   typedef miss.rsp_payload_t rsp_t;
 
-  state_e state_q;
+  refill_state_e refill_state_q;
+  logic refill_active;
+  logic response_pending;
   logic [AddrWidth-1:0] beat_addr_q;
   logic [BeatIndexW-1:0] beat_q;
   logic error_q;
@@ -64,7 +66,10 @@ module icache_miss
       (axi.r_payload.last != expected_last);
   assign burst_done = axi.r_payload.last || expected_last;
 
-  assign miss.req_ready = (state_q == StateIdle) && !miss.rsp_valid;
+  // 两个寿命独立：回填 FSM 可先空闲，首字响应也可先完成。
+  assign refill_active = refill_state_q != RefillIdle;
+  assign response_pending = miss.rsp_valid;
+  assign miss.req_ready = !refill_active && !response_pending;
 
   // 只读 AXI 事务。AR 被接受后，地址随回填 beat 在 line 内回绕。
   assign axi.awvalid = 1'b0;
@@ -72,7 +77,7 @@ module icache_miss
   assign axi.wvalid = 1'b0;
   assign axi.w_payload = '0;
   assign axi.bready = 1'b0;
-  assign axi.arvalid = state_q == StateSendAr;
+  assign axi.arvalid = refill_state_q == RefillSendAddress;
   assign axi.ar_payload = '{
     addr: beat_addr_q,
     id: IdWidth'(AxiId),
@@ -80,11 +85,11 @@ module icache_miss
     size: 3'($clog2(BeatBytes)),
     burst: (WordCount == 1) ? AXI4_BURST_INCR : AXI4_BURST_WRAP
   };
-  assign axi.rready = state_q == StateReceiveR;
+  assign axi.rready = refill_state_q == RefillReceiveData;
 
   // 接受请求当拍通知 Array 分配并阻塞目标 line，此时还没有数据 beat。
-  assign refill.valid = (state_q != StateIdle) || miss.req_fire;
-  assign refill.addr = (state_q == StateIdle) ? miss.req_payload.addr : beat_addr_q;
+  assign refill.valid = refill_active || miss.req_fire;
+  assign refill.addr = refill_active ? beat_addr_q : miss.req_payload.addr;
   assign refill.beat_valid = axi.r_fire;
   assign refill.payload = '{
     data: axi.r_payload.data,
@@ -113,27 +118,27 @@ module icache_miss
   // 请求 → AR → R；首拍回应与背景回填的寿命分别管理。
   always_ff @(posedge clk_i) begin
     if (!rst_ni) begin
-      state_q <= StateIdle;
+      refill_state_q <= RefillIdle;
       beat_addr_q <= '0;
       beat_q <= '0;
       error_q <= 1'b0;
     end else begin
-      case (state_q)
-        StateIdle: begin
+      case (refill_state_q)
+        RefillIdle: begin
           if (miss.req_fire) begin
-            state_q <= StateSendAr;
+            refill_state_q <= RefillSendAddress;
             beat_addr_q <= miss.req_payload.addr;
             beat_q <= '0;
             error_q <= 1'b0;
           end
         end
-        StateSendAr: begin
-          if (axi.ar_fire) state_q <= StateReceiveR;
+        RefillSendAddress: begin
+          if (axi.ar_fire) refill_state_q <= RefillReceiveData;
         end
-        StateReceiveR: begin
+        RefillReceiveData: begin
           if (axi.r_fire) begin
             error_q <= error_q || beat_error;
-            if (burst_done) state_q <= StateIdle;
+            if (burst_done) refill_state_q <= RefillIdle;
             else begin
               beat_addr_q <= next_beat_addr(beat_addr_q);
               beat_q <= beat_q + BeatIndexW'(1);

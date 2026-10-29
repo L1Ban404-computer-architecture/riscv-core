@@ -3,8 +3,9 @@
 
 // 单入口 fall-through 弹性寄存器。
 // 空载时组合旁路输入，发生反压时保存一笔事务。
-// flush 当拍禁止输出，仍可接收新输入并在下一拍输出。
+// 默认 flush 清空并停止接收；AcceptInputOnFlush 允许当拍接收新事务，下一拍输出。
 module fall_through_register #(
+  parameter bit AcceptInputOnFlush = 1'b0,
   parameter type T = logic
 ) (
   // 全局控制
@@ -26,7 +27,7 @@ module fall_through_register #(
   logic valid_q;
   T data_q;
 
-  assign ready_o = flush_i || !valid_q || ready_i;
+  assign ready_o = flush_i ? AcceptInputOnFlush : (!valid_q || ready_i);
   assign valid_o = (valid_q || valid_i) && !flush_i;
   assign data_o = valid_q ? data_q : data_i;
 
@@ -37,7 +38,7 @@ module fall_through_register #(
 
   always_ff @(posedge clk_i) begin
     if (!rst_ni) valid_q <= 1'b0;
-    else if (flush_i) valid_q <= valid_i;
+    else if (flush_i) valid_q <= AcceptInputOnFlush && valid_i;
     else if (ready_o) valid_q <= valid_i && (valid_q || !ready_i);
   end
 

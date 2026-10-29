@@ -7,7 +7,7 @@ module execute_result_unit
   import riscv_core_pkg::*;
 (
   input id_ex_payload_t instruction_i,
-  input word_t value_i,
+  input word_t execution_value_i,
   input word_t address_i,
   input logic branch_taken_i,
   input pc_t branch_target_i,
@@ -36,9 +36,9 @@ module execute_result_unit
 
     result_o = '{
       commit_ctx: '{
-        pc_plus4: instruction_i.exec_data.pc_plus4,
+        pc: instruction_i.pc,
         gpr: instruction_i.gpr,
-        value: value_i,
+        value: execution_value_i,
         exception: exception,
         commit: instruction_i.commit
       },

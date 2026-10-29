@@ -17,9 +17,15 @@ module imm_gen
   assign jump_imm = {{11{instr_i[31]}}, instr_i[31], instr_i[19:12], instr_i[20],
                      instr_i[30:21], 1'b0};
   assign upper_imm = {instr_i[31:12], 12'b0};
-  // PC 相对偏移仅供 AUIPC/B/J 使用：opcode[6] 区分 U 与 B/J，[3] 区分 B/J。
-  // 独立的三格式选择避免 PC 加法等待完整的操作数立即数选择。
-  assign pc_offset_o = !instr_i[6] ? upper_imm : (instr_i[3] ? jump_imm : branch_imm);
+  // PC 相对路径独立选择 AUIPC/B/J 的偏移，不等待通用立即数选择。
+  always_comb begin
+    case (opcode_e'(instr_i[6:0]))
+      OPC_AUIPC: pc_offset_o = upper_imm;
+      OPC_BRANCH: pc_offset_o = branch_imm;
+      OPC_JAL: pc_offset_o = jump_imm;
+      default: pc_offset_o = '0;
+    endcase
+  end
 
   always_comb begin
     imm_o = '0;

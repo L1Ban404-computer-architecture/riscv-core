@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // 单入口时序弹性寄存器，在 ready/valid 通路上保存一笔事务。
-// flush 当拍屏蔽旧输出并释放容量，时钟沿仍接收有效输入；上游负责取消旧路径输入。
+// 默认 flush 清空事务并停止接收；AcceptInputOnFlush 显式选择清旧接新语义。
 module stream_register #(
+  parameter bit AcceptInputOnFlush = 1'b0,
   parameter type T = logic
 ) (
   // 全局控制
@@ -25,7 +26,7 @@ module stream_register #(
   logic valid_q;
   T data_q;
 
-  assign ready_o = flush_i || !valid_q || ready_i;
+  assign ready_o = flush_i ? AcceptInputOnFlush : (!valid_q || ready_i);
   assign valid_o = valid_q && !flush_i;
   assign data_o = data_q;
 
@@ -36,6 +37,7 @@ module stream_register #(
 
   always_ff @(posedge clk_i) begin
     if (!rst_ni) valid_q <= 1'b0;
+    else if (flush_i) valid_q <= AcceptInputOnFlush && valid_i;
     else if (ready_o) valid_q <= valid_i;
   end
 

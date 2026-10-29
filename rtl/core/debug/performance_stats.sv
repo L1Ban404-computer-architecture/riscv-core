@@ -92,7 +92,7 @@ module performance_stats
   // 这些计数器仅从 stage 接口观察“对上游形成压力”的周期。MEM 将访存
   // 保持在 EX/MEM 直到响应写入 MEM/WB，因此请求等待和响应等待都会表现为
   // EX/MEM stall；EX/MEM 握手对访存表示完成交接，不是请求接受。
-  // EX 等待 FENCE.I 时不展示输出事务；对年轻指令的阻塞体现在 ID。
+  // FENCE.I 在 WB 提交，MEM 入口屏障阻止年轻事务；改道当拍不计为阻塞。
   // 所有 64 位计数器达到最大值后自然回绕，与 cycle/instret 的现有行为一致。
 
   // 计数器输出
@@ -119,7 +119,7 @@ module performance_stats
         stats_q.instret_count <= stats_q.instret_count + 64'd1;
 
       // redirect 是无背压的单周期事件。统计仲裁后实际送到 IF 的事件：EX 与
-      // WB 同拍改道只计一次；包含 EX 的 FENCE.I 重取和 WB 的 trap/MRET。
+      // WB 同拍改道只计一次；包含 EX 分支纠错和 WB 的 trap/MRET/FENCE.I。
       if (redirect)
         stats_q.redirect_count <= stats_q.redirect_count + 64'd1;
 

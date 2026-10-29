@@ -3,8 +3,8 @@
 
 // 单笔在途 CoreBus 到 AXI4 适配器。
 //
-// 该模块直接使用尚未完成握手的 CoreBus 请求 payload；除写地址与写数据的
-// 独立握手标志和最小状态机外，不保存请求或响应数据。
+// CoreBus 请求保持到 AR 或 AW/W 全部握手，期间直接驱动 AXI payload。
+// 写地址、写数据可独立接受；状态明确记录尚未发送的通道，不保存请求数据。
 
 module mem_axi4
   import riscv_bus_pkg::*;
@@ -25,17 +25,19 @@ module mem_axi4
 
   // 事务状态与握手事件
 
-  typedef enum logic [1:0] {
+  typedef enum logic [2:0] {
     StateIdle,
+    StateWriteAddressPending,
+    StateWriteDataPending,
     StateReadResponse,
     StateWriteResponse
   } state_e;
 
   state_e state_q;
-  logic aw_sent_q;
-  logic w_sent_q;
   logic read_request;
   logic write_request;
+  logic write_address_done;
+  logic write_data_done;
   logic write_request_complete;
   logic active_read_response;
   logic active_write_response;
@@ -56,13 +58,16 @@ module mem_axi4
   assign axi_size = {1'b0, core_bus.req_payload.size};
   assign write_strb =
       wstrb_from_size_addr(core_bus.req_payload.size, core_bus.req_payload.addr[1:0]);
-  assign read_request = (state_q == StateIdle) && !aw_sent_q && !w_sent_q &&
+  assign read_request = (state_q == StateIdle) &&
       core_bus.req_valid && !core_bus.req_payload.write;
-  assign write_request =
-      (state_q == StateIdle) && core_bus.req_valid && core_bus.req_payload.write;
+  assign write_request = core_bus.req_valid && core_bus.req_payload.write &&
+      (state_q inside {StateIdle, StateWriteAddressPending, StateWriteDataPending});
 
+  // Pending 状态表示另一通道已经交付；两路都交付后才接受上游请求。
+  assign write_address_done = (state_q == StateWriteDataPending) || axi.aw_fire;
+  assign write_data_done = (state_q == StateWriteAddressPending) || axi.w_fire;
   assign write_request_complete =
-      write_request && (aw_sent_q || axi.aw_fire) && (w_sent_q || axi.w_fire);
+      write_request && write_address_done && write_data_done;
 
   // 同拍 AXI 响应无需额外保存：请求握手期间直接让 CoreBus 响应通道可用。
   assign active_read_response = (state_q == StateReadResponse) || axi.ar_fire;
@@ -70,13 +75,13 @@ module mem_axi4
 
   // CoreBus 与 AXI4 通道适配
 
-  assign axi.awvalid = write_request && !aw_sent_q;
+  assign axi.awvalid = write_request && (state_q != StateWriteDataPending);
   assign axi.aw_payload.addr = core_bus.req_payload.addr;
   assign axi.aw_payload.id = IdWidth'(AxiId);
   assign axi.aw_payload.len = 8'd0;
   assign axi.aw_payload.size = axi_size;
   assign axi.aw_payload.burst = AXI4_BURST_INCR;
-  assign axi.wvalid = write_request && !w_sent_q;
+  assign axi.wvalid = write_request && (state_q != StateWriteAddressPending);
   assign axi.w_payload.data = core_bus.req_payload.wdata;
   assign axi.w_payload.strb = write_strb;
   assign axi.w_payload.last = 1'b1;
@@ -93,9 +98,11 @@ module mem_axi4
     core_bus.req_ready = 1'b0;
     core_bus.rsp_valid = 1'b0;
     core_bus.rsp_payload = '0;
-    if (state_q == StateIdle) begin
+    if (write_request) begin
+      core_bus.req_ready = write_request_complete;
+    end else if (state_q == StateIdle) begin
       core_bus.req_ready =
-          core_bus.req_payload.write ? write_request_complete : axi.arready;
+          !core_bus.req_payload.write && axi.arready;
     end
 
     if (active_read_response) begin
@@ -113,36 +120,21 @@ module mem_axi4
   // 状态更新逻辑
 
   always_ff @(posedge clk_i) begin
-    if (!rst_ni) begin
-      state_q <= StateIdle;
-      aw_sent_q <= 1'b0;
-      w_sent_q <= 1'b0;
-    end else begin
+    if (!rst_ni) state_q <= StateIdle;
+    else begin
       unique case (state_q)
-        StateIdle: begin
-          if (write_request) begin
-            if (core_bus.req_fire) begin
-              aw_sent_q <= 1'b0;
-              w_sent_q <= 1'b0;
-              if (!core_bus.rsp_fire) state_q <= StateWriteResponse;
-            end else begin
-              if (axi.aw_fire) aw_sent_q <= 1'b1;
-              if (axi.w_fire) w_sent_q <= 1'b1;
-            end
-          end else if (core_bus.req_fire && !core_bus.rsp_fire) begin
-            state_q <= StateReadResponse;
-          end
+        StateIdle, StateWriteAddressPending, StateWriteDataPending: begin
+          if (write_request_complete)
+            state_q <= core_bus.rsp_fire ? StateIdle : StateWriteResponse;
+          else if (axi.aw_fire) state_q <= StateWriteDataPending;
+          else if (axi.w_fire) state_q <= StateWriteAddressPending;
+          else if (axi.ar_fire)
+            state_q <= core_bus.rsp_fire ? StateIdle : StateReadResponse;
         end
-
         StateReadResponse, StateWriteResponse: begin
           if (core_bus.rsp_fire) state_q <= StateIdle;
         end
-
-        default: begin
-          state_q <= StateIdle;
-          aw_sent_q <= 1'b0;
-          w_sent_q <= 1'b0;
-        end
+        default: state_q <= StateIdle;
       endcase
     end
   end

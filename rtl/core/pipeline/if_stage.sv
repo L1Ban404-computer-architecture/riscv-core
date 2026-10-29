@@ -120,8 +120,9 @@ module if_stage
            rsp_valid: imem.rsp_valid, rsp_ready: imem.rsp_ready}
   };
 
-  NoSecondImemRequestWhileOutstanding: assert property (@(posedge clk_i) disable iff (!rst_ni) (
-      !imem.req_fire || meta_ready));
+  // 改道当拍接受的旧请求会被取消，不占用元数据；只有保留的请求才要求容量。
+  ImemRetainedRequestHasMetadataCapacity: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !imem.req_fire || redirect_valid || meta_ready));
   ImemResponseHasPendingRequest: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !imem.rsp_valid || redirect_valid || meta_valid));
 `endif

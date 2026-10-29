@@ -158,7 +158,8 @@ package riscv_core_pkg;
   typedef enum logic [1:0] {
     COMMIT_NORMAL,
     COMMIT_TRAP,
-    COMMIT_MRET
+    COMMIT_MRET,
+    COMMIT_FENCE_I
   } commit_kind_e;
 
   // 当前核心支持的同步异常 cause，编码与 RISC-V mcause 的低位定义一致。
@@ -250,7 +251,6 @@ package riscv_core_pkg;
     word_t rs1_value;
     word_t rs2_value;
     word_t imm;
-    pc_t pc_plus4;
     pc_t direct_target;
   } exec_data_payload_t;
 
@@ -318,6 +318,15 @@ package riscv_core_pkg;
     csr_op_payload_t csr;
   } commit_ctrl_payload_t;
 
+  // WB 提交与 MEM 入口屏障共用事件分类；异常覆盖普通串行化指令。
+  function automatic commit_kind_e classify_commit(
+      input logic exception_valid, input commit_ctrl_payload_t control);
+    if (exception_valid) return COMMIT_TRAP;
+    if (control.is_mret) return COMMIT_MRET;
+    if (control.fence_i) return COMMIT_FENCE_I;
+    return COMMIT_NORMAL;
+  endfunction
+
   // 译码只在 ID 解释一次；执行控制与提交控制独立，后级不再解析指令。
   typedef struct packed {
     reg_addr_payload_t reg_addr;
@@ -327,12 +336,6 @@ package riscv_core_pkg;
     system_op_e system_op;
     logic illegal;
   } decode_result_t;
-
-  // ID 展开预测目标，EX 无需携带原 PC 来重建其高位。
-  typedef struct packed {
-    logic taken;
-    pc_t target_pc;
-  } execution_prediction_payload_t;
 
   // 前端执行与异常检测所需的指令元数据。
   typedef struct packed {
@@ -364,7 +367,7 @@ package riscv_core_pkg;
   // MEM 用 load 结果替换地址，WB 用 CSR 旧值完成 GPR 写回。
   // value 是否可作为 GPR 结果由 gpr.ready 决定，不能仅检查 gpr.write。
   typedef struct packed {
-    pc_t pc_plus4;
+    pc_t pc;
     gpr_dest_t gpr;
     word_t value;
     exception_payload_t exception;
@@ -380,9 +383,10 @@ package riscv_core_pkg;
   } if_id_payload_t;
 
   typedef struct packed {
+    pc_t pc;
     reg_addr_payload_t reg_addr;
     gpr_dest_t gpr;
-    execution_prediction_payload_t prediction;
+    branch_prediction_payload_t prediction;
     exec_data_payload_t exec_data;
     execute_ctrl_payload_t ctrl;
     commit_ctrl_payload_t commit;

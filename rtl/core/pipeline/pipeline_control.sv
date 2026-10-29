@@ -9,11 +9,13 @@ module pipeline_control (
   ex_mem_if.producer result
 );
 
+  import riscv_core_pkg::*;
+
   logic serialize;
 
   // FENCE.I 与异常共用屏障，但保留独立提交标志，避免被解释为 trap。
-  assign serialize = mem_wb.valid && (mem_wb.payload.exception.valid ||
-      mem_wb.payload.commit.fence_i || mem_wb.payload.commit.is_mret);
+  assign serialize = mem_wb.valid &&
+      (classify_commit(mem_wb.payload.exception.valid, mem_wb.payload.commit) != COMMIT_NORMAL);
 
   assign result.payload = ex_mem.payload;
   assign result.valid = ex_mem.valid && !serialize;

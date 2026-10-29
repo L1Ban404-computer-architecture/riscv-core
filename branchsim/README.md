@@ -103,14 +103,13 @@ P10 单独回放有 **13,982,625** 次总误预测（控制流 13,932,610，普�
 
 ID 计算 B 型分支和 JAL 的 `PC+imm`，在 ID/EX 的 `exec_data.direct_target` 中独立保存完整 32 位目标。EX 不再为 B/J 重新相加；JALR 通过通用 ALU 计算 `rs1+imm`，再由 [`branch_unit.sv`](../rtl/core/units/branch_unit.sv) 清除 bit 0。分支单元只判断条件和选择目标，已移除上一轮专用 EX 分支加法器。
 
-EX 的预测纠错、目标非对齐异常和退休分支目标使用分支单元输出。BTB/BHT 训练仅接受合法 B/J，目标直接来自 ID/EX 的 `direct_target`，使能只检查上游异常和实际跳转时的目标对齐，避开通用 EX 的访存异常及 JALR/ALU 目标选择链。定向测试检查真实 B/J 编码的 ID 预计算、负偏移、地址回绕、ID/EX 背压保持，并故意修改 EX 立即数与 ALU 控制以确认 B/J 只使用锁存目标；JALR 则验证原有 ALU 路径和对齐规则。
+EX 的预测纠错、目标非对齐异常和退休分支目标使用分支单元输出。BTB/BHT 训练仅接受合法 B/J，目标直接来自 ID/EX 的 `direct_target`，使能只检查上游异常和实际跳转时的目标对齐，避开通用 EX 的访存异常及 JALR/ALU 目标选择链。
 
 预测器只复位 valid、RR 和 BHT；标签、目标、类型由 valid 屏蔽。FENCE.I 当拍屏蔽预测，并在时钟沿清空 BTB 和复位 BHT，优先于同拍训练，同时通过正常 flush 取消旧指令及其预测快照。
 
 回归入口：
 
 ```sh
-make -C riscv-core check-branch-predictor
 make -C riscv-core check RVE=1
 make -C mini-soc lint
 make -C ysyx-soc lint
@@ -121,7 +120,7 @@ make -C am-kernels/tests/cpu-tests ARCH=runner ALL=dummy DUT=soc REF=nemu run
 make -C am-kernels/rt-thread-am/bsp/abstract-machine ARCH=runner DUT=soc REF=nemu run
 ```
 
-`check-branch-predictor` 将 RTL 与 branchsim 模型逐拍比较，覆盖 1×4/BHT16、2×4/BHT16、2×2/BHT8，均使用当前 10 位标签，每组 **10,250,313 次查询**，另测 IF 直连 ID 时取指快照在训练/替换和背压下的保持、EX 目标纠错、异常和 FENCE.I。模型直接读取 RTL 导出的位宽，检查全部 1024 个标签、标签最高位差异及截断别名。本轮 RTL check、mini-soc lint、dummy 的外层 PASS 与 NEMU 差分通过；RT-Thread 完成启动、help 全部输出并返回 `msh >`，无差分错误，随后仅向本次 runner 发送 SIGINT，使常驻 shell 正常收尾。当前 P10 配置的日志位于 [`../build/branch-config/pc10-s1-w4-h16-validation/`](../build/branch-config/pc10-s1-w4-h16-validation/)，此前 P12 单组和双组配置的日志分别保留在 [`../build/branch-config/pc12-s1-w4-h16-validation/`](../build/branch-config/pc12-s1-w4-h16-validation/) 和 [`../build/branch-config/validation/`](../build/branch-config/validation/)。本轮未重跑完整 SoC 功能测试。离线 MPKI 对应退休轨迹顺序训练；RTL 在 EX 训练，流水线延迟和推测执行会影响实际统计。
+本轮 RTL check、mini-soc lint、dummy 的外层 PASS 与 NEMU 差分通过；RT-Thread 完成启动、help 全部输出并返回 `msh >`，无差分错误，随后仅向本次 runner 发送 SIGINT，使常驻 shell 正常收尾。当前 P10 配置的日志位于 [`../build/branch-config/pc10-s1-w4-h16-validation/`](../build/branch-config/pc10-s1-w4-h16-validation/)，此前 P12 单组和双组配置的日志分别保留在 [`../build/branch-config/pc12-s1-w4-h16-validation/`](../build/branch-config/pc12-s1-w4-h16-validation/) 和 [`../build/branch-config/validation/`](../build/branch-config/validation/)。本轮未重跑完整 SoC 功能测试。离线 MPKI 对应退休轨迹顺序训练；RTL 在 EX 训练，流水线延迟和推测执行会影响实际统计。
 
 当前保留 `fetch_result` 直连 ID，功能 IF/ID 缓冲与退休观察侧的对应缓冲继续注释。ID 的背压直接传给取指回应；IF 仍在改道当拍取消错误路径输出，ID/EX 的预测快照和原有刷新规则保留。
 

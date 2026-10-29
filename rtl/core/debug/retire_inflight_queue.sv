@@ -6,7 +6,7 @@
 // 入口/出口 fire 对应被观察阶段的输入/输出握手；不向流水施加反压。
 // 同拍入队出队时组合出口仍为队头，posedge 后切换，与非 fall-through
 // SameCycleRW 弹性寄存器一致。Depth 为该阶段最大在途事务数。
-// flush 取消旧队列，但保留当拍 in_fire；调用方负责取消旧路径的入口事件。
+// flush 清空队列并停止接收；被观察的流水边界也必须取消当拍入口事件。
 `ifndef SYNTHESIS
 module retire_inflight_queue
 #(
@@ -50,6 +50,8 @@ module retire_inflight_queue
       !in_fire_i || ready));
   RetireQueueNoUnderflow: assert property (@(posedge clk_i) disable iff (!rst_ni || flush_i) (
       !out_fire_i || valid));
+  RetireQueueNoInputOnFlush: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !flush_i || !in_fire_i));
 
 endmodule
 `endif

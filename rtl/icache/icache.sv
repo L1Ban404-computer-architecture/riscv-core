@@ -45,7 +45,13 @@ module icache
     .DataWidth(DataWidth)
   ) refill ();
 
-  logic invalidate_pending_q;
+  typedef enum logic {
+    InvalidateIdle,
+    InvalidateDrain
+  } invalidate_state_e;
+  invalidate_state_e invalidate_state_q;
+  logic lookup_pending;
+  logic refill_active;
   logic invalidate_block;
   logic invalidate_apply;
   core_bus_if #(
@@ -54,16 +60,20 @@ module icache
   ) array_req ();
 
   // 失效当拍停止接收请求；已有查询和回填排空后再清 valid，避免旧回填复活缓存行。
-  // pending 保证失效至少延迟一拍，即使收到 invalidate_i 时阵列已经空闲。
-  assign invalidate_block = invalidate_i || invalidate_pending_q;
-  assign invalidate_apply = invalidate_pending_q && !lookup.valid && !refill.valid;
+  // Drain 阶段保证失效至少延迟一拍，等待旧查询及整行回填全部排空。
+  assign lookup_pending = lookup.valid;
+  assign refill_active = refill.valid;
+  assign invalidate_block = invalidate_i || (invalidate_state_q == InvalidateDrain);
+  assign invalidate_apply = (invalidate_state_q == InvalidateDrain) &&
+      !lookup_pending && !refill_active;
   assign array_req.req_valid = core_bus.req_valid && !invalidate_block;
   assign array_req.req_payload = core_bus.req_payload;
   assign core_bus.req_ready = array_req.req_ready && !invalidate_block;
 
   always_ff @(posedge clk_i) begin
-    if (!rst_ni) invalidate_pending_q <= 1'b0;
-    else invalidate_pending_q <= invalidate_i || (invalidate_pending_q && !invalidate_apply);
+    if (!rst_ni) invalidate_state_q <= InvalidateIdle;
+    else if (invalidate_i) invalidate_state_q <= InvalidateDrain;
+    else if (invalidate_apply) invalidate_state_q <= InvalidateIdle;
   end
 
   icache_array #(

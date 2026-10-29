@@ -19,21 +19,23 @@ module wb_stage
 
   commit_kind_e commit_kind;
   logic is_csr;
-  word_t csr_new_value;
+  word_t csr_source, csr_new_value, writeback_value;
 
   // WB 恒 ready；提交分类只解释 payload，所有副作用由 fire 门控。
   assign mem_wb.ready = 1'b1;
-  assign commit_kind = mem_wb.payload.exception.valid ? COMMIT_TRAP :
-      (mem_wb.payload.commit.is_mret ? COMMIT_MRET : COMMIT_NORMAL);
+  assign commit_kind = classify_commit(mem_wb.payload.exception.valid, mem_wb.payload.commit);
   assign is_csr = mem_wb.payload.commit.csr.cmd != CSR_NONE;
   assign csr_read.index = mem_wb.payload.commit.csr.index;
+  // 同一流水 value 在 CSR 指令中是源操作数，普通写回中是已完成的 GPR 结果。
+  assign csr_source = mem_wb.payload.value;
+  assign writeback_value = is_csr ? csr_read.data : mem_wb.payload.value;
 
   // CSR 旧值在提交点读取，新值不再占用流水寄存器或接入 EX 前递。
   always_comb begin
     case (mem_wb.payload.commit.csr.cmd)
-      CSR_RS: csr_new_value = csr_read.data | mem_wb.payload.value;
-      CSR_RC: csr_new_value = csr_read.data & ~mem_wb.payload.value;
-      default: csr_new_value = mem_wb.payload.value;
+      CSR_RS: csr_new_value = csr_read.data | csr_source;
+      CSR_RC: csr_new_value = csr_read.data & ~csr_source;
+      default: csr_new_value = csr_source;
     endcase
   end
 
@@ -46,7 +48,7 @@ module wb_stage
       op: CSR_COMMIT_NONE,
       index: mem_wb.payload.commit.csr.index,
       wdata: csr_new_value,
-      trap_epc: mem_wb.payload.pc_plus4 - pc_t'(4),
+      trap_epc: mem_wb.payload.pc,
       trap_cause: mem_wb.payload.exception.cause,
       trap_tval: mem_wb.payload.exception.tval
     };
@@ -62,14 +64,14 @@ module wb_stage
         redirect.valid = 1'b1;
         // csr_unit 保证 mepc[1:0] 为零，读取的是提交前的状态。
         redirect.payload.target_pc = csr_status.mepc;
-      end else if (mem_wb.payload.commit.fence_i) begin
+      end else if (commit_kind == COMMIT_FENCE_I) begin
         // 更老访存已完成；WB 改道与流水屏障取消年轻访存。
         redirect.valid = 1'b1;
-        redirect.payload = '{target_pc: mem_wb.payload.pc_plus4, imem_invalidate: 1'b1};
+        redirect.payload = '{target_pc: mem_wb.payload.pc + pc_t'(4), imem_invalidate: 1'b1};
       end else begin
         wb.valid = mem_wb.payload.gpr.write && (mem_wb.payload.gpr.ready || is_csr);
         wb.payload = '{rd_addr: mem_wb.payload.gpr.addr,
-                       wdata: is_csr ? csr_read.data : mem_wb.payload.value};
+                       wdata: writeback_value};
         if (is_csr && mem_wb.payload.commit.csr.write)
           csr_commit.payload.op = CSR_COMMIT_WRITE;
       end
