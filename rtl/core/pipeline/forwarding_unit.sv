@@ -39,9 +39,8 @@ module forwarding_unit
     // CSR 直到 WB 才返回旧值，EX/MEM 的 value 只是源操作数。
     ex_candidate = '0;
     ex_candidate.valid = id_ex.valid && !id_ex.payload.exception.valid &&
-        (id_ex.payload.ctrl.wb_sel != WB_NONE) &&
-        (id_ex.payload.reg_addr.rd_addr != ZeroReg);
-    ex_candidate.addr = id_ex.payload.reg_addr.rd_addr;
+        id_ex.payload.gpr.write;
+    ex_candidate.addr = id_ex.payload.gpr.addr;
     ex_candidate.ready = ex_result.valid && ex_result.payload.commit_ctx.gpr.write &&
         ex_result.payload.commit_ctx.gpr.ready;
     ex_candidate.value = ex_result.payload.commit_ctx.value;
@@ -100,7 +99,10 @@ module forwarding_unit
     result.payload.exec_data.rs1_value = rs1_result.value;
     result.payload.exec_data.rs2_value = rs2_result.value;
   end
-  assign source_stall = rs1_result.stall || rs2_result.stall;
+  // 合法性检查与两路相关性比较并行；异常在最后一级绕过停顿，避免先改写
+  // rs*_used 再进入前递优先级选择器，也保证异常指令不等待无用的源数据。
+  assign source_stall = !decoded.payload.exception.valid &&
+      (rs1_result.stall || rs2_result.stall);
   assign result.valid = decoded.valid && !source_stall;
   assign decoded.ready = result.ready && !source_stall;
 

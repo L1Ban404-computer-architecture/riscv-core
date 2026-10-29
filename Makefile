@@ -8,9 +8,6 @@
 check perf:
 	$(MAKE) -C rtl $@
 
-check-branch-predictor:
-	$(MAKE) -C tests/branch_predictor check
-
 formal-icache:
 	$(MAKE) -C formal/icache formal-icache
 

@@ -29,11 +29,11 @@ module riscv_core_impl
 
   // 各级计算输出与寄存后的流水边界。
   if_id_if fetch_result ();
-  // if_id_if if_id ();
   id_ex_if decode_result ();
   id_ex_if id_ex ();
   ex_mem_if execute_result ();
   ex_mem_if ex_mem ();
+  ex_mem_if memory_input ();
   mem_wb_if memory_result ();
   mem_wb_if mem_wb ();
 
@@ -65,23 +65,7 @@ module riscv_core_impl
 `endif
   );
 
-  // 临时旁路 IF/ID：fetch_result 直接交给 ID，回应由 ID ready 反压。
-  // IF/ID 单入口弹性缓冲，空载直通。
-  // 改道当拍屏蔽错误路径，时钟沿清空缓冲。
-  // fall_through_register #(
-  //   .T(if_id_payload_t)
-  // ) u_if_id_register (
-  //   .clk_i,
-  //   .rst_ni,
-  //   .flush_i(wb_redirect.valid || ex_redirect.valid),
-  //   .valid_i(fetch_result.valid),
-  //   .ready_o(fetch_result.ready),
-  //   .data_i(fetch_result.payload),
-  //   .valid_o(if_id.valid),
-  //   .ready_i(if_id.ready),
-  //   .data_o(if_id.payload)
-  // );
-
+  // 取指回应直接交给 ID，由 ID ready 反压；IF 在改道当拍取消旧回应。
   id_stage u_id_stage (
     .if_id(fetch_result),
     .result(decode_result),
@@ -118,7 +102,6 @@ module riscv_core_impl
 
   ex_stage u_ex_stage (
     .id_ex(id_ex),
-    .older_inflight_i(ex_mem.valid || mem_wb.valid),
     .redirect(ex_redirect),
     .branch_update,
     .result(execute_result)
@@ -141,10 +124,17 @@ module riscv_core_impl
     .data_o(ex_mem.payload)
   );
 
+  // WB 串行化事件阻断 MEM 入口；寄存器冲刷负责清除年轻事务。
+  pipeline_control u_pipeline_control (
+    .ex_mem(ex_mem),
+    .mem_wb(mem_wb),
+    .result(memory_input)
+  );
+
   mem_stage u_mem_stage (
     .clk_i,
     .rst_ni,
-    .ex_mem(ex_mem),
+    .ex_mem(memory_input),
     .dmem,
     .result(memory_result)
 `ifndef SYNTHESIS

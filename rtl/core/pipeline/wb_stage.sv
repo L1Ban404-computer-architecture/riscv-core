@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 唯一架构提交点，无下游背压。提交优先级：trap > MRET > 普通写回。
+// 唯一架构提交点，无下游背压。提交优先级：trap > MRET > FENCE.I > 普通写回。
 module wb_stage
   import riscv_core_pkg::*;
 (
@@ -46,34 +46,33 @@ module wb_stage
       op: CSR_COMMIT_NONE,
       index: mem_wb.payload.commit.csr.index,
       wdata: csr_new_value,
-      trap_epc: mem_wb.payload.pc,
+      trap_epc: mem_wb.payload.pc_plus4 - pc_t'(4),
       trap_cause: mem_wb.payload.exception.cause,
       trap_tval: mem_wb.payload.exception.tval
     };
 
-    // 同一个提交分支同时决定 GPR、CSR 和改道，优先级由 commit_kind 统一给出。
+    // 按 trap、MRET、FENCE.I、普通写回的优先级生成互斥提交副作用。
     if (mem_wb.fire) begin
-      case (commit_kind)
-        COMMIT_TRAP: begin
-          csr_commit.payload.op = CSR_COMMIT_TRAP;
-          redirect.valid = 1'b1;
-          redirect.payload.target_pc = csr_status.mtvec;
-        end
-        COMMIT_MRET: begin
-          csr_commit.payload.op = CSR_COMMIT_MRET;
-          redirect.valid = 1'b1;
-          // csr_unit 保证 mepc[1:0] 为零，读取的是提交前的状态。
-          redirect.payload.target_pc = csr_status.mepc;
-        end
-        default: begin
-          wb.valid = mem_wb.payload.gpr.write &&
-              (mem_wb.payload.gpr.ready || is_csr);
-          wb.payload = '{rd_addr: mem_wb.payload.gpr.addr,
-                         wdata: is_csr ? csr_read.data : mem_wb.payload.value};
-          if (is_csr && mem_wb.payload.commit.csr.write)
-            csr_commit.payload.op = CSR_COMMIT_WRITE;
-        end
-      endcase
+      if (commit_kind == COMMIT_TRAP) begin
+        csr_commit.payload.op = CSR_COMMIT_TRAP;
+        redirect.valid = 1'b1;
+        redirect.payload.target_pc = csr_status.mtvec;
+      end else if (commit_kind == COMMIT_MRET) begin
+        csr_commit.payload.op = CSR_COMMIT_MRET;
+        redirect.valid = 1'b1;
+        // csr_unit 保证 mepc[1:0] 为零，读取的是提交前的状态。
+        redirect.payload.target_pc = csr_status.mepc;
+      end else if (mem_wb.payload.commit.fence_i) begin
+        // 更老访存已完成；WB 改道与流水屏障取消年轻访存。
+        redirect.valid = 1'b1;
+        redirect.payload = '{target_pc: mem_wb.payload.pc_plus4, imem_invalidate: 1'b1};
+      end else begin
+        wb.valid = mem_wb.payload.gpr.write && (mem_wb.payload.gpr.ready || is_csr);
+        wb.payload = '{rd_addr: mem_wb.payload.gpr.addr,
+                       wdata: is_csr ? csr_read.data : mem_wb.payload.value};
+        if (is_csr && mem_wb.payload.commit.csr.write)
+          csr_commit.payload.op = CSR_COMMIT_WRITE;
+      end
     end
   end
 

@@ -15,7 +15,7 @@ module id_stage
 );
 
   decode_result_t decoded;
-  word_t decoded_imm;
+  word_t immediate, pc_offset;
 
   // 译码、立即数与寄存器读取
   decoder u_decoder (
@@ -24,9 +24,9 @@ module id_stage
   );
 
   imm_gen u_imm_gen (
-    .instr_i(if_id.payload.meta.instr[31:7]),
-    .imm_type_i(decoded.imm_type),
-    .imm_o(decoded_imm)
+    .instr_i(if_id.payload.meta.instr),
+    .imm_o(immediate),
+    .pc_offset_o(pc_offset)
   );
 
   assign gpr_read.rs1_addr = decoded.reg_addr.rs1_addr;
@@ -35,24 +35,33 @@ module id_stage
   // 异常归并与 ID/EX 事务生成
   always_comb begin
     result.payload = '0;
-    result.payload.meta = if_id.payload.meta;
     result.payload.reg_addr = decoded.reg_addr;
+    result.payload.gpr = decoded.gpr;
+    result.payload.prediction = '{
+      taken: if_id.payload.meta.prediction.taken,
+      target_pc: btb_target_pc(if_id.payload.meta.pc, if_id.payload.meta.prediction.target)
+    };
     result.payload.exec_data = '{
-      rs1_value: gpr_read.rs1_value, rs2_value: gpr_read.rs2_value, imm: decoded_imm,
+      rs1_value: gpr_read.rs1_value, rs2_value: gpr_read.rs2_value, imm: immediate,
+      pc_plus4: if_id.payload.meta.pc + pc_t'(4),
       // B/J 的目标只依赖 PC 和立即数；锁存后 EX 无需重新相加。
-      direct_target: if_id.payload.meta.pc + decoded_imm
+      direct_target: if_id.payload.meta.pc + pc_offset
     };
     result.payload.ctrl = decoded.ctrl;
+    result.payload.commit = decoded.commit;
     // 优先保留 IF 的访问异常；只有取指成功后才解释译码异常。
     result.payload.exception = if_id.payload.exception;
     if (decoded.illegal) begin
       result.payload.exception =
           raise_exception(result.payload.exception, EXC_ILLEGAL_INSTR, if_id.payload.meta.instr);
-    end else if (decoded.ctrl.system_op == SYS_ECALL) begin
+    end else if (decoded.system_op == SYS_ECALL) begin
       result.payload.exception = raise_exception(result.payload.exception, EXC_ECALL_M, '0);
-    end else if (decoded.ctrl.system_op == SYS_EBREAK) begin
+    end else if (decoded.system_op == SYS_EBREAK) begin
       result.payload.exception = raise_exception(result.payload.exception, EXC_BREAKPOINT, '0);
     end
+    // 原 PC/指令到此结束传播；异常不作为 GPR 生产者，前递单元直接放行异常。
+    if (result.payload.exception.valid || (decoded.gpr.addr == ZeroReg))
+      result.payload.gpr = '0;
   end
 
   // GPR 相关通过前递单元的 ready 反压；等待期间继续读取寄存器堆。

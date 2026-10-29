@@ -12,7 +12,7 @@ from html import escape
 from pathlib import Path
 from typing import Dict, Sequence
 
-from dse import FF_BUDGET, FULL_PC_ENTRY_BITS, REFERENCE_ENTRIES
+from dse import FF_BUDGET
 
 GROUPS = ("total", "control_flow", "non_control_flow", "actual_taken", "actual_not_taken",
           "predicted_taken", "predicted_not_taken")
@@ -98,24 +98,27 @@ def table(rows: Sequence[dict]) -> str:
 
 
 def write_summary(path: Path, rows: Sequence[dict], provenance: dict) -> None:
-    budget = provenance.get("search", {}).get("ff_budget", FF_BUDGET)
+    search = provenance.get("search", {})
+    budget = search.get("ff_budget", FF_BUDGET)
+    table_rows = [row for row in rows if row["btb"] == "table"]
+    def values(field: str) -> str:
+        return "/".join(str(value) for value in sorted({row[field] for row in table_rows}))
     baseline = next(row for row in rows if row["btb"] == "none")
     best = min(rows, key=sort_key)
     selected = [baseline]
-    # 同几何比较用户示例与完整宽度，避免把几何和位宽的收益混为一谈。
-    for widths in ((8, 16), (30, 32)):
-        candidates = [row for row in rows if row["btb"] == "table" and row["bht"] == "btfn"
-                      and row["btb_policy"] == "rr" and (row["btb_sets"], row["btb_ways"]) == (1, 4)
-                      and (row["pc_bits"], row["target_bits"]) == widths]
-        if candidates:
-            selected.append(min(candidates, key=sort_key))
+    # 列出单组 P12 参考配置；当前 RTL 的位宽可独立于默认扫描网格调整。
+    selected.extend(row for row in table_rows if
+                    (row["bht"], row["bht_entries"], row["btb_sets"], row["btb_ways"],
+                     row["btb_policy"], row["pc_bits"], row["target_bits"]) ==
+                    ("bimodal", 16, 1, 4, "rr", 12, 16))
     if best not in selected:
         selected.append(best)
     geometries = {(row["btb_sets"], row["btb_ways"]) for row in rows if row["btb"] == "table"}
     text = ["# Branchsim 位宽与几何扫描", "",
             f"扫描 {len(rows)} 个配置、{len(geometries)} 种几何，BTB 与 BHT 合计不超过 {budget} 个逻辑触发器（含替换状态）。每个配置从空表开始，回放同一条完整轨迹。",
-            "组数与路数均为 2 的整数幂，路数至少为 2。两个位宽最小为 4，原 PC 的 30 位为完整标签特例。",
-            f"完整 PC 参考条目为 30 + 32 + 3 = {FULL_PC_ENTRY_BITS} 位，资源上限为 {REFERENCE_ENTRIES} 个完整条目，即 {FF_BUDGET} 位。表项数随位宽和几何变化。",
+            "组数与路数均为 2 的整数幂，路数至少为 2。表项数随位宽、BHT 容量和几何变化。",
+            f"本轮方向算法：{values('bht')}；替换策略：{values('btb_policy')}；PC 标签位宽：{values('pc_bits')}；目标位宽：{values('target_bits')}。",
+            f"本轮 Bimodal 计数器规模：{'/'.join(str(value) for value in sorted({row['bht_entries'] for row in table_rows if row['bht'] == 'bimodal'})) or '无'}。",
             f"退休指令 **{baseline['instructions']:,}** 条；控制流 **{baseline['control_flow_accesses']:,}** 条；"
             f"普通指令 **{baseline['non_control_flow_accesses']:,}** 条。", "",
             "## 关键配置", "", table(selected), ""]
@@ -132,17 +135,22 @@ def write_summary(path: Path, rows: Sequence[dict], provenance: dict) -> None:
         bf, bm = (next(row for row in best_methods if row["bht"] == name) for name in ("btfn", "bimodal"))
         change = 1 - int(bm["total_misses"]) / int(bf["total_misses"]) if bf["total_misses"] else 0
         text.extend([f"在同一 {budget} 位总预算内，Bimodal 最优配置相对 BTFN 最优配置的误预测减少 {change:.2%}。", ""])
-    fixed = sorted((row for row in rows if row["btb"] == "table" and row["btb_policy"] == "rr"
-                    and (row["btb_sets"], row["btb_ways"], row["pc_bits"], row["target_bits"]) == (1, 4, 30, 32)),
+    bimodal_sizes = sorted({row["bht_entries"] for row in table_rows if row["bht"] == "bimodal"})
+    if bimodal_sizes:
+        best_sizes = [min((row for row in table_rows if row["bht"] == "bimodal" and
+                          row["bht_entries"] == size), key=sort_key) for size in bimodal_sizes]
+        text.extend(["## 相同总预算下各 BHT 容量最优配置", "", table(best_sizes), ""])
+    fixed = sorted((row for row in table_rows if row["btb_policy"] == "rr"
+                    and (row["btb_sets"], row["btb_ways"], row["pc_bits"], row["target_bits"]) == (1, 4, 8, 16)),
                    key=lambda row: (row["bht"] != "btfn", row["bht"], row["bht_entries"]))
     if fixed:
-        text.extend(["## 固定 BTB 几何与位宽的算法对照", "",
-                     "以下固定 1 组 4 路、原 PC 30 位、目标 32 位，单独比较方向预测；动态算法额外计入 BHT 存储。", "",
+        text.extend(["## 固定 BTB 几何与位宽的方向预测对照", "",
+                     "以下固定 1 组 4 路、原 PC 8 位、目标 16 位，比较方向算法及 BHT 容量；动态算法额外计入 BHT 存储。", "",
                      table(fixed), ""])
     text.extend(["## 触发器与 MPKI 的 Pareto 前沿", "",
                  "两个目标均越小越好。以下每个坐标保留一个代表配置；相同坐标的其他配置见 CSV 或图表悬停。", "",
                  table(pareto(rows)), "", "## 存储与统计口径", "",
-                 "- 默认 BTFN/RR；原 PC 位宽扫描 4/8/16/30，目标位宽扫描 4/8/16/32；关闭 BTB 作为独立零成本基线。",
+                 "- 关闭 BTB 作为独立零成本基线；本轮实际算法、位宽及 BHT 容量见上方扫描范围。",
                  "- 原 PC 位宽 P 存储并比较 `(pc >> 2)` 的低 P 位，组索引仍是 `(pc >> 2) & (sets - 1)`；训练匹配也使用截断标签。",
                  "- 目标位宽 T 存储目标 PC 的低 T 位；查询目标为当前 PC 高 `32-T` 位与所存低 T 位拼接。T=32 时保存完整目标。",
                  "- BTFN 的后向标志由完整原 PC/目标 PC 在训练时计算并保存，目标截断不会改变方向规则。",

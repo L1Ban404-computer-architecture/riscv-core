@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
-from dse import FF_BUDGET, FULL_PC_ENTRY_BITS, PC_WIDTHS, REFERENCE_ENTRIES, TARGET_WIDTHS
+from dse import BHT_ENTRIES, FF_BUDGET, PC_WIDTHS, TARGET_WIDTHS
 from dse.report import CSV_FIELDS, GROUPS, sort_key, write_csv, write_plot, write_summary
 
 BRANCHSIM_DIR = Path(__file__).resolve().parents[1]
@@ -34,8 +34,8 @@ def powers_of_two(limit: int) -> List[int]:
 
 def geometries(entries_min: int, entries_max: int | None, ways_max: int | None,
                bhts: Sequence[str], policies: Sequence[str],
-               pc_bits: Sequence[int] = (8,), target_bits: Sequence[int] = (16,),
-               ff_budget: int = FF_BUDGET, bht_entries: Sequence[int] = (32,)) -> List[Point]:
+               pc_bits: Sequence[int] = PC_WIDTHS, target_bits: Sequence[int] = TARGET_WIDTHS,
+               ff_budget: int = FF_BUDGET, bht_entries: Sequence[int] = BHT_ENTRIES) -> List[Point]:
     if (entries_min < 1 or (entries_max is not None and entries_max < entries_min)
             or (ways_max is not None and ways_max < 2) or not 0 < ff_budget <= FF_BUDGET):
         raise ValueError(f"invalid bounds; require 0 < ff-budget <= {FF_BUDGET}, ways-max >= 2")
@@ -232,14 +232,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ff-budget", type=int, default=FF_BUDGET,
                         help=f"total logical FF limit, including replacement state (1..{FF_BUDGET})")
     parser.add_argument("--bht", nargs="+", choices=("not-taken", "btfn", "bimodal"),
-                        default=["btfn"])
-    parser.add_argument("--bht-entries", nargs="+", type=int, default=[16, 32, 64],
+                        default=["bimodal"])
+    parser.add_argument("--bht-entries", nargs="+", type=int, default=list(BHT_ENTRIES),
                         help="bimodal counter counts (positive powers of two); ignored by static strategies")
     parser.add_argument("--policies", nargs="+", choices=("rr", "lru"), default=["rr"])
     parser.add_argument("--pc-bits", nargs="+", type=int, default=list(PC_WIDTHS),
-                        help="PC tag widths: 4, 8, 16, or full-width reference 30")
+                        help="PC tag widths: 8, 12, 16, or 20")
     parser.add_argument("--target-bits", nargs="+", type=int, default=list(TARGET_WIDTHS),
-                        help="target low-bit widths: 4, 8, 16, or 32")
+                        help="target low-bit widths: 8, 12, 16, 20, or 24")
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     parser.add_argument("--report-only", action="store_true",
                         help="verify existing CSV, raw logs and input hashes; rebuild reports without replay")
@@ -268,12 +268,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RuntimeError("no valid BTB geometries in requested interval")
     # 记录确切输入；回放后检查文件没有被同时采集/重编译所改动。
     provenance = {"trace": fingerprint(args.trace), "branchsim": fingerprint(args.branchsim),
-                  "search": {"ff_budget": args.ff_budget, "reference_entry_bits": FULL_PC_ENTRY_BITS,
-                             "reference_entries": REFERENCE_ENTRIES, "bht": args.bht,
+                  "search": {"ff_budget": args.ff_budget, "bht": args.bht,
                              "policies": args.policies, "pc_bits": args.pc_bits,
                              "bht_entries": args.bht_entries,
                              "target_bits": args.target_bits, "ways_min": 2,
-                             "power_of_two_geometry": True, "pc_bits_exception": 30}}
+                             "power_of_two_geometry": True}}
     log_dir = args.build_dir / "dse" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     if args.report_only:

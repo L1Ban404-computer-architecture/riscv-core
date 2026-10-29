@@ -117,7 +117,7 @@ module branch_predictor
       if (!rst_ni || invalidate_i) begin
         for (int unsigned idx = 0; idx < BhtEntries; idx++) counters_q[idx] <= 2'b01;
       end else if (update.valid && update.payload.kind == BTB_BRANCH) begin
-        if (update.payload.taken && counters_q[update_index] != 2'b11)
+        if (update.payload.taken && counters_q[update_index] != 2'b11)  
           counters_q[update_index] <= counters_q[update_index] + 2'b01;
         else if (!update.payload.taken && counters_q[update_index] != 2'b00)
           counters_q[update_index] <= counters_q[update_index] - 2'b01;

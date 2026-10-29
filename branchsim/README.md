@@ -1,6 +1,6 @@
 # Branchsim：分支方向预测与存储预算扫描
 
-BTB 支持参数化的原 PC 标签位宽 `P` 和目标 PC 低位宽度 `T`。默认使用 `P=8`、`T=16`；默认只测 **BTFN/RR**，以 **8 个完整 PC 条目的总逻辑存储位数**作为资源上限，比较位宽缩减、标签混叠及错误目标对 MPKI 的影响。
+BTB 支持参数化的原 PC 标签位宽 `P` 和目标 PC 低位宽度 `T`。批量扫描默认只测 **Bimodal/RR**，遍历 **BHT 4/8/16/32 项、P=8/12/16/20、T=8/12/16/20/24**，BTB、BHT 与替换状态的总逻辑存储预算为 **360 位**，比较容量分配、标签混叠及错误目标对 MPKI 的影响。单配置 `sim` 的默认参数独立于扫描网格，仍为 BTFN、P=8/T=16。
 
 ## 预测与训练
 
@@ -11,7 +11,7 @@ mask = (1 << T) - 1                     # T=32 单独处理
 predicted_target = (current_pc & ~mask) | stored_target_low
 ```
 
-例如 `P=8`、`T=16` 时，标签比较当前 `pc[9:2]`；目标为 `{current_pc[31:16], stored_target[15:0]}`。训练时也用截断标签匹配已有项，同标签的不同原 PC 会合并更新，模型不会额外用完整 PC 排除别名。`P=30`、`T=32` 是完整地址参考：原 PC 省去固定为零的两位指令对齐位，目标保存全部 32 位。
+例如 `P=8`、`T=16` 时，标签比较当前 `pc[9:2]`；目标为 `{current_pc[31:16], stored_target[15:0]}`。训练时也用截断标签匹配已有项，同标签的不同原 PC 会合并更新，模型不会额外用完整 PC 排除别名。单配置模拟器仍支持 `P=30`、`T=32` 完整地址参考，但该组合不属于当前批量扫描的位宽候选。
 
 BTFN 的 `backward` 位在训练时由完整原 PC 和真实目标计算并保存。这样，跨地址段分支即使目标重建错误，方向规则仍保持原意；完整命中要求方向正确，且实际跳转时目标也正确。`not-taken` 只控制条件分支，命中 BTB 的 JAL 仍预测跳转。条件分支无论是否 taken 都训练，JAL 训练，JALR 不训练；LRU 在训练时更新，查询不更新替换状态。
 
@@ -27,7 +27,7 @@ counter[index] = taken ? min(counter[index] + 1, 3) : max(counter[index] - 1, 0)
 
 计数器冷启动为 `01`（弱不跳转），`00/01` 预测不跳转，`10/11` 预测跳转。饱和状态能容忍一次相反结果，避免一次循环退出立即改变长期倾向。不同 PC 可能共享计数器，这是实际索引冲突，不会通过隐藏的完整 PC 标签区分。
 
-预测在训练之前发生，只使用当前 PC 和此前状态。只有真实条件分支更新计数器；无论 BTB 是否命中都会训练，JAL、JALR 和普通指令均不训练。BTB 未命中时仍顺序取指，动态方向表不会凭空提供目标；命中 JAL 时仍无条件预测跳转。BTFN 继续保留为默认策略和对照。
+预测在训练之前发生，只使用当前 PC 和此前状态。只有真实条件分支更新计数器；无论 BTB 是否命中都会训练，JAL、JALR 和普通指令均不训练。BTB 未命中时仍顺序取指，动态方向表不会凭空提供目标；命中 JAL 时仍无条件预测跳转。BTFN 和 not-taken 继续保留为显式可选的对照策略。
 
 **每条退休指令都查询预测器。** 缩短标签后，普通指令也可能命中其他 PC 留下的跳转项，这类假跳转同样计入误预测。统计分别保留 `control_flow` 和 `non_control_flow`，两者误预测次数之和等于总数：
 
@@ -51,23 +51,51 @@ BHT 触发器数 = Bimodal: 2 × M；BTFN/not-taken: 0
 总触发器数 = BTB 触发器数 + BHT 触发器数
 ```
 
-完整 PC 参考条目按 `P=30/T=32` 计算，每项为 `30 + 32 + 3 = 65` 位，因此总预算为 **`8 × 65 = 520` 位**。BTB、替换状态与动态 BHT 的合计须落在预算内；表项数不再固定为 8。单路替换状态为 0，关闭 BTB 为 0。各方向策略使用同一 BTB 表项格式，动态模型也保留原有 backward 位的成本。`P=8`、`T=16` 的 1 组 4 路 RR 为 `4 × 27 + 2 = 110` 位，2 组 4 路 RR 为 `8 × 27 + 4 = 220` 位；同几何 LRU 为 `8 × 27 + 16 = 232` 位。2 组 4 路、16/16 位的 BTB 占 284 位，加上 32 项 Bimodal 的 64 位后，总计 **348 位**。
+当前扫描总预算为 **360 位**，BTB、替换状态与动态 BHT 的合计须落在预算内；表项数随位宽、几何和 BHT 容量变化。单路替换状态为 0，关闭 BTB 为 0。各方向策略使用同一 BTB 表项格式，动态模型也保留原有 backward 位的成本。`P=8`、`T=16` 的 1 组 4 路 RR 为 `4 × 27 + 2 = 110` 位，2 组 4 路 RR 为 `8 × 27 + 4 = 220` 位；同几何 LRU 为 `8 × 27 + 16 = 232` 位。2 组 4 路、16/16 位的 BTB 占 284 位，加上 32 项 Bimodal 的 64 位后，总计 **348 位**。
 
 核算保留标签中的组索引重合位，以及目标字段的低两位对齐位，不做综合常量或冗余消除；因此它描述逻辑存储成本，综合后的 DFF 单元数、面积和时序需要另测。软件 `Entry` 的 `uint32_t` 容器大小不计入硬件成本。
 
 ## 对应的 RTL 实现
 
-核心默认采用本次选定的 **Bimodal[16]、1 组 4 路 RR、P=8/T=16**，配置集中在 [`riscv_core_pkg.sv`](../rtl/core/riscv_core_pkg.sv)。[`branch_predictor.sv`](../rtl/core/units/branch_predictor.sv) 管理 BTB、RR 指针和 BHT；IF 负责采纳并锁存预测，当前临时旁路 IF/ID 缓冲，快照随取指回应直达 ID，再经 ID/EX 送到 EX；EX 负责执行、纠错和筛选训练事件。
+核心默认采用 **Bimodal[16]、1 组 4 路 RR、P=10/T=16**，配置集中在 [`riscv_core_pkg.sv`](../rtl/core/riscv_core_pkg.sv)。P10 不在当前批量扫描的默认网格内；单独回放同一 microbench train 轨迹得到 MPKI **73.024917**，按扫描统一格式计费为 150 位。此前 P12 单组配置为 158 位、MPKI 72.756013。[`branch_predictor.sv`](../rtl/core/units/branch_predictor.sv) 管理 BTB、RR 指针和 BHT；IF 负责采纳并锁存预测，当前临时旁路 IF/ID 缓冲，快照随取指回应直达 ID，再经 ID/EX 送到 EX；EX 负责执行、纠错和筛选训练事件。
 
 RTL 比扫描的通用存储格式更紧凑：移除 Bimodal 不使用的 `backward` 位，省去 B/J 目标恒零的 bit 0，保留 bit 1 以正确处理未跳转的非对齐分支目标。因此预测器存储为：
 
 ```text
-BTB = 4 × (valid 1 + tag 8 + target[15:1] 15 + kind 1) + RR 2 = 102 位
+BTB = 4 × (valid 1 + tag 10 + target[15:1] 15 + kind 1) + RR 2 = 110 位
 BHT = 16 × 2 = 32 位
-预测器合计 = 134 位
+预测器合计 = 142 位
 ```
 
-这与图中的 **142 位逻辑预算**描述同一配置，差额来自格式优化。查询接口只传 8 位标签、返回 16 位预测结果（taken + target[15:1]）；EX→IF 训练 payload 从 69 位缩为 25 位（tag 8 + target 15 + kind 1 + taken 1）。目标高位在 IF 用当前 PC 重建，不经过训练总线。
+这与扫描模型的 **150 位逻辑预算**描述同一 P10 配置，8 位差额来自每项移除 backward 和目标 bit 0。查询接口传 10 位标签、返回 16 位预测结果（taken + target[15:1]）；EX→IF 训练 payload 为 27 位（tag 10 + target 15 + kind 1 + taken 1）。目标高位在 IF 用当前 PC 重建，不经过训练总线。
+
+本轮补跑 P12 单组基线，再将标签缩为 P10，均使用 RV32E、完整 `ysyx_25080230` 顶层、Nangate45、1000 MHz 约束：
+
+| 指标 | P12：1组4路、T16、BHT16 | 当前 P10：1组4路、T16、BHT16 |
+| --- | ---: | ---: |
+| 预测器逻辑存储位数 | 150 | 142 |
+| 完整顶层 DFF_X1 数量 | 2850 | 2842 |
+| 映射单元面积（µm²） | 24595.158 | 24371.984 |
+| 全局最差 setup slack（ns） | -0.176 | -0.194 |
+| 最长数据到达时间（ns） | 1.137 | 1.156 |
+| 报告估算频率（MHz） | 850.351 | 837.703 |
+
+P10 完整顶层面积减少 **0.91%**，报告估算频率下降 **1.49%**，最差 slack 恶化 **18 ps**；最差路径从 ID/EX 寄存器到取指请求 PC 的 `imem_bus.req_payload_51__reg_p`。标签缩短在本次综合中节省面积，但没有改善时序。两种配置均未满足 1 GHz；结果为综合后的理想连线 STA，未进行布局布线。报告和对应 package 快照保存在 [`../build/branch-config/pc12-s1-w4-h16/`](../build/branch-config/pc12-s1-w4-h16/) 与 [`../build/branch-config/pc10-s1-w4-h16/`](../build/branch-config/pc10-s1-w4-h16/)。
+
+P10 单独回放有 **13,982,625** 次总误预测（控制流 13,932,610，普通指令假跳转 50,015），相对 P12 的 13,931,136 次增加 **0.37%**。原始日志见 [`build/sim-p10-s1-w4-h16.log`](build/sim-p10-s1-w4-h16.log)。批量网格仍为 P8/12/16/20，报告中的单组 P12 项继续作为参考，不将其标为当前 RTL 的测量。
+
+以下为此前在相同 RV32E、完整 `ysyx_25080230` 顶层、Nangate45、1000 MHz 约束下，对 P8 单组配置与 P12 双组配置的历史综合对照。
+
+| 指标 | 旧配置：1组4路、P8/T16、BHT16 | 此前配置：2组4路、P12/T16、BHT16 |
+| --- | ---: | ---: |
+| 预测器逻辑存储位数 | 134 | 268 |
+| 完整顶层 DFF_X1 数量 | 2834 | 2968 |
+| 映射单元面积（µm²） | 24145.618 | 25496.898 |
+| 全局最差 setup slack（ns） | -0.151 | -0.182 |
+| 最长数据到达时间（ns） | 1.109 | 1.140 |
+| 报告估算频率（MHz） | 868.456 | 846.337 |
+
+该双组配置完整顶层面积增加 **5.60%**，报告估算频率下降 **2.55%**，最差 slack 恶化 **31 ps**。最差路径从 ID/EX 寄存器经过前端控制逻辑，到取指请求 PC 的 `imem_bus.req_payload_38__reg_p`；BHT 训练门控也仍有负 slack。两种配置均未满足 1 GHz。结果为综合后的理想连线 STA，未进行布局布线。原始报告位于 [`../build/branch-config/baseline/`](../build/branch-config/baseline/) 和 [`../build/branch-config/pc12-s2-w4-h16/`](../build/branch-config/pc12-s2-w4-h16/)。
 
 取指请求被接受时锁存预测方向和压缩目标，随指令传到 EX。EX 比较方向，并在实际跳转时将快照目标与本条指令 PC 高位拼接，再核对完整实际目标，覆盖普通指令假跳转、JALR 别名及跨 64 KiB 的错误目标。BTB 后续训练、替换和前端停顿均不改变已采纳的预测快照。
 
@@ -86,20 +114,20 @@ make -C riscv-core check-branch-predictor
 make -C riscv-core check RVE=1
 make -C mini-soc lint
 make -C ysyx-soc lint
-make -C riscv-core perf RVE=1 PERF_OUT=../build/direct-branch-training/mapped
+make -C riscv-core perf RVE=1 PERF_OUT=../build/branch-config/pc10-s1-w4-h16
 make -C am-kernels/tests/cpu-tests ARCH=runner ALL=dummy DUT=npc REF=nemu run
 make -C am-kernels/rt-thread-am/bsp/abstract-machine ARCH=runner DUT=npc REF=nemu run
 make -C am-kernels/tests/cpu-tests ARCH=runner ALL=dummy DUT=soc REF=nemu run
 make -C am-kernels/rt-thread-am/bsp/abstract-machine ARCH=runner DUT=soc REF=nemu run
 ```
 
-`check-branch-predictor` 将 RTL 与 branchsim 模型逐拍比较，覆盖 1×4/BHT16、2×2/BHT8，每组 2,570,235 次查询，另测 IF 直连 ID 时取指快照在训练/替换和背压下的保持、EX 目标纠错、异常和 FENCE.I。保留 IF/ID 的综合结果位于 `../build/branch-predictor/mapped-register/`，旁路 IF/ID、共用 ALU 的结果位于 `../build/no-if-id/`，已撤销的专用 EX 分支加法器对照位于 `../build/dedicated-branch-adder/`，ID 预计算版本的验证与综合结果位于 `../build/id-branch-target/`，训练控制解耦的综合结果位于 `../build/direct-branch-training/`，已回退的 ALU 独立加法输出实验结果位于 `../build/alu-add-output/`。离线 MPKI 对应退休轨迹顺序训练；RTL 在 EX 训练，流水线延迟和推测执行会影响实际统计。
+`check-branch-predictor` 将 RTL 与 branchsim 模型逐拍比较，覆盖 1×4/BHT16、2×4/BHT16、2×2/BHT8，均使用当前 10 位标签，每组 **10,250,313 次查询**，另测 IF 直连 ID 时取指快照在训练/替换和背压下的保持、EX 目标纠错、异常和 FENCE.I。模型直接读取 RTL 导出的位宽，检查全部 1024 个标签、标签最高位差异及截断别名。本轮 RTL check、mini-soc lint、dummy 的外层 PASS 与 NEMU 差分通过；RT-Thread 完成启动、help 全部输出并返回 `msh >`，无差分错误，随后仅向本次 runner 发送 SIGINT，使常驻 shell 正常收尾。当前 P10 配置的日志位于 [`../build/branch-config/pc10-s1-w4-h16-validation/`](../build/branch-config/pc10-s1-w4-h16-validation/)，此前 P12 单组和双组配置的日志分别保留在 [`../build/branch-config/pc12-s1-w4-h16-validation/`](../build/branch-config/pc12-s1-w4-h16-validation/) 和 [`../build/branch-config/validation/`](../build/branch-config/validation/)。本轮未重跑完整 SoC 功能测试。离线 MPKI 对应退休轨迹顺序训练；RTL 在 EX 训练，流水线延迟和推测执行会影响实际统计。
 
 当前保留 `fetch_result` 直连 ID，功能 IF/ID 缓冲与退休观察侧的对应缓冲继续注释。ID 的背压直接传给取指回应；IF 仍在改道当拍取消错误路径输出，ID/EX 的预测快照和原有刷新规则保留。
 
 综合使用相同的 RV32E、`ysyx_25080230` 顶层（含 I-cache、AXI 适配与 CLINT）、Nangate45、1000 MHz 约束和仓库 `perf` 流程：
 
-| 指标 | 训练控制解耦（当前） | ALU 独立加法输出（已回退） |
+| 指标 | 训练控制解耦（旧预测器配置） | ALU 独立加法输出（已回退） |
 | --- | ---: | ---: |
 | 预测器存储位数 | 134 | 134 |
 | 完整顶层 DFF_X1 数量 | 2834 | 2834 |
@@ -137,15 +165,15 @@ make -C riscv-core/branchsim sim BHT=btfn BTB_SETS=1 BTB_WAYS=4 \
 make -C riscv-core/branchsim sim BHT=bimodal BHT_ENTRIES=32 \
   BTB_SETS=2 BTB_WAYS=4 PC_BITS=16 TARGET_BITS=16
 
-# 本次算法对照：同一 520 位总预算下扫描 BTFN 与 Bimodal。
-make -C riscv-core/branchsim run DSE_ARGS='--bht btfn bimodal --bht-entries 16 32 64'
+# 显式增加 BTFN 对照，仍使用 360 位预算及当前位宽网格。
+make -C riscv-core/branchsim run DSE_ARGS='--bht btfn bimodal'
 
 # 完整默认扫描。轨迹缺失时，先用 NEMU 采集 microbench train。
 make -C riscv-core/branchsim run
 
-# 只比较示例 8/16 与完整地址参考，各自遍历预算内全部几何。
+# 只比较部分位宽，各自遍历预算内全部几何和 BHT 容量。
 make -C riscv-core/branchsim run \
-  DSE_ARGS='--pc-bits 8 30 --target-bits 16 32 --jobs 4'
+  DSE_ARGS='--pc-bits 8 12 --target-bits 16 20 --jobs 4'
 
 # 固定 8/16 位宽，复用指定轨迹。
 make -C riscv-core/branchsim run TRACE=/path/to/runner-insttrace.bin \
@@ -154,18 +182,17 @@ make -C riscv-core/branchsim run TRACE=/path/to/runner-insttrace.bin \
 # 显式扩展策略对照（默认不测 not-taken/LRU）。
 make -C riscv-core/branchsim run DSE_ARGS='--bht btfn not-taken --policies rr lru'
 
-# 本次对照数据只重建报告，不重复回放。
-make -C riscv-core/branchsim run \
-  DSE_ARGS='--bht btfn bimodal --bht-entries 16 32 64 --report-only'
+# 默认扫描数据只重建报告，不重复回放。
+make -C riscv-core/branchsim run DSE_ARGS='--report-only'
 
 make -C riscv-core/branchsim check-model check-dse
 ```
 
-默认扫描 `P=4/8/16/30`、`T=4/8/16/32`，方向策略仅 BTFN，替换策略仅 RR。两个位宽最小从 4 开始，原 PC 的 30 位是完整标签特例；组数与路数均遍历 2 的整数幂，且路数至少为 2，因此总表项数也是 2 的整数幂。每个候选都按实际位宽及替换状态核算，满足 `total_ff ≤ 520` 才纳入测试。默认网格覆盖 **15 种组路几何**，各位宽允许的几何不同，共 **140 个表配置＋1 个关闭 BTB 基线＝141 个配置**，最多 32 项。8/16 位宽可测试到 16 项，例如 1 组 16 路 RR 为 `16 × 27 + 4 = 436` 位。
+默认扫描 `P=8/12/16/20`、`T=8/12/16/20/24`，方向策略仅 Bimodal，BHT 为 4/8/16/32 项，替换策略仅 RR。组数与路数均遍历 2 的整数幂，且路数至少为 2。每个候选都按实际位宽、替换状态及 BHT 核算，满足 `total_ff ≤ 360` 才纳入测试。默认网格覆盖 **10 种组路几何**，各位宽和 BHT 容量允许的几何不同，共 **453 个表配置＋1 个关闭 BTB 基线＝454 个配置**，最多 16 项。16 项仅在窄位宽下可行，例如 1 组 16 路 RR、P=8/T=8、BHT4 的总成本为 `16 × 19 + 4 + 8 = 316` 位。
 
-`--bht bimodal` 可单测动态算法；`--bht-entries` 指定计数器个数，须为正的 2 的幂，单配置默认 32 项、批量默认比较 16/32/64 项。静态策略将此参数归一为 0，不产生重复配置。本次算法对照含 BTFN 的 140 个表配置、Bimodal 的 380 个表配置和 1 个关闭基线，共 **521 个配置**；每个候选的 BHT 存储都计入同一 520 位上限。
+`--bht-entries` 指定计数器个数，须为正的 2 的幂，单配置默认 32 项、批量默认比较 4/8/16/32 项。预算过滤后，BHT4/8/16/32 分别有 **121/115/115/102** 个表配置。静态策略将此参数归一为 0，不产生重复配置；所有算法共用一个关闭 BTB 基线。
 
-扫描的原 PC 位宽只能从 4/8/16/30 中选取，目标位宽只能从 4/8/16/32 中选取。`--ff-budget` 可收紧预算（1～520 位）；`--entries-max` 和 `--ways-max` 是可选的额外限制，默认不设置。指定它们时仍须满足触发器预算。单配置 Make 变量用于 `sim`，批量扫描参数通过 `DSE_ARGS` 传入，完整参数见 `cd riscv-core/branchsim && python3 -m dse --help`。`BUILD_DIR` 可覆盖产物目录；已有轨迹会直接复用，切换负载或契约时应使用新的 `TRACE` 路径采集。
+扫描的原 PC 位宽只能从 8/12/16/20 中选取，目标位宽只能从 8/12/16/20/24 中选取。`--ff-budget` 可收紧预算（1～360 位）；`--entries-min`、`--entries-max` 和 `--ways-max` 可额外限制总条目数和路数，默认不设置上限。指定它们时仍须满足存储预算。单配置 Make 变量用于 `sim`，批量扫描参数通过 `DSE_ARGS` 传入，完整参数见 `cd riscv-core/branchsim && python3 -m dse --help`。`BUILD_DIR` 可覆盖产物目录；已有轨迹会直接复用，切换负载或契约时应使用新的 `TRACE` 路径采集。
 
 ## 图表与数据
 
@@ -175,7 +202,7 @@ make -C riscv-core/branchsim check-model check-dse
 | --- | --- |
 | [dse.html](build/dse.html) | 仿照 cachesim 的全配置散点页，横轴为 BTB+BHT 总逻辑触发器数，纵轴为 MPKI |
 | [dse.csv](build/dse.csv) | 全部整数计数、七类分组比率、位宽、BHT 规模及 BTB/BHT/替换状态成本 |
-| [dse.md](build/dse.md) | 8/16 与完整地址的同几何对照、最优配置、Pareto 前沿、输入 SHA-256 |
+| [dse.md](build/dse.md) | 单组 P12 参考配置、各 BHT 容量最优配置、固定 BTB 的方向预测对照、Pareto 前沿、输入 SHA-256 |
 | `dse/logs/*.log` | 每个配置的模拟器原始输出 |
 
 多算法对照时图表默认以方向算法着色，单算法时按目标位宽着色；形状默认区分原 PC 位宽，BHT 计数器个数也可筛选或用作标签。也可以选择方向策略、替换策略、组数、路数、表项数等参数作为标签。点击图例或下拉框可筛选，也可以输入触发器预算和 MPKI 上下限。MPKI 边界包含端点，留空表示该方向不限制；散点、明细表和 CSV 导出同时应用筛选。帕累托前沿默认按当前筛选重新计算，还可切换全局前沿、仅看前沿点。成本和 MPKI 都越低越好；同一坐标保留一个前沿代表，重合配置可通过悬停或筛选查看。明细表支持排序和下载当前筛选 CSV。
@@ -184,9 +211,30 @@ make -C riscv-core/branchsim check-model check-dse
 
 `--report-only` 会重新核对输入文件的 SHA-256、全部计划点、CSV 与逐点原始日志，再生成报告。它要求提供与原扫描相同的参数；输入或配置不一致时会报错，不会复用未验证的数据。
 
-## microbench train 测量
+## 当前 360 位预算的 microbench train 测量
 
-沿用 RV32E 契约和同一条完整轨迹：191,477,451 条退休指令，其中控制流 56,486,890 条、普通指令 134,990,561 条。本次 521 个配置均成功回放，141 个 BTFN 基线配置的计数与旧模型完全一致。算法对照包括固定 BTB 几何/位宽的方向预测比较，以及相同存储成本或相同预算内的最佳配置；完整数据与前沿见 [dse.md](build/dse.md) 和 [dse.csv](build/dse.csv)。
+重新通过 NEMU 采集 RV32E microbench train，得到 191,477,451 条退休指令，其中控制流 56,486,890 条、普通指令 134,990,561 条。默认 **454 个配置全部回放成功**；通过 `--report-only` 重新校验输入 SHA-256、全部计划点、CSV 与逐点日志。完整结果见 [交互散点图](build/dse.html)、[摘要](build/dse.md) 和 [CSV](build/dse.csv)。
+
+360 位预算下，各 BHT 容量的最低 MPKI 均来自 **2 组 4 路 RR、P=16/T=16**：
+
+| BHT 项数 | BTB 位数 | BHT 位数 | 总逻辑位数 | 总误预测次数 | MPKI |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 284 | 8 | 292 | 14,211,276 | 74.219058 |
+| 8 | 284 | 16 | 300 | 13,375,381 | 69.853557 |
+| 16 | 284 | 32 | 316 | 13,079,437 | 68.307975 |
+| 32 | 284 | 64 | 348 | 12,968,673 | 67.729505 |
+
+本轮最低 MPKI 相对此前 RTL 参数对应的模型配置（1 组 4 路、P=8/T=16、BHT16，142 位，MPKI 73.231307）减少 **7.51%** 的误预测。该对比同时增加了 BTB 容量、标签位宽和 BHT 容量。
+
+若将最优配置的标签从 16 位缩为 **12 位**，其余保持 2 组 4 路、T=16、BHT32，总成本由 348 位降至 **316 位**，总误预测仅增加 **1 次**，MPKI 为 **67.729510**。这一配置在本条轨迹上节省 32 位而几乎不损失准确率；是否适合其他程序仍需相应轨迹验证。
+
+固定此前 RTL 参数中的 BTB（1 组 4 路、P=8/T=16），BHT4/8/16/32 的 MPKI 分别为 **79.080962 / 74.810339 / 73.231307 / 73.159732**，16 项以上的方向表收益在这个小 BTB 配置下已较小。
+
+以上位数沿用 branchsim 的统一存储模型，包含 RTL 可优化的字段；MPKI 来自退休轨迹顺序回放，不包含流水线训练延迟和错误路径。RTL 当前采用 1 组 4 路、P10/T16、BHT16，配置及独立回放结果见上方“对应的 RTL 实现”。
+
+## 此前 520 位预算的 microbench train 测量
+
+以下为此前 520 位预算、旧位宽网格及 BHT16/32/64 的历史结果，不代表当前 360 位默认网格。该轮 RV32E 轨迹包含 191,477,451 条退休指令，其中控制流 56,486,890 条、普通指令 134,990,561 条。521 个配置均成功回放，141 个 BTFN 基线配置的计数与旧模型完全一致。当前扫描的数据与前沿见 [dse.md](build/dse.md) 和 [dse.csv](build/dse.csv)。
 
 | 对照条件 | BTFN MPKI | Bimodal MPKI | 误预测减少 |
 | --- | ---: | ---: | ---: |
@@ -204,7 +252,7 @@ make -C riscv-core/branchsim check-model check-dse
 
 ## 验证与适用范围
 
-8 组模型回归及真实 CLI 轨迹用例通过，覆盖标签 `pc[9:2]` 的边界、同标签训练合并、目标高位取自当前 PC、跨地址段 BTFN 方向保持、方向正确但目标错误、普通指令假跳转、30/32 位移位边界和非二次幂路数；新增模型测试验证饱和、迟滞、独立索引、PC 混叠和 JAL/JALR 不训练；UBSan 检查通过。12 项扫描回归通过，核对默认 BTFN/RR、位宽最小为 4、原 PC 的 30 位特例、二次幂几何与至少两路、预算内完整几何集合、超过 8 项的候选、520 位预算、动态 BHT 的额外开销、替换状态开销、FF 公式、统计分区、空/损坏轨迹、报告重生及失败时保留旧报告。
+`make -C riscv-core/branchsim check-model check-dse` 通过：8 组模型回归及真实 CLI 轨迹用例覆盖标签 `pc[9:2]` 的边界、同标签训练合并、目标高位取自当前 PC、跨地址段 BTFN 方向保持、方向正确但目标错误、普通指令假跳转、30/32 位移位边界和非二次幂路数。12 项扫描回归核对新默认网格的 454 个完整组合、BHT4/8/16/32、360 位预算、二次幂几何与至少两路、替换状态成本，以及 12 位标签/20 位目标的端到端回放、报告范围和预算显示、报告重生及失败时保留旧报告。
 
 20 条退休指令的前向分支/JAL 环测试中，BTFN 发生 11 次误预测，Bimodal 仅首个分支和 JAL 各一次冷缺失，共 2 次；对照使用同一 BTB，额外计入 4 项 BHT 的 8 位成本。报告数据按逐点原始日志和成本公式核对；HTML 的参数筛选、颜色/形状标签、当前/全局前沿、仅看前沿、重合点悬停、排序、CSV 下载和空结果状态在 Chromium 中验证。
 

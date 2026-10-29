@@ -65,9 +65,8 @@ module mem_stage
   assign dmem.req_payload.write = ex_mem.payload.mem_req.write;
   assign dmem.req_payload.size = to_core_bus_size(ex_mem.payload.mem_req.size);
   assign dmem.req_payload.wdata = ex_mem.payload.mem_req.write ? aligned_store_data : '0;
-  // 请求端不依赖当前响应或下游容量。旧指令在 MEM 结束前已确定全部异常，
-  // 年轻访存最早在旧指令到 WB 时发出；WB 改道在 EX/MEM 边界屏蔽 valid，
-  // 因而不需要额外的提交屏障门控。
+  // 请求端不依赖当前响应或下游容量。年轻访存最早在旧指令到 WB 时发出；
+  // 顶层 pipeline_control 屏蔽串行化事件之后的事务，本级只解释输入 valid。
   assign dmem.req_valid = ex_mem.valid && memory_instruction && !inflight_q;
 
   // CoreBus 保证响应对应已接受或同拍接受的请求。预先给出 ready，避免

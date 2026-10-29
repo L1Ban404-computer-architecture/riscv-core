@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from dse import FF_BUDGET, FULL_PC_ENTRY_BITS
+from dse import FF_BUDGET
 from dse.__main__ import BRANCHSIM_DIR, geometries, main, parse_args, parse_output, replay, storage_bits
 from dse.report import best_by_capacity, pareto
 
@@ -22,51 +22,59 @@ class SweepTests(unittest.TestCase):
     def test_geometries_and_equivalent_points(self):
         args = parse_args([])
         self.assertEqual((args.entries_min, args.entries_max, args.ways_max), (1, None, None))
-        self.assertEqual((args.bht, args.policies), (["btfn"], ["rr"]))
-        self.assertEqual(args.ff_budget, 8 * FULL_PC_ENTRY_BITS)
+        self.assertEqual((args.bht, args.policies), (["bimodal"], ["rr"]))
+        self.assertEqual(args.ff_budget, 360)
+        self.assertEqual(args.pc_bits, [8, 12, 16, 20])
+        self.assertEqual(args.target_bits, [8, 12, 16, 20, 24])
+        self.assertEqual(args.bht_entries, [4, 8, 16, 32])
         points = geometries(args.entries_min, args.entries_max, args.ways_max, args.bht,
-                            args.policies, args.pc_bits, args.target_bits, args.ff_budget)
-        self.assertEqual(len(points), 141)
+                            args.policies, args.pc_bits, args.target_bits, args.ff_budget,
+                            args.bht_entries)
+        self.assertEqual(len(points), 454)
         self.assertEqual(len(points), len(set(points)))
         self.assertEqual(sum(point[1] == "none" for point in points), 1)
-        self.assertIn(("btfn", "table", 2, 2, "rr", 8, 16, 0), points)
-        expected = {("btfn", "table", sets, ways, "rr", p, t, 0)
-                    for sets in (1, 2, 4, 8, 16, 32) for ways in (2, 4, 8, 16, 32)
-                    for p in (4, 8, 16, 30) for t in (4, 8, 16, 32)
-                    if sets * ways * (p + t + 3) + sets * (ways - 1).bit_length() <= FF_BUDGET}
+        self.assertIn(("bimodal", "table", 2, 2, "rr", 8, 16, 4), points)
+        expected = {("bimodal", "table", sets, ways, "rr", p, t, size)
+                    for sets in (1, 2, 4, 8) for ways in (2, 4, 8, 16)
+                    for p in (8, 12, 16, 20) for t in (8, 12, 16, 20, 24)
+                    for size in (4, 8, 16, 32)
+                    if sets * ways * (p + t + 3) + sets * (ways - 1).bit_length() + 2 * size <= 360}
         self.assertEqual({point for point in points if point[1] == "table"}, expected)
-        self.assertEqual(len({(point[2], point[3]) for point in expected}), 15)
+        self.assertEqual(len({(point[2], point[3]) for point in expected}), 10)
+        self.assertEqual({size: sum(point[7] == size for point in points)
+                          for size in (4, 8, 16, 32)}, {4: 121, 8: 115, 16: 115, 32: 102})
         for _, btb, sets, ways, policy, pc_bits, target_bits, bht_entries in points:
             if btb == "none":
                 continue
-            self.assertTrue(2 <= sets * ways <= 32)
+            self.assertTrue(2 <= sets * ways <= 16)
             self.assertEqual(sets & (sets - 1), 0)
             self.assertGreaterEqual(ways, 2)
             self.assertEqual(ways & (ways - 1), 0)
             self.assertEqual(policy, "rr")
-            self.assertLessEqual(storage_bits(("btfn", btb, sets, ways, policy, pc_bits, target_bits))["total_ff"], FF_BUDGET)
-            self.assertIn(pc_bits, (4, 8, 16, 30))
-            self.assertIn(target_bits, (4, 8, 16, 32))
+            self.assertLessEqual(storage_bits(("bimodal", btb, sets, ways, policy, pc_bits,
+                                               target_bits, bht_entries))["total_ff"], FF_BUDGET)
+            self.assertIn(pc_bits, (8, 12, 16, 20))
+            self.assertIn(target_bits, (8, 12, 16, 20, 24))
         self.assertIn(("btfn", "table", 2, 2, "lru", 8, 16, 0),
                       geometries(4, 4, 2, ["btfn", "btfn"], ["lru", "lru"]))
         with self.assertRaises(ValueError):
             geometries(1, None, None, ["btfn"], ["rr"], ff_budget=FF_BUDGET + 1)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parse_args(["--ff-budget", str(FF_BUDGET + 1)])
-        for flag, value in (("--pc-bits", "2"), ("--pc-bits", "12"), ("--pc-bits", "32"),
-                            ("--target-bits", "2"), ("--target-bits", "12"), ("--target-bits", "33"),
+        for flag, value in (("--pc-bits", "4"), ("--pc-bits", "30"), ("--pc-bits", "32"),
+                            ("--target-bits", "4"), ("--target-bits", "28"), ("--target-bits", "32"),
                             ("--ways-max", "1")):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parse_args([flag, value])
 
     def test_budget_includes_replacement_and_allows_more_entries(self):
-        points = geometries(1, None, None, ["btfn"], ["rr", "lru"], [8, 30], [16, 32])
-        self.assertNotIn(("btfn", "table", 1, 8, "rr", 30, 32, 0), points)  # 523
-        self.assertIn(("btfn", "table", 1, 16, "rr", 8, 16, 0), points)  # 436
+        points = geometries(1, None, None, ["btfn"], ["rr", "lru"], [8, 20], [16, 24])
+        self.assertNotIn(("btfn", "table", 1, 8, "rr", 20, 24, 0), points)  # 379
+        self.assertIn(("btfn", "table", 1, 8, "rr", 8, 16, 0), points)  # 219
         self.assertNotIn(("btfn", "table", 1, 32, "rr", 8, 16, 0), points)
-        compact = geometries(1, None, None, ["btfn"], ["rr", "lru"], [4], [8])
-        self.assertIn(("btfn", "table", 1, 32, "rr", 4, 8, 0), compact)  # 485
-        self.assertNotIn(("btfn", "table", 1, 32, "lru", 4, 8, 0), compact)  # 640
+        compact = geometries(1, None, None, ["btfn"], ["rr", "lru"], [8], [8])
+        self.assertIn(("btfn", "table", 1, 16, "rr", 8, 8, 0), compact)  # 308
+        self.assertNotIn(("btfn", "table", 1, 16, "lru", 8, 8, 0), compact)  # 368
         narrow = geometries(1, None, None, ["btfn"], ["rr"], [8], [16], ff_budget=110)
         self.assertIn(("btfn", "table", 1, 4, "rr", 8, 16, 0), narrow)
         self.assertTrue(all(storage_bits(point)["total_ff"] <= 110 for point in narrow))
@@ -87,10 +95,10 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(storage_bits(point), {"entry_bits": 35, "replacement_bits": 4,
                                               "btb_ff": 284, "bht_ff": 64, "total_ff": 348})
         points = geometries(1, None, None, ["btfn", "bimodal"], ["rr"], [8], [16],
-                            bht_entries=[16, 32, 64])
+                            bht_entries=[4, 8, 16, 32])
         self.assertEqual(len(points), len(set(points)))
-        self.assertIn(("bimodal", "table", 1, 16, "rr", 8, 16, 32), points)  # 500 bits
-        self.assertNotIn(("bimodal", "table", 1, 16, "rr", 8, 16, 64), points)  # 564 bits
+        self.assertIn(("bimodal", "table", 2, 4, "rr", 8, 16, 32), points)  # 284 bits
+        self.assertNotIn(("bimodal", "table", 1, 16, "rr", 8, 16, 4), points)  # 444 bits
         self.assertTrue(all(storage_bits(item)["total_ff"] <= FF_BUDGET for item in points))
         self.assertTrue(all(item[7] == 0 for item in points if item[0] == "btfn"))
         with self.assertRaises(ValueError):
@@ -207,24 +215,31 @@ class SweepTests(unittest.TestCase):
     def test_full_sweep_report_and_failure(self):
         args = ["--branchsim", str(self.binary), "--trace", str(self.trace),
                 "--build-dir", str(self.work), "--entries-min", "4", "--entries-max", "4",
-                "--ways-max", "2", "--pc-bits", "8", "--target-bits", "16", "--jobs", "2"]
+                "--ways-max", "2", "--pc-bits", "12", "--target-bits", "20",
+                "--bht-entries", "4", "8", "--ff-budget", "200", "--jobs", "2"]
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
         with (self.work / "dse.csv").open() as handle:
             rows = list(csv.DictReader(handle))
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(sorted(int(row["total_misses"]) for row in rows), [1, 2])
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(sorted(int(row["total_misses"]) for row in rows), [1, 1, 2])
         page = (self.work / "dse.html").read_text()
         self.assertNotIn("__ROWS__", page)
+        self.assertNotIn("__BUDGET__", page)
         self.assertIn("<svg", page)
         summary = (self.work / "dse.md").read_text()
         self.assertIn("SHA-256", summary)
+        self.assertIn("不超过 200", summary)
+        self.assertIn("PC 标签位宽：12；目标位宽：20", summary)
+        self.assertIn("计数器规模：4/8", summary)
+        self.assertIn("各 BHT 容量最优配置", summary)
+        self.assertNotIn("520", summary)
         with contextlib.redirect_stderr(io.StringIO()), patch("dse.__main__.subprocess.run",
                                                              side_effect=AssertionError("unexpected replay")):
             self.assertEqual(main(args + ["--report-only"]), 0)
-        log = self.work / "dse" / "logs" / "btfn_table_s2_w2_rr_p8_t16.log"
+        log = self.work / "dse" / "logs" / "bimodal_table_s2_w2_rr_p12_t20_h4.log"
         original_log = log.read_text()
-        log.write_text(original_log.replace("pc_bits=8", "pc_bits=7"))
+        log.write_text(original_log.replace("pc_bits=12", "pc_bits=7"))
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaisesRegex(RuntimeError, "config"):
             main(args + ["--report-only"])
         log.write_text(original_log)

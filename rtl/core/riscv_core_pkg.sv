@@ -37,7 +37,7 @@ package riscv_core_pkg;
   parameter bit BtbEnable = 1'b1;
   parameter int unsigned BtbSetCount = 1;
   parameter int unsigned BtbWayCount = 4;
-  parameter int unsigned BtbPcWidth = 8;
+  parameter int unsigned BtbPcWidth = 10;
   parameter int unsigned BtbTargetWidth = 16;
   parameter int unsigned BhtEntryCount = 16;
 
@@ -86,42 +86,34 @@ package riscv_core_pkg;
   typedef logic [2:0] funct3_t;
   typedef logic [6:0] funct7_t;
 
-  // decoder 输出的归一化执行语义。后级只解释这些操作枚举，不再重复解析原始指令位。
+  // 普通整数操作的低三位沿用 funct3，SUB/SRA 用高位区分，减少译码转换。
+  // 比较指令直接产生零扩展的 0/1 结果；旁路使用剩余编码。
   typedef enum logic [3:0] {
-    ALU_ADD,
-    ALU_SUB,
-    ALU_SLL,
-    ALU_SLT,
-    ALU_SLTU,
-    ALU_XOR,
-    ALU_SRL,
-    ALU_SRA,
-    ALU_OR,
-    ALU_AND,
-    ALU_PASS_B
+    ALU_ADD = 4'h0,
+    ALU_SLL = 4'h1,
+    ALU_SLT = 4'h2,
+    ALU_SLTU = 4'h3,
+    ALU_XOR = 4'h4,
+    ALU_SRL = 4'h5,
+    ALU_OR = 4'h6,
+    ALU_AND = 4'h7,
+    ALU_SUB = 4'h8,
+    ALU_PASS_A = 4'h9,
+    ALU_PASS_B = 4'ha,
+    ALU_SRA = 4'hd
   } alu_op_e;
 
-  // ALU 两个输入端的来源选择。
-  typedef enum logic {
-    OP_A_RS1,
-    OP_A_PC
-  } op_a_sel_e;
+  // EX 的单路 value：运算结果、访存地址或 CSR 源操作数。
+  typedef enum logic [1:0] {
+    RESULT_ALU,
+    RESULT_PC4,
+    RESULT_PC_RELATIVE
+  } result_source_e;
 
   typedef enum logic {
     OP_B_RS2,
     OP_B_IMM
   } op_b_sel_e;
-
-  // 立即数格式；IMM_Z 用于 CSR 指令的零扩展五位立即数。
-  typedef enum logic [2:0] {
-    IMM_NONE,
-    IMM_I,
-    IMM_S,
-    IMM_B,
-    IMM_U,
-    IMM_J,
-    IMM_Z
-  } imm_type_e;
 
   // 控制流操作已经包含无跳转状态，便于后级统一生成 redirect。
   typedef enum logic [3:0] {
@@ -143,20 +135,11 @@ package riscv_core_pkg;
     MEM_STORE
   } mem_cmd_e;
 
-  // GPR 写回数据来源；WB_NONE 同时表示本指令不产生普通寄存器写回。
-  typedef enum logic [2:0] {
-    WB_NONE,
-    WB_ALU,
-    WB_MEM,
-    WB_PC4,
-    WB_CSR
-  } wb_sel_e;
-
   // CSR、SYSTEM 与异常
 
   typedef logic [11:0] csr_addr_t;
 
-  // Zicsr 的三种读改写语义，立即数/寄存器操作数由 csr_use_imm 单独区分。
+  // Zicsr 的三种读改写语义；rs1/zimm 已经由 EX 的逻辑旁路选入 value。
   typedef enum logic [1:0] {
     CSR_NONE,
     CSR_RW,
@@ -164,12 +147,11 @@ package riscv_core_pkg;
     CSR_RC
   } csr_cmd_e;
 
-  // 译码的 SYSTEM 操作；ECALL/EBREAK 在 ID 转为异常，EX 之后仅保留 is_mret。
+  // ECALL/EBREAK 在 ID 转为异常；MRET 独立保存在提交控制中。
   typedef enum logic [1:0] {
     SYS_NONE,
     SYS_ECALL,
-    SYS_EBREAK,
-    SYS_MRET
+    SYS_EBREAK
   } system_op_e;
 
   // WB 作为唯一架构提交点产出的提交类别。
@@ -259,44 +241,29 @@ package riscv_core_pkg;
   typedef struct packed {
     reg_addr_t rs1_addr;
     reg_addr_t rs2_addr;
-    reg_addr_t rd_addr;
     logic rs1_used;
     logic rs2_used;
   } reg_addr_payload_t;
 
-  // EX 所需的寄存器快照、立即数和 ID 预计算的 B/J 目标。
+  // EX 所需的寄存器快照、立即数和 ID 预计算的 PC 相对结果。
   typedef struct packed {
     word_t rs1_value;
     word_t rs2_value;
     word_t imm;
+    pc_t pc_plus4;
     pc_t direct_target;
   } exec_data_payload_t;
 
   // decoder 产生的完整执行控制，字段均描述归一化语义而非原始指令编码。
   typedef struct packed {
     alu_op_e alu_op;
-    op_a_sel_e op_a_sel;
+    result_source_e result_source;
     op_b_sel_e op_b_sel;
     branch_op_e branch_op;
     mem_cmd_e mem_cmd;
     mem_size_e mem_size;
     logic mem_sign_ext;
-    wb_sel_e wb_sel;
-    csr_op_payload_t csr;
-    logic csr_use_imm;
-    system_op_e system_op;
-    // FENCE.I 在 EX 等待更老事务排空后失效取指状态并重取后续指令。
-    logic fence_i;
   } execute_ctrl_payload_t;
-
-  // decoder 的组合结果；字段布局直接复用 ID/EX payload 的子结构，避免在 ID
-  // 中把扁平接口字段重新拼装为 reg_addr 和 ctrl。
-  typedef struct packed {
-    reg_addr_payload_t reg_addr;
-    imm_type_e imm_type;
-    execute_ctrl_payload_t ctrl;
-    logic illegal;
-  } decode_result_t;
 
   // 随指令传播的精确异常；后续流水级不得覆盖已记录的异常。
   typedef struct packed {
@@ -344,11 +311,28 @@ package riscv_core_pkg;
     word_t mtval;
   } csr_state_payload_t;
 
-  // 随指令送往 WB 的 MRET/CSR 提交控制。
+  // 随指令送往 WB 的提交控制；FENCE.I 在提交时失效取指状态并重取 PC+4。
   typedef struct packed {
     logic is_mret;
+    logic fence_i;
     csr_op_payload_t csr;
   } commit_ctrl_payload_t;
+
+  // 译码只在 ID 解释一次；执行控制与提交控制独立，后级不再解析指令。
+  typedef struct packed {
+    reg_addr_payload_t reg_addr;
+    gpr_dest_t gpr;
+    execute_ctrl_payload_t ctrl;
+    commit_ctrl_payload_t commit;
+    system_op_e system_op;
+    logic illegal;
+  } decode_result_t;
+
+  // ID 展开预测目标，EX 无需携带原 PC 来重建其高位。
+  typedef struct packed {
+    logic taken;
+    pc_t target_pc;
+  } execution_prediction_payload_t;
 
   // 前端执行与异常检测所需的指令元数据。
   typedef struct packed {
@@ -380,7 +364,7 @@ package riscv_core_pkg;
   // MEM 用 load 结果替换地址，WB 用 CSR 旧值完成 GPR 写回。
   // value 是否可作为 GPR 结果由 gpr.ready 决定，不能仅检查 gpr.write。
   typedef struct packed {
-    pc_t pc;
+    pc_t pc_plus4;
     gpr_dest_t gpr;
     word_t value;
     exception_payload_t exception;
@@ -396,10 +380,12 @@ package riscv_core_pkg;
   } if_id_payload_t;
 
   typedef struct packed {
-    instruction_meta_payload_t meta;
     reg_addr_payload_t reg_addr;
+    gpr_dest_t gpr;
+    execution_prediction_payload_t prediction;
     exec_data_payload_t exec_data;
     execute_ctrl_payload_t ctrl;
+    commit_ctrl_payload_t commit;
     exception_payload_t exception;
   } id_ex_payload_t;
 
