@@ -44,7 +44,6 @@ module ex_stage
     .alu_target_i(address),
     .rs1_value_i(id_ex.payload.exec_data.rs1_value),
     .rs2_value_i(id_ex.payload.exec_data.rs2_value),
-    .imm_i(id_ex.payload.exec_data.imm),
     .predicted_target_i(predicted_target_pc),
     .taken_o(branch_taken),
     .target_pc_o(branch_target),

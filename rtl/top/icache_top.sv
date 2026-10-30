@@ -25,6 +25,7 @@ module icache_top
   input logic rst_ni,
   input logic flush_i,
   input logic invalidate_i,
+  input logic miss_allowed_i,
 
   // CPU 侧 CoreBus 从设备
   input logic req_valid_i,
@@ -139,6 +140,7 @@ module icache_top
     .rst_ni,
     .flush_i,
     .invalidate_i,
+    .miss_allowed_i,
     .core_bus,
     .axi
 `ifndef SYNTHESIS

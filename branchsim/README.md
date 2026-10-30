@@ -97,11 +97,24 @@ P10 单独回放有 **13,982,625** 次总误预测（控制流 13,932,610，普�
 
 该双组配置完整顶层面积增加 **5.60%**，报告估算频率下降 **2.55%**，最差 slack 恶化 **31 ps**。最差路径从 ID/EX 寄存器经过前端控制逻辑，到取指请求 PC 的 `imem_bus.req_payload_38__reg_p`；BHT 训练门控也仍有负 slack。两种配置均未满足 1 GHz。结果为综合后的理想连线 STA，未进行布局布线。原始报告位于 [`../build/branch-config/baseline/`](../build/branch-config/baseline/) 和 [`../build/branch-config/pc12-s2-w4-h16/`](../build/branch-config/pc12-s2-w4-h16/)。
 
-取指请求被接受时锁存预测方向和压缩目标，随指令传到 EX。EX 比较方向，并在实际跳转时将快照目标与本条指令 PC 高位拼接，再核对完整实际目标，覆盖普通指令假跳转、JALR 别名及跨 64 KiB 的错误目标。BTB 后续训练、替换和前端停顿均不改变已采纳的预测快照。
+取指请求被接受时锁存预测方向和压缩目标，随指令传到 EX。EX 比较方向，并在 B/J 实际跳转时将快照目标与本条指令 PC 高位拼接，再核对完整实际目标，覆盖普通指令假跳转及跨 64 KiB 的错误目标。JALR 不训练预测器，在正常 EX 握手且无异常时始终重定向到实际目标，即使 BTB 别名碰巧预测正确也重新取指。BTB 后续训练、替换和前端停顿均不改变已采纳的预测快照。
 
 每处快照为 **16 位 = taken 1 + target[15:1] 15**。保留 IF/ID 缓冲时，取指元数据、IF/ID、ID/EX 三处合计 48 位；当前直连版本仅在取指元数据和 ID/EX 保存，共 **32 位**。EX 只依赖自身 ID/EX 输入，不观察前端 PC 或缓冲占用状态。
 
-ID 计算 B 型分支和 JAL 的 `PC+imm`，在 ID/EX 的 `exec_data.direct_target` 中独立保存完整 32 位目标。EX 不再为 B/J 重新相加；JALR 通过通用 ALU 计算 `rs1+imm`，再由 [`branch_unit.sv`](../rtl/core/units/branch_unit.sv) 清除 bit 0。分支单元只判断条件和选择目标，已移除上一轮专用 EX 分支加法器。
+ID 计算 B 型分支和 JAL 的 `PC+imm`，在 ID/EX 的 `exec_data.direct_target` 中独立保存完整 32 位目标。EX 不再为 B/J 重新相加；JALR 通过通用 ALU 计算 `rs1+imm`，再由 [`branch_unit.sv`](../rtl/core/units/branch_unit.sv) 清除 bit 0。JALR 的目标匹配输出固定为假，已移除专用预测目标匹配器；目标计算及对齐异常检查保留。
+
+2026-10-30 在当前工作区配置上，以 RV32E、完整 `ysyx_25080230` 顶层、Nangate45、1000 MHz 约束对比移除 JALR 匹配器前后：
+
+| 指标 | 保留 JALR 匹配器 | JALR 始终重定向 |
+| --- | ---: | ---: |
+| 完整顶层 DFF_X1 数量 | 2842 | 2842 |
+| 映射单元面积（µm²） | 24144.288 | 24028.046 |
+| 全局最差 setup slack（ns） | -0.023 | -0.009 |
+| 报告估算频率（MHz） | 977.563 | 991.243 |
+
+本次面积减少 **0.48%**，最差 slack 改善约 **14 ps**；1 GHz 约束仍有违例。以上为综合后的理想连线 STA，未进行布局布线；原始产物位于 [`../build/jalr-redirect-validation/before/`](../build/jalr-redirect-validation/before/) 和 [`../build/jalr-redirect-validation/after/`](../build/jalr-redirect-validation/after/)。
+
+本次 RTL check、mini-soc/完整 SoC lint、EX 定向仿真和 dummy 对 NEMU 差分通过。定向仿真覆盖 JALR 预测正确仍改道、预测错误、背压、无效事务、目标 bit 0 清除、负立即数、地址回绕、PC+4 目标、对齐及上游异常，以及 JAL/条件分支预测纠错。RT-Thread 完成启动、完整 help 输出并返回 `msh >`，无差分错误，随后向本次 runner 发送 SIGINT 结束常驻 shell，日志中的 `INTERRUPTED` 为主动停止。日志及定向测试源位于 [`../build/jalr-redirect-validation/`](../build/jalr-redirect-validation/)；未重跑完整 SoC 功能测试。
 
 EX 的预测纠错、目标非对齐异常和退休分支目标使用分支单元输出。BTB/BHT 训练仅接受合法 B/J，目标直接来自 ID/EX 的 `direct_target`，使能只检查上游异常和实际跳转时的目标对齐，避开通用 EX 的访存异常及 JALR/ALU 目标选择链。
 

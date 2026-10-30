@@ -95,6 +95,7 @@ module ysyx_25080230
   logic rst_ni;
   logic imem_invalidate;
   logic imem_flush;
+  logic imem_miss_allowed;
 
 
   assign rst_ni = ~reset;
@@ -108,7 +109,8 @@ module ysyx_25080230
     .imem(imem_bus),
     .dmem(dmem_bus),
     .imem_flush_o(imem_flush),
-    .imem_invalidate_o(imem_invalidate)
+    .imem_invalidate_o(imem_invalidate),
+    .imem_miss_allowed_o(imem_miss_allowed)
 `ifndef SYNTHESIS
     , .debug_retire_valid_o(gen_debug.retire_valid),
     .debug_retire_o(gen_debug.retire),
@@ -140,6 +142,7 @@ module ysyx_25080230
     .rst_ni,
     .flush_i(imem_flush),
     .invalidate_i(imem_invalidate),
+    .miss_allowed_i(imem_miss_allowed),
     .core_bus(imem_bus),
     .axi(if_axi)
 `ifndef SYNTHESIS

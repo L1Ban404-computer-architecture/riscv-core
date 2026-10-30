@@ -18,9 +18,11 @@ module icache
   // 全局控制
   input logic clk_i,
   input logic rst_ni,
-  // 取消此前接受的取指；同拍接受的新请求仍保留，不清除缓存有效位。
+  // 取消此前接受的取指；无待排空的 miss 首字时可同拍接新，不清缓存有效位。
   input logic flush_i,
   input logic invalidate_i,
+  // 仅限制 miss 启动；查询命中与已启动回填不受影响。
+  input logic miss_allowed_i,
 
   // CPU 请求与下级存储访问
   core_bus_if core_bus,
@@ -54,6 +56,8 @@ module icache
   logic refill_active;
   logic invalidate_block;
   logic invalidate_apply;
+  logic lookup_block;
+  logic request_block;
   core_bus_if #(
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth)
@@ -66,9 +70,10 @@ module icache
   assign invalidate_block = invalidate_i || (invalidate_state_q == InvalidateDrain);
   assign invalidate_apply = (invalidate_state_q == InvalidateDrain) &&
       !lookup_pending && !refill_active;
-  assign array_req.req_valid = core_bus.req_valid && !invalidate_block;
+  assign request_block = invalidate_block || lookup_block;
+  assign array_req.req_valid = core_bus.req_valid && !request_block;
   assign array_req.req_payload = core_bus.req_payload;
-  assign core_bus.req_ready = array_req.req_ready && !invalidate_block;
+  assign core_bus.req_ready = array_req.req_ready && !request_block;
 
   always_ff @(posedge clk_i) begin
     if (!rst_ni) invalidate_state_q <= InvalidateIdle;
@@ -86,6 +91,7 @@ module icache
   ) u_array (
     .clk_i,
     .rst_ni,
+    .flush_i,
     .invalidate_apply_i(invalidate_apply),
     .core_bus(array_req),
     .lookup,
@@ -95,7 +101,8 @@ module icache
   icache_rsp u_rsp (
     .clk_i,
     .rst_ni,
-    .flush_i,
+    .miss_allowed_i,
+    .lookup_block_o(lookup_block),
     .lookup,
     .miss,
     .core_bus

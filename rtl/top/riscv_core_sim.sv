@@ -75,7 +75,8 @@ module riscv_core_sim
     .imem(imem_bus),
     .dmem(dmem_bus),
     .imem_flush_o(imem_flush),
-    .imem_invalidate_o(unused_imem_invalidate)
+    .imem_invalidate_o(unused_imem_invalidate),
+    .imem_miss_allowed_o(  /* 无 I-cache */)
 `ifndef SYNTHESIS
     , .debug_retire_valid_o(gen_debug.retire_valid),
     .debug_retire_o(gen_debug.retire),

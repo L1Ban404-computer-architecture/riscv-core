@@ -29,10 +29,14 @@ module fv_icache_fetch
   input logic hold_ar_i,
   input logic hold_r_i,
   input logic flush_i,
-  input logic invalidate_i
+  input logic invalidate_i,
+  input logic miss_allowed_i
 );
 
   logic rst_ni;
+  logic deferred_q;
+  logic canceled_deferred_q;
+  logic canceled_miss_drained_q;
 
   logic [WordAddrW-1:0] axi_word_addr;
   logic [DataWidth-1:0] axi_instr;
@@ -78,6 +82,7 @@ module fv_icache_fetch
     .rst_ni,
     .flush_i,
     .invalidate_i,
+    .miss_allowed_i,
     .core_bus,
     .axi,
     .performance_o(  /* 未使用 */)
@@ -123,5 +128,53 @@ module fv_icache_fetch
     .core_bus,
     .rsp_word_addr_o(rsp_word_addr)
   );
+
+  // 独立 cover 任务要求确实走过等待、放行与取消后继续取指，避免只覆盖空闲。
+  always_ff @(posedge clk_i) begin
+    if (!rst_ni) begin
+      deferred_q <= 1'b0;
+      canceled_deferred_q <= 1'b0;
+    end else if (flush_i) begin
+      canceled_deferred_q <= canceled_deferred_q || deferred_q;
+      deferred_q <= 1'b0;
+    end else if (u_dut.miss.req_fire) deferred_q <= 1'b0;
+    else if (u_dut.lookup.valid && !u_dut.lookup.payload.hit && !miss_allowed_i)
+      deferred_q <= 1'b1;
+  end
+
+  DeferredMissStarts:
+  cover property (@(posedge clk_i) rst_ni && deferred_q && u_dut.miss.req_fire);
+  CanceledMissMakesProgress:
+  cover property (@(posedge clk_i) rst_ni && canceled_deferred_q && u_dut.miss.req_fire);
+  HitWithoutMissPermission:
+  cover property (@(posedge clk_i) rst_ni && !miss_allowed_i &&
+      u_dut.lookup.payload.hit && core_bus.rsp_fire);
+
+  // flush 无条件取消旧 lookup；已启动 miss 的首字必须在接新前排空。
+  FlushCancelsLookup:
+  assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !flush_i || (!u_dut.lookup.valid && !u_dut.miss.req_fire)));
+  CanceledMissBlocksRequests:
+  assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !u_dut.lookup_block || (!core_bus.req_ready && !core_bus.rsp_valid &&
+      u_dut.miss.rsp_ready)));
+
+  always_ff @(posedge clk_i) begin
+    if (!rst_ni) canceled_miss_drained_q <= 1'b0;
+    else if (u_dut.lookup_block && u_dut.miss.rsp_fire && !core_bus.rsp_ready)
+      canceled_miss_drained_q <= 1'b1;
+  end
+
+  FlushAcceptsReplacement:
+  cover property (@(posedge clk_i) rst_ni && flush_i &&
+      u_scoreboard.waiting_q && core_bus.req_fire);
+  FlushWhileAddressBlocked:
+  cover property (@(posedge clk_i) rst_ni && flush_i && u_dut.lookup_block &&
+      axi.arvalid && !axi.arready);
+  CanceledMissDrainsWithoutCpuReady:
+  cover property (@(posedge clk_i) rst_ni && u_dut.lookup_block &&
+      u_dut.miss.rsp_fire && !core_bus.rsp_ready);
+  DrainedMissMakesProgress:
+  cover property (@(posedge clk_i) rst_ni && canceled_miss_drained_q && core_bus.rsp_fire);
 
 endmodule

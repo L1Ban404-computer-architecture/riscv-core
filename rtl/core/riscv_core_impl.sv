@@ -19,7 +19,9 @@ module riscv_core_impl
 
   // 取消旧取指的延迟 redirect，以及 FENCE.I 执行时的取指状态失效请求。
   output logic imem_flush_o,
-  output logic imem_invalidate_o
+  output logic imem_invalidate_o,
+  // 仅许可启动新 miss；已启动回填不受影响。
+  output logic imem_miss_allowed_o
 `ifndef SYNTHESIS
   , output logic debug_retire_valid_o,
   output riscv_debug_pkg::retire_debug_payload_t debug_retire_o,
@@ -46,6 +48,9 @@ module riscv_core_impl
   gpr_read_if gpr_read ();
   id_ex_if forwarded ();
   gpr_write_if wb ();
+
+  // miss 等待时 IF/ID 没有新指令，已有 EX 可继续排空，无需记录分支确认状态。
+  assign imem_miss_allowed_o = rst_ni && !id_ex.valid;
 
   // 流水级与输出寄存器按 IF → ID → EX → MEM → WB 排列。
 

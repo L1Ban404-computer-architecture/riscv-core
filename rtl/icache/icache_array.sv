@@ -24,6 +24,7 @@ module icache_array
   // 全局控制与全阵列失效提交
   input logic clk_i,
   input logic rst_ni,
+  input logic flush_i,
   input logic invalidate_apply_i,
 
   // CPU 请求、读结果与回填
@@ -106,11 +107,12 @@ module icache_array
   assign lookup_push = core_bus.req_valid && core_bus.req_ready;
 
   stream_register #(
+    .AcceptInputOnFlush(1'b1),
     .T(lookup_payload_t)
   ) u_lookup_stream (
     .clk_i,
     .rst_ni,
-    .flush_i(1'b0),
+    .flush_i,
     .valid_i(core_bus.req_valid && !refill_line_conflict),
     .ready_o(lookup_stream_ready),
     .data_i(lookup_push_payload),
