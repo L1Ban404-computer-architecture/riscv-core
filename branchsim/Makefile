@@ -13,6 +13,7 @@ RUNNER_TRACE := $(BUILD_DIR)/runner-insttrace.bin
 TRACE ?= $(RUNNER_TRACE)
 SIM_REPORT := $(BUILD_DIR)/sim.log
 DSE_ARGS ?=
+SEPARATE_ARGS ?=
 
 YSYX_HOME ?= $(abspath ../..)
 AM_HOME ?= $(YSYX_HOME)/abstract-machine
@@ -30,6 +31,16 @@ BTB_WAYS ?= 2
 BTB_POLICY ?= rr
 PC_BITS ?= 8
 TARGET_BITS ?= 16
+RAS_ENTRIES ?= 0
+RAS_TARGET_BITS ?= 16
+RAS_MODE ?= btb
+RAS_FILTER_ENTRIES ?= 2
+BTB_LAYOUT ?= unified
+JUMP_BTB_SETS ?= 1
+JUMP_BTB_WAYS ?= 2
+SPLIT_PRIORITY ?= jump
+RET_PRIORITY ?= ret
+RAS_FILTER_PC_BITS ?= 0
 
 SRCS := $(sort $(wildcard src/*.cpp))
 OBJS := $(SRCS:%.cpp=$(OBJ_DIR)/%.o)
@@ -39,7 +50,11 @@ BRANCHSIM_CPPFLAGS := -Iinclude -I$(YSYX_HOME)/riscv-runner/api/include
 BRANCHSIM_CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -MMD -MP
 SIM_ARGS = --trace "$(TRACE)" --bht "$(BHT)" --bht-entries "$(BHT_ENTRIES)" --btb "$(BTB)" \
   --btb-sets "$(BTB_SETS)" --btb-ways "$(BTB_WAYS)" --btb-policy "$(BTB_POLICY)" \
-  --pc-bits "$(PC_BITS)" --target-bits "$(TARGET_BITS)"
+  --pc-bits "$(PC_BITS)" --target-bits "$(TARGET_BITS)" \
+  --ras-entries "$(RAS_ENTRIES)" --ras-target-bits "$(RAS_TARGET_BITS)" --ras-mode "$(RAS_MODE)" \
+  --ras-filter-entries "$(RAS_FILTER_ENTRIES)" --btb-layout "$(BTB_LAYOUT)" \
+  --jump-btb-sets "$(JUMP_BTB_SETS)" --jump-btb-ways "$(JUMP_BTB_WAYS)" --split-priority "$(SPLIT_PRIORITY)" \
+  --ret-priority "$(RET_PRIORITY)" --ras-filter-pc-bits "$(RAS_FILTER_PC_BITS)"
 
 branchsim: $(TARGET)
 
@@ -53,17 +68,24 @@ run: $(TARGET) $(TRACE)
 	$(PYTHON) -m dse --branchsim "$(abspath $(TARGET))" \
 	  --trace "$(abspath $(TRACE))" --build-dir "$(abspath $(BUILD_DIR))" $(DSE_ARGS)
 
+scan-separate: $(TARGET) $(TRACE)
+	$(PYTHON) -m dse.separate --grid --branchsim "$(abspath $(TARGET))" \
+	  --trace "$(abspath $(TRACE))" --output "$(abspath $(BUILD_DIR))/separate-grid" $(SEPARATE_ARGS)
+
 check-dse: $(TARGET)
 	BRANCHSIM="$(abspath $(TARGET))" $(PYTHON) -m unittest dse.test_dse
 
 check-model: $(MODEL_TEST) $(TARGET)
 	$(MODEL_TEST)
 	$(PYTHON) tests/check_alias_trace.py "$(abspath $(TARGET))"
+	$(PYTHON) tests/check_ras_trace.py "$(abspath $(TARGET))"
+	PYTHONPATH=. $(PYTHON) tests/check_split_trace.py "$(abspath $(TARGET))"
+	PYTHONPATH=. $(PYTHON) tests/check_separate_trace.py "$(abspath $(TARGET))"
 
-$(MODEL_TEST): tests/model.cpp src/btb.cpp src/bht.cpp src/predictor.cpp $(wildcard include/*.hpp)
+$(MODEL_TEST): tests/model.cpp src/btb.cpp src/bht.cpp src/predictor.cpp src/ras.cpp $(wildcard include/*.hpp)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(BRANCHSIM_CPPFLAGS) -std=c++17 -Wall -Wextra -Werror \
-	  -o $@ tests/model.cpp src/btb.cpp src/bht.cpp src/predictor.cpp $(LDFLAGS) $(LDLIBS)
+  -o $@ tests/model.cpp src/btb.cpp src/bht.cpp src/predictor.cpp src/ras.cpp $(LDFLAGS) $(LDLIBS)
 
 $(TRACE):
 	@mkdir -p "$(BUILD_DIR)"
@@ -88,4 +110,4 @@ clean:
 	-rm -rf $(BUILD_DIR)
 
 -include $(DEPS)
-.PHONY: branchsim sim run check-model check-dse clean
+.PHONY: branchsim sim run scan-separate check-model check-dse clean

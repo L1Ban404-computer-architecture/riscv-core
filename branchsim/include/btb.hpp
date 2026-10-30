@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-enum class BtbType { kBranch, kJal };
+enum class BtbType { kBranch, kJal, kReturn };
 
 struct BtbConfig {
   std::string method = "table";

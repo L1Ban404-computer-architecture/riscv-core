@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Branchsim · microbench 三表预测器扫描</title>
+<style>
+:root{color-scheme:light;--ink:#172033;--muted:#58657a;--line:#dce3ec;--blue:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:#f6f8fb;color:var(--ink);font:14px/1.55 system-ui,"Noto Sans CJK SC",sans-serif}
+main{max-width:1280px;margin:auto;padding:26px 24px 40px}h1{font-size:25px;line-height:1.3;margin:0 0 9px}h2{font-size:18px;margin:0 0 12px}
+p{margin:8px 0;color:var(--muted)}header{margin-bottom:20px}.eyebrow{font-size:12px;letter-spacing:.12em;color:#64748b;font-weight:700;margin-bottom:8px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.card,.panel{background:white;border:1px solid var(--line);border-radius:9px}.card{padding:14px 17px}.card span{display:block;color:var(--muted);font-size:12px}.card strong{font-size:25px;font-weight:650;font-variant-numeric:tabular-nums}.card small{display:block;color:var(--muted);font-size:12px}
+.panel{padding:18px;margin-bottom:16px}.filter-grid{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px 12px}.filter-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+input,select,button{font:inherit;border:1px solid #bcc8d8;border-radius:5px;padding:6px 9px;background:#fff;color:var(--ink)}button{cursor:pointer}button:hover{background:#eef3fb}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:3px solid #93b4fa;outline-offset:2px}
+.tools{display:flex;gap:12px 16px;align-items:center;flex-wrap:wrap;margin-top:14px}.tools label{display:inline-flex;align-items:center;gap:6px;font-size:13px}.tools input[type=number]{width:88px}.tools input[type=checkbox]{accent-color:var(--blue)}.tools .spacer{flex:1}a{color:#1d4ed8;text-underline-offset:3px}
+.encoding{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin:14px 0}.encoding label{display:flex;align-items:center;gap:7px}.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px}.legend button{border:0;padding:2px 4px;display:flex;align-items:center;gap:5px;background:transparent}.legend button:hover{background:#eef3fb}.swatch{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid #172033}
+.plot-wrap{overflow-x:auto}.plot-wrap svg{display:block}svg text{font-family:inherit;font-size:13px;fill:#536176}.point{cursor:pointer;outline:none}.point:hover,.point:focus{filter:drop-shadow(0 0 3px #64748b)}.point.selected>path,.point.selected>circle,.point.selected>rect{stroke:#111827;stroke-width:2.7}.point.front>path,.point.front>circle,.point.front>rect{stroke:#172033;stroke-width:1.5}
+.caption{font-size:12px;margin:10px 0 0}.empty{padding:40px 10px;text-align:center;color:var(--muted)}.note{padding:9px 12px;background:#f3f6fb;border-left:3px solid #8ca5c8;font-size:12px;margin-top:12px}
+.selected-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.selected-grid span{display:block;font-size:12px;color:var(--muted)}.selected-grid b{font-size:18px;font-variant-numeric:tabular-nums}.scroll{overflow:auto;max-height:510px}table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}th,td{padding:8px 10px;border-bottom:1px solid #e5eaf1;text-align:right}th{position:sticky;top:0;background:#edf2f8;cursor:pointer;z-index:1}th:first-child,td:first-child{text-align:left}tbody tr{cursor:pointer}tbody tr:hover{background:#edf3ff}tbody tr.front{background:#f3f8ee}tbody tr.selected{background:#e6efff}th:focus-visible,tr:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}
+#tip{display:none;position:fixed;z-index:10;pointer-events:none;white-space:pre-line;max-width:min(420px,calc(100vw - 20px));padding:11px 13px;background:#172033;color:white;border-radius:7px;font-size:12px;box-shadow:0 5px 18px #17203333}
+details{margin-top:15px}summary{cursor:pointer;font-weight:600}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fb;padding:12px;font-size:12px;color:#475569}.small{font-size:12px}.pill{display:inline-block;padding:2px 8px;border-radius:4px;background:#edf2f8;color:#475569;font-size:12px}
+@media(max-width:850px){.filter-grid{grid-template-columns:repeat(3,1fr)}.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){main{padding:18px 10px}.panel{padding:13px}.filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.selected-grid{grid-template-columns:repeat(2,1fr)}h1{font-size:21px}.card strong{font-size:22px}.tools{gap:9px}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="eyebrow">BRANCHSIM / DESIGN SPACE EXPLORATION</div>
+<h1>microbench：BRANCH / JAL / RET 三表扫描</h1>
+<p id="scope"></p><p id="ranges" class="small"></p></header>
+<div class="cards">
+<div class="card"><span>当前 RTL 基线 MPKI</span><strong id="baseline-mpki"></strong><small>BRANCH4 / JAL-RET2 / RAS1 · 206 位</small></div>
+<div class="card"><span>当前显示配置</span><strong id="visible-count"></strong><small id="total-count"></small></div>
+<div class="card"><span>筛选内最低 MPKI</span><strong id="best-mpki"></strong><small id="best-cost"></small></div>
+<div class="card"><span>当前前沿配置</span><strong id="front-count"></strong><small>更低存储、更低 MPKI</small></div>
+</div>
+<section class="panel" aria-label="图表筛选">
+<div id="filters" class="filter-grid"></div>
+<div class="tools">
+<label>预算上限 <input id="max-bits" type="number" min="0" step="1" aria-label="预算上限"> 位</label>
+<label>MPKI 从 <input id="min-mpki" type="number" min="0" step="any" placeholder="不限"></label>
+<label>至 <input id="max-mpki" type="number" min="0" step="any" placeholder="不限"></label>
+<label>前沿 <select id="front-mode"><option value="visible">当前筛选</option><option value="global">全局前沿内的可见点</option><option value="none">隐藏</option></select></label>
+<label><input id="only-front" type="checkbox">仅看前沿</label>
+<label><input id="fit" type="checkbox" checked>按筛选缩放</label>
+<button id="reset" type="button">重置</button><button id="download" type="button">下载当前筛选 CSV</button>
+</div>
+</section>
+<section class="panel">
+<h2>逻辑存储与总误预测</h2>
+<div class="encoding"><label>颜色 <select id="color-by"></select></label><label>形状 <select id="shape-by"></select></label><div id="color-legend" class="legend"></div><div id="shape-legend" class="legend"></div></div>
+<div id="plot-wrap" class="plot-wrap"><svg id="plot" role="img" aria-label="预测器逻辑存储位数与 MPKI 散点图"></svg></div>
+<div id="empty" class="empty" hidden>当前条件下没有配置。</div>
+<p id="count" class="caption" aria-live="polite"></p>
+<p class="caption">左下方更优。虚线连接非支配配置；★ 为当前 RTL，◇ 为历史基线。悬停或键盘聚焦查看点值，点击选择配置；重合点不做数值抖动，可在表格逐一选择。</p>
+<div class="note">横轴是预测器逻辑存储位数，包含 BRANCH/JAL 表、RET 标签、BHT、RAS 与替换状态，不是综合面积。纵轴包含普通指令假跳转；基线参考线仅在坐标范围内显示。</div>
+</section>
+<section class="panel" id="selection-panel">
+<h2 id="selected-title">选中配置</h2>
+<div class="selected-grid" id="selected-metrics"></div>
+<div class="plot-wrap"><svg id="breakdown" role="img" aria-label="选中配置与当前 RTL 的误预测构成对比"></svg></div>
+<div id="error-legend" class="legend"></div>
+<details><summary>复现命令与原始计数</summary><pre id="command"></pre><pre id="counts"></pre><a id="raw-log">查看该配置原始日志</a></details>
+</section>
+<section class="panel"><h2>配置明细 <span class="pill">点击列标题排序</span></h2><div class="scroll"><table id="table"><thead><tr id="columns"></tr></thead><tbody id="results"></tbody></table></div></section>
+<section class="panel"><details><summary>扫描范围、成本公式与输入指纹</summary>
+<p>所有配置使用同一条 microbench train 退休轨迹，从空表开始，先预测后训练；预测阶段只读 PC 与历史状态。P/T 为 10/16，Bimodal16、RR、单组全相联；RET 标签宽度独立扫描。</p>
+<pre>BRANCH = B × (1 + P + 15) + ceil(log₂ B)
+JAL = J × (1 + P + 14) + ceil(log₂ J)
+RET = R × (1 + P_ret) + ceil(log₂ R)
+RAS = D × 14 + ceil(log₂ D) + ceil(log₂(D+1))
+总存储 = BRANCH + JAL + RET + RAS + BHT32</pre>
+<p>RET 只存 PC 标签，不存目标；目标来自 RAS。默认仲裁 RET &gt; JAL &gt; BRANCH，空栈 RET 命中时顺序预测。RAS 满时覆盖最老项、空 pop 保持空；x1/x5 提示和非零 JALR 立即数按模型规则处理。</p>
+<p>MPKI = 总误预测次数 ÷ 退休指令数 × 1000；相对改善使用当前 RTL 配置的错误数为分母。所有组共享相同的退休指令分母，不对各配置比率取平均。结果是该轨迹上的顺序回放，不包含流水线训练延迟、错误路径、异常清栈或综合时序，不能直接换算为 IPC。</p>
+<pre id="provenance"></pre><p><a href="results.csv" download>全部原始数据 CSV</a> · <a href="results.md">扫描摘要</a> · <a href="inputs.json">输入与计划 JSON</a></p>
+</details></section>
+</main>
+<div id="tip" role="tooltip"></div>
+<script id="dse-data" type="application/json">__PAYLOAD__</script>
+<script>
+"use strict";
+const payload=JSON.parse(document.getElementById('dse-data').textContent);
+const baseline=payload.rows.find(r=>r.name==='current-b4-jr2-d1');
+if(!baseline)throw new Error('missing current RTL baseline');
+const baselineId=baseline.name, ns='http://www.w3.org/2000/svg', byId=id=>document.getElementById(id);
+const format=n=>Number(n).toLocaleString('en-US'), fixed=n=>Number(n).toFixed(6);
+const rows=payload.rows.map(r=>({...r,branch_entries:r.sets*r.ways,jal_entries:r.jump_sets*r.jump_ways,
+ ret_entries:r.mode==='filter'?r.filters:0,ret_bits:r.return_tag_bits,
+ architecture:r.family==='triple'?'三表':r.name===baselineId?'当前 RTL':r.name==='old-unified4'?'旧统一 BTB':'B/J 共享＋RET 标签'}));
+const fields=[['architecture','结构'],['branch_entries','BRANCH 项'],['jal_entries','JAL 项'],['ret_entries','RET 标签项'],['depth','RAS 深度'],['ret_bits','RET 标签位宽']];
+const palette=['#2563eb','#a16207','#ea580c','#4d7c0f','#be185d','#64748b'];
+const columns=[['name','配置'],['compact_bits','存储位'],['mpki','MPKI'],['miss_reduction_pct','误预测减少 %'],['branch_entries','BRANCH'],['jal_entries','JAL'],['ret_entries','RET'],['depth','RAS'],['ret_bits','RET 位宽'],['branches_misses','BRANCH 错误'],['jals_misses','JAL 错误'],['returns_misses','RET 错误'],['non_control_flow_misses','普通指令错误'],['total_misses','总错误']];
+const errors=[['branches','BRANCH','#2563eb'],['jals','JAL','#a16207'],['returns','RET','#ea580c'],['other_jalr','其他 JALR','#4d7c0f'],['non_control_flow','普通指令','#be185d']];
+let selectedId=baselineId,sortField='compact_bits',ascending=true,visible=[],frontSet=new Set(),positions=[];
+const allValues=key=>Array.from(new Set(rows.map(r=>r[key]))).sort((a,b)=>typeof a==='number'?a-b:String(a).localeCompare(String(b)));
+const configLabel=r=>r.family==='triple'?`B${r.branch_entries} J${r.jal_entries} R${r.ret_entries} S${r.depth} · PR${r.ret_bits}`:r.architecture;
+function element(tag,attrs={},text=''){const el=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);if(text)el.textContent=text;return el}
+function pareto(list){const out=new Set();let best=Infinity;const sorted=[...list].sort((a,b)=>a.compact_bits-b.compact_bits||a.total_misses-b.total_misses);let i=0;
+ while(i<sorted.length){let j=i;while(j<sorted.length&&sorted[j].compact_bits===sorted[i].compact_bits)j++;const m=sorted[i].total_misses;if(m<best){for(let k=i;k<j;k++)if(sorted[k].total_misses===m)out.add(sorted[k].name);best=m}i=j}return out}
+const globalFront=pareto(rows);
+for(const[key,label]of fields){const wrapper=document.createElement('label');wrapper.textContent=label;const select=document.createElement('select');select.dataset.filter=key;select.setAttribute('aria-label',label);select.add(new Option('全部',''));for(const value of allValues(key))select.add(new Option(String(value),String(value)));wrapper.append(select);byId('filters').append(wrapper);select.addEventListener('change',render)}
+for(const id of ['color-by','shape-by'])for(const[key,label]of fields)byId(id).add(new Option(label,key));
+byId('color-by').value='ret_bits';byId('shape-by').value='depth';byId('max-bits').value=payload.provenance.ff_budget;
+byId('baseline-mpki').textContent=fixed(baseline.mpki);byId('total-count').textContent=`全部 ${rows.length} 个配置`;
+const search=payload.provenance.search;
+byId('scope').textContent=`microbench train · RV32E · ${format(baseline.instructions)} 条退休指令 · ${rows.length} 个完整回放结果 · 空表启动`;
+byId('ranges').textContent=`BRANCH ${search.branch_entries.join('/')} 项；JAL ${search.jal_entries.join('/')} 项；RET ${search.ret_entries.join('/')} 项；RAS ${search.ras_depths.join('/')} 项；RET 标签 ${search.ret_tag_bits.join('/')} 位；预算 ≤ ${search.ff_budget} 位。另含 3 个参考基线。`;
+byId('provenance').textContent=JSON.stringify(payload.provenance,null,2);
+for(const[key,label]of columns){const th=document.createElement('th');th.dataset.sort=key;th.scope='col';th.tabIndex=0;th.textContent=label;const sort=()=>{ascending=sortField===key?!ascending:true;sortField=key;renderTable()};th.addEventListener('click',sort);th.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sort()}});byId('columns').append(th)}
+function numeric(id,fallback){const v=byId(id).value.trim();return v===''?fallback:Number(v)}
+function filtered(){const max=numeric('max-bits',Infinity),lo=numeric('min-mpki',-Infinity),hi=numeric('max-mpki',Infinity);return rows.filter(r=>r.compact_bits<=max&&r.mpki>=lo&&r.mpki<=hi&&Array.from(document.querySelectorAll('[data-filter]')).every(s=>s.value===''||String(r[s.dataset.filter])===s.value))}
+function color(r){if(r.family!=='triple')return r.name===baselineId?'#172033':'#64748b';const key=byId('color-by').value;return palette[allValues(key).filter(v=>rows.some(x=>x.family==='triple'&&x[key]===v)).indexOf(r[key])%palette.length]}
+function shape(r){if(r.family!=='triple')return r.name===baselineId?'star':'diamond';const key=byId('shape-by').value,values=allValues(key).filter(v=>rows.some(x=>x.family==='triple'&&x[key]===v));return ['circle','square','triangle','diamond','cross'][values.indexOf(r[key])%5]}
+function mark(kind,fill,size=5){if(kind==='circle')return element('circle',{r:size,fill,stroke:'#fff','stroke-width':.8});if(kind==='square')return element('rect',{x:-size,y:-size,width:2*size,height:2*size,fill,stroke:'#fff','stroke-width':.8});const paths={triangle:`M 0 ${-size-1} L ${size+1} ${size} L ${-size-1} ${size} Z`,diamond:`M 0 ${-size-1} L ${size+1} 0 L 0 ${size+1} L ${-size-1} 0 Z`,cross:`M ${-size} -2 H -2 V ${-size} H 2 V -2 H ${size} V 2 H 2 V ${size} H -2 V 2 H ${-size} Z`,star:'M0 -9 L2.5 -3 L9 -3 L4 1 L6 8 L0 4 L-6 8 L-4 1 L-9 -3 L-2.5 -3 Z'};return element('path',{d:paths[kind],fill,stroke:'#fff','stroke-width':.8})}
+function drawLegend(){for(const id of ['color-legend','shape-legend'])byId(id).replaceChildren();for(const[type,id]of [['color','color-legend'],['shape','shape-legend']]){const key=byId(type==='color'?'color-by':'shape-by').value;for(const v of allValues(key)){const exemplar=rows.find(r=>r.family==='triple'&&r[key]===v);if(!exemplar)continue;const button=document.createElement('button');button.type='button';const icon=element('svg',{width:18,height:18,viewBox:'-10 -10 20 20','aria-hidden':true});icon.append(mark(type==='color'?'circle':shape(exemplar),type==='color'?color(exemplar):'#64748b',4));button.append(icon,document.createTextNode(String(v)));button.addEventListener('click',()=>{const s=document.querySelector(`[data-filter="${key}"]`);s.value=s.value===String(v)?'':String(v);render()});byId(id).append(button)}}}
+function ticks(min,max){const range=max-min||1,raw=range/5,p=Math.pow(10,Math.floor(Math.log10(raw))),f=raw/p,step=(f<=1?1:f<=2?2:f<=5?5:10)*p;const out=[];for(let v=Math.ceil(min/step)*step;v<=max+step*1e-6;v+=step)out.push(Number(v.toFixed(8)));return out}
+function showTip(r,event){const same=positions.filter(p=>p.r.compact_bits===r.compact_bits&&p.r.total_misses===r.total_misses);const text=[configLabel(r),`${r.compact_bits} 位 · MPKI ${fixed(r.mpki)}`,`总错误 ${format(r.total_misses)}；相对当前 RTL ${r.miss_reduction_pct>=0?'减少':'增加'} ${Math.abs(r.miss_reduction_pct).toFixed(3)}%`,`B ${format(r.branches_misses)} / J ${format(r.jals_misses)} / RET ${format(r.returns_misses)}`,`普通指令错误 ${format(r.non_control_flow_misses)}`];if(same.length>1)text.push(`同一坐标 ${same.length} 个配置：`,...same.slice(0,5).map(p=>configLabel(p.r)));const tip=byId('tip');tip.textContent=text.join('\n');tip.style.display='block';const rect=event.currentTarget.getBoundingClientRect(),x=event.clientX||rect.right,y=event.clientY||rect.top;tip.style.left=`${Math.max(8,Math.min(innerWidth-tip.offsetWidth-8,x+12))}px`;tip.style.top=`${Math.max(8,Math.min(innerHeight-tip.offsetHeight-8,y+12))}px`}
+function hideTip(){byId('tip').style.display='none'}
+function selectRow(id){selectedId=id;document.querySelectorAll('[data-row]').forEach(el=>el.classList.toggle('selected',el.dataset.row===id));renderSelection()}
+function renderPlot(){byId('plot-wrap').hidden=visible.length===0;const svg=byId('plot'),W=Math.max(680,byId('plot-wrap').clientWidth),H=440,L=76,R=25,T=24,B=60;svg.replaceChildren();svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('width',W);svg.setAttribute('height',H);positions=[];byId('empty').hidden=visible.length!==0;if(!visible.length)return;
+ const scaleRows=byId('fit').checked?visible:rows;let xmin=Math.min(...scaleRows.map(r=>r.compact_bits)),xmax=Math.max(...scaleRows.map(r=>r.compact_bits)),ymin=Math.min(...scaleRows.map(r=>r.mpki)),ymax=Math.max(...scaleRows.map(r=>r.mpki));const xp=Math.max(6,(xmax-xmin)*.045),yp=Math.max(.15,(ymax-ymin)*.08);xmin=Math.max(0,xmin-xp);xmax+=xp;ymin=Math.max(0,ymin-yp);ymax+=yp;const x=v=>L+(v-xmin)/(xmax-xmin)*(W-L-R),y=v=>H-B-(v-ymin)/(ymax-ymin)*(H-T-B);
+ for(const v of ticks(ymin,ymax)){svg.append(element('line',{x1:L,x2:W-R,y1:y(v),y2:y(v),stroke:'#e3e9f1'}),element('text',{x:L-10,y:y(v)+4,'text-anchor':'end'},v.toFixed(ymax-ymin<2?2:1)))}
+ for(const v of ticks(xmin,xmax)){svg.append(element('line',{x1:x(v),x2:x(v),y1:T,y2:H-B,stroke:'#edf1f6'}),element('text',{x:x(v),y:H-B+22,'text-anchor':'middle'},String(v)))}
+ svg.append(element('line',{x1:L,x2:W-R,y1:H-B,y2:H-B,stroke:'#7c8ba1'}),element('line',{x1:L,x2:L,y1:T,y2:H-B,stroke:'#7c8ba1'}));
+ if(baseline.mpki>=ymin&&baseline.mpki<=ymax){svg.append(element('line',{x1:L,x2:W-R,y1:y(baseline.mpki),y2:y(baseline.mpki),stroke:'#475569','stroke-dasharray':'5 5'}),element('text',{x:W-R-2,y:y(baseline.mpki)-7,'text-anchor':'end'},`当前 RTL ${fixed(baseline.mpki)}`))}
+ if(baseline.compact_bits>=xmin&&baseline.compact_bits<=xmax)svg.append(element('line',{x1:x(baseline.compact_bits),x2:x(baseline.compact_bits),y1:T,y2:H-B,stroke:'#94a3b8','stroke-dasharray':'3 5'}));
+ const frontier=visible.filter(r=>frontSet.has(r.name)).sort((a,b)=>a.compact_bits-b.compact_bits||a.total_misses-b.total_misses);const unique=frontier.filter((r,i)=>!i||r.compact_bits!==frontier[i-1].compact_bits||r.total_misses!==frontier[i-1].total_misses);
+ if(byId('front-mode').value!=='none'&&unique.length>1)svg.append(element('polyline',{points:unique.map(r=>`${x(r.compact_bits)},${y(r.mpki)}`).join(' '),fill:'none',stroke:'#334155','stroke-width':1.5,'stroke-dasharray':'5 5'}));
+ for(const r of [...visible].sort((a,b)=>(a.family!=='triple')-(b.family!=='triple'))){const g=element('g',{transform:`translate(${x(r.compact_bits)} ${y(r.mpki)})`,class:`point${frontSet.has(r.name)?' front':''}${r.name===selectedId?' selected':''}`,tabindex:0,role:'button','aria-label':`${configLabel(r)}，${r.compact_bits} 位，MPKI ${fixed(r.mpki)}`,'data-row':r.name});g.append(mark(shape(r),color(r),r.family==='triple'?4.4:6));g.addEventListener('pointerenter',e=>showTip(r,e));g.addEventListener('pointermove',e=>showTip(r,e));g.addEventListener('pointerleave',hideTip);g.addEventListener('focus',e=>showTip(r,e));g.addEventListener('blur',hideTip);g.addEventListener('click',()=>selectRow(r.name));g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectRow(r.name)}});svg.append(g);positions.push({r,x:x(r.compact_bits),y:y(r.mpki)})}
+ svg.append(element('text',{x:(L+W-R)/2,y:H-12,'text-anchor':'middle'},'预测器逻辑存储（位，含 BHT / RAS / 替换状态）'),element('text',{x:19,y:(T+H-B)/2,'text-anchor':'middle',transform:`rotate(-90 19 ${(T+H-B)/2})`},'总误预测 / 千条退休指令（MPKI）'));
+}
+function renderTable(){const tbody=byId('results');tbody.replaceChildren();const sorted=[...visible].sort((a,b)=>{const v=typeof a[sortField]==='number'?a[sortField]-b[sortField]:String(a[sortField]).localeCompare(String(b[sortField]));return(ascending?1:-1)*v||a.name.localeCompare(b.name)});for(const r of sorted){const tr=document.createElement('tr');tr.dataset.row=r.name;tr.tabIndex=0;tr.classList.toggle('front',frontSet.has(r.name));tr.classList.toggle('selected',selectedId===r.name);for(const[key]of columns){const td=document.createElement('td');td.textContent=key==='name'?configLabel(r):key==='mpki'?fixed(r[key]):key==='miss_reduction_pct'?r[key].toFixed(3):format(r[key]);tr.append(td)}tr.addEventListener('click',()=>selectRow(r.name));tr.addEventListener('keydown',e=>{if(e.key==='Enter')selectRow(r.name)});tbody.append(tr)}for(const th of document.querySelectorAll('[data-sort]'))th.setAttribute('aria-sort',th.dataset.sort===sortField?(ascending?'ascending':'descending'):'none')}
+function renderSelection(){const r=rows.find(x=>x.name===selectedId);byId('selection-panel').hidden=!r;if(!r)return;byId('selected-title').textContent=`选中配置 · ${configLabel(r)}`;const metrics=byId('selected-metrics');metrics.replaceChildren();for(const[label,value]of [['逻辑存储',`${r.compact_bits} 位`],['MPKI',fixed(r.mpki)],['相对当前 RTL 错误减少',`${r.miss_reduction_pct.toFixed(3)}%`],['总误预测',format(r.total_misses)]]){const box=document.createElement('div'),span=document.createElement('span'),b=document.createElement('b');span.textContent=label;b.textContent=value;box.append(span,b);metrics.append(box)}
+ const svg=byId('breakdown'),W=800,H=150,L=140,R=80,max=Math.max(r.mpki,baseline.mpki)*1.03;svg.replaceChildren();svg.setAttribute('width',W);svg.setAttribute('height',H);svg.setAttribute('viewBox',`0 0 ${W} ${H}`);for(const[item,i]of [[baseline,0],[r,1]]){const yy=20+i*44;svg.append(element('text',{x:L-10,y:yy+18,'text-anchor':'end'},i?'选中配置':'当前 RTL'));let start=0;for(const[key,label,fill]of errors){const value=item[`${key}_misses`]*1000/item.instructions,width=value/max*(W-L-R),rect=element('rect',{x:L+start,y:yy,width,height:26,fill});rect.append(element('title',{},`${label}: ${format(item[`${key}_misses`])} 次 / ${fixed(value)} MPKI`));svg.append(rect);start+=width}svg.append(element('text',{x:L+start+8,y:yy+18},item.mpki.toFixed(4)))}for(const v of ticks(0,max))svg.append(element('text',{x:L+v/max*(W-L-R),y:127,'text-anchor':'middle'},v.toFixed(0)));svg.append(element('line',{x1:L,x2:W-R,y1:106,y2:106,stroke:'#94a3b8'}));
+ byId('error-legend').replaceChildren();for(const[,label,fill]of errors){const el=document.createElement('span'),swatch=document.createElement('i');swatch.className='swatch';swatch.style.background=fill;el.append(swatch,document.createTextNode(` ${label}`));byId('error-legend').append(el)}
+ const command=[payload.provenance.branchsim.path,'--trace',JSON.stringify(payload.provenance.trace.path),'--bht bimodal --bht-entries 16','--btb-sets',r.sets,'--btb-ways',r.ways,'--pc-bits',r.pc_bits,'--target-bits 16','--btb-layout',r.layout,'--jump-btb-sets',r.jump_sets||1,'--jump-btb-ways',r.jump_ways||2,'--ras-mode',r.mode,'--ras-entries',r.depth,'--ras-target-bits',r.width,'--ras-filter-entries',r.filters||1,'--ras-filter-pc-bits',r.ret_tag_bits||0,'--ret-priority',r.ret_priority||'ret'].join(' ');byId('command').textContent=command;byId('counts').textContent=JSON.stringify(Object.fromEntries(Object.entries(r).filter(([key])=>key.endsWith('_misses')||['instructions','ras_available','ras_correct','return_conflicts','btb_conflicts'].includes(key))),null,2);byId('raw-log').href=`${r.name}.log`;
+}
+function render(){hideTip();let candidates=filtered();frontSet=byId('front-mode').value==='global'?globalFront:pareto(candidates);visible=byId('only-front').checked?candidates.filter(r=>frontSet.has(r.name)):candidates;if(!visible.some(r=>r.name===selectedId))selectedId=visible.length?[...visible].sort((a,b)=>a.total_misses-b.total_misses||a.compact_bits-b.compact_bits)[0].name:null;byId('visible-count').textContent=format(visible.length);const best=visible.length?[...visible].sort((a,b)=>a.total_misses-b.total_misses||a.compact_bits-b.compact_bits)[0]:null;byId('best-mpki').textContent=best?fixed(best.mpki):'—';byId('best-cost').textContent=best?`${best.compact_bits} 位 · ${configLabel(best)}`:'没有匹配配置';byId('front-count').textContent=format(visible.filter(r=>frontSet.has(r.name)).length);byId('count').textContent=`显示 ${visible.length} / ${rows.length} 个配置。散点、明细表和筛选 CSV 使用相同范围。`;drawLegend();renderPlot();renderTable();renderSelection()}
+for(const id of ['max-bits','min-mpki','max-mpki'])byId(id).addEventListener('input',render);for(const id of ['front-mode','fit','color-by','shape-by'])byId(id).addEventListener('change',render);byId('only-front').addEventListener('change',()=>{if(byId('only-front').checked&&byId('front-mode').value==='none')byId('front-mode').value='visible';render()});
+byId('reset').addEventListener('click',()=>{document.querySelectorAll('[data-filter]').forEach(s=>s.value='');byId('max-bits').value=payload.provenance.ff_budget;byId('min-mpki').value='';byId('max-mpki').value='';byId('only-front').checked=false;byId('front-mode').value='visible';byId('fit').checked=true;byId('color-by').value='ret_bits';byId('shape-by').value='depth';selectedId=baselineId;render()});
+byId('download').addEventListener('click',()=>{const keys=Object.keys(payload.rows[0]),quote=v=>`"${String(v??'').replaceAll('"','""')}"`;const csv=[keys.map(quote).join(','),...visible.map(r=>keys.map(k=>quote(r[k])).join(','))].join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='microbench-three-btb-filtered.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
+let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderPlot,80)});render();
+</script>
+</body></html>

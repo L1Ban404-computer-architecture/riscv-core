@@ -1,5 +1,61 @@
 # Branchsim：分支方向预测与存储预算扫描
 
+可选的小容量 RAS 默认关闭，支持共享 BTB、独立 return 标签和理想识别对照。以拆分改造前的 P10/T16、4 项 BTB、BHT16 为基线，实测和成本见 [RAS 研究](ras-study.md)：microbench 上增加 1 项 RAS＋1 项标签共 26 位，误预测减少 7.75%；已有 RT-Thread 轨迹的同配置收益接近零。原 DSE 默认网格保持不变。
+
+进一步支持 BRANCH 独立 BTB、JAL/RET 共享 BTB，见 [双 BTB 研究](split-study.md)。保留 4 项 BRANCH、增加 2 项 JAL/RET 和 1 项 RAS 时，microbench MPKI 为 65.397565，总存储 208 位；直接将原 4 项平分会退化。RT-Thread 的结果依赖 JAL/RET 表的组路组织。
+
+## microbench 三表交互扫描
+
+本轮只看 **microbench train**，将 BRANCH、JAL、RET 识别表完全分开。RET 表只存标签，目标来自 RAS。交付：[交互数据图](build/separate-grid/dse.html)、[全部 CSV](build/separate-grid/results.csv)、[预算摘要](build/separate-grid/results.md)、[输入指纹与计划](build/separate-grid/inputs.json)。HTML 内嵌全部数据和脚本，可离线打开。
+
+固定 RV32E、B/J 标签 P10、目标 T16、Bimodal16、单组全相联 RR、RET > JAL > BRANCH 仲裁，完整枚举：
+
+| 参数 | 扫描范围 |
+| --- | --- |
+| BRANCH BTB | 2 / 4 / 8 项 |
+| JAL BTB | 1 / 2 / 4 项 |
+| RET 标签表 | 1 / 2 / 4 / 8 项 |
+| RAS | 1 / 2 / 4 项 |
+| RET 标签位宽 | 10 / 11 / 12 位，独立于 B/J 标签 |
+| 总逻辑存储 | 不超过 360 位，含 BHT、RAS 与替换状态 |
+
+原始网格 324 个组合，预算过滤后保留 **247 个三表配置**，加扫描时的 RTL 参数、改造前统一 BTB、B/J 共享加 RET 标签三个参考点，共 **250 点**。所有点使用同一条 **191,477,451** 条退休指令的完整轨迹，从空表开始，不按真实指令类型选择查询表。网页与 CSV 保留扫描时的基线：其中“当前 RTL”指当时的 206 位共享 JAL/RET 实现；现已落地的 266 位配置见下文。
+
+范围依据此前 microbench 试扫：BRANCH1 明显容量不足；JAL4 已进入较高命中率区间，JAL8 与 BRANCH4 搭配的最低成本为 367 位，超过预算；RET8 对单项 RAS 的有效返回覆盖已接近饱和。RAS 先覆盖少量条目的 1/2/4 项，RET 标签按单个位递增，以观察假命中与成本的变化。命令行可显式扩展范围。
+
+| 配置：BRANCH / JAL / RET / RAS，RET 标签位宽 | 存储位 | MPKI | 相对扫描时 RTL 错误减少 |
+| --- | ---: | ---: | ---: |
+| 扫描基线：BRANCH4 / 共享 JAL-RET2 / RAS1 | 206 | 65.397565 | — |
+| 4 / 1 / 1 / 1，10 位 | 189 | 65.447221 | -0.076% |
+| 4 / 1 / 2 / 1，10 位 | 201 | 65.295124 | 0.157% |
+| 4 / 1 / 1 / 2，11 位 | 206 | 65.232898 | 0.252% |
+| 4 / 2 / 4 / 1，10 位 | 250 | 63.709873 | 2.581% |
+| **已落地：4 / 2 / 4 / 2，10 位** | **266** | **62.982111** | **3.693%** |
+| 8 / 2 / 4 / 1，11 位 | 359 | 61.130598 | 6.525% |
+
+表中 206 位和 359 位方案分别为本轮网格在相应预算下的最低 MPKI。全部配置均保留在网页中，包括退化点；可筛选容量、RET 标签和 RAS 深度，切换颜色/形状、当前/全局 Pareto 前沿，排序明细表并导出当前筛选 CSV。点击散点可对比与当前参数的错误构成、查看完整计数及复现命令。
+
+从 `riscv-core/` 执行：
+
+```sh
+# 完整网格；已有轨迹直接复用，缺失时沿当前契约采集 microbench train。
+make -C branchsim scan-separate
+
+# 只重建网页；必须使用与原扫描相同的范围参数。
+make -C branchsim scan-separate SEPARATE_ARGS='--report-only'
+
+# 收紧预算和容量区间。
+make -C branchsim scan-separate \
+  SEPARATE_ARGS='--ff-budget 260 --branch-entries 4 8 --jal-entries 1 2 --ret-entries 1 2 4 --ras-depths 1 2'
+
+# 模型、真实 CLI、扫描与网页导出回归。
+make -C branchsim check-model check-dse
+```
+
+`--reuse-dir` 可复用同一轨迹与模拟器二进制的既有点；复用前核对 SHA-256、实际配置、原始日志与 CSV 整数计数。本轮复用 57 点、补跑 193 点，再用 `--report-only` 核对全部 250 点。图和 CSV 的成本字段统一为 `compact_bits`，按当前 RTL 的紧凑格式扣除 JAL 目标恒零的 bit 1。
+
+坐标是逻辑存储和退休轨迹 MPKI，不是综合面积或整机 IPC；不模拟流水线训练延迟、错误路径与独立异常事件。所有误预测均计入，包括普通指令的标签假跳转。扫描阶段未修改 RTL；随后按用户选定的 B4 J2 R4 S2 · PR10 接入 RTL。
+
 BTB 支持参数化的原 PC 标签位宽 `P` 和目标 PC 低位宽度 `T`。批量扫描默认只测 **Bimodal/RR**，遍历 **BHT 4/8/16/32 项、P=8/12/16/20、T=8/12/16/20/24**，BTB、BHT 与替换状态的总逻辑存储预算为 **360 位**，比较容量分配、标签混叠及错误目标对 MPKI 的影响。单配置 `sim` 的默认参数独立于扫描网格，仍为 BTFN、P=8/T=16。
 
 ## 预测与训练
@@ -55,7 +111,28 @@ BHT 触发器数 = Bimodal: 2 × M；BTFN/not-taken: 0
 
 核算保留标签中的组索引重合位，以及目标字段的低两位对齐位，不做综合常量或冗余消除；因此它描述逻辑存储成本，综合后的 DFF 单元数、面积和时序需要另测。软件 `Entry` 的 `uint32_t` 容器大小不计入硬件成本。
 
-## 对应的 RTL 实现
+## 当前 RTL 实现：B4 J2 R4 S2 · PR10
+
+RTL 已接入 **BRANCH BTB4＋JAL BTB2＋RET 标签4＋RAS2**，保持 P10/T16、Bimodal[16]、单组 RR。查询优先级为 RET > JAL > BRANCH，RET 命中但栈空时不回退到其他表；RAS 在 EX 有效握手且无最终异常时更新，无写入旁路。满栈覆盖最老项，pop+push 先弹后压。
+
+RET 表只保存标签，JAL 表不保存类型位；JAL 目标与 RAS 去掉恒零的 bit 1，逻辑存储合计 **266 位**，与扫描的紧凑成本一致。预测快照仍为 16 位，训练总线仍为 44 位。返回匹配直接比较 rs1 与重建的完整预测目标，其他 JALR 继续重定向。ID 的两个 RAS 动作位及前递路径沿用上一版。
+
+对应本工具的复现命令：
+
+```sh
+branchsim/build/branchsim --trace branchsim/build/runner-insttrace.bin \
+  --bht bimodal --bht-entries 16 --btb-sets 1 --btb-ways 4 --pc-bits 10 --target-bits 16 \
+  --btb-layout split --jump-btb-sets 1 --jump-btb-ways 2 \
+  --ras-mode filter --ras-filter-entries 4 --ras-filter-pc-bits 10 \
+  --ras-entries 2 --ras-target-bits 16 --ret-priority ret
+make check-branch-trace RVE=1
+```
+
+RTL 预测器在完整 microbench train 的 **191,477,451 条指令**上与 branchsim 逐条一致，MPKI **62.982111**，总错误 **12,059,654**，BRANCH/JAL/RET 错误分别为 **10,972,191 / 389,636 / 93,617**，普通指令错误 **57,932**。逐条比对采用退休顺序即时训练，用于验证所选预测器配置；整机流水线的差分功能测试另外进行。
+
+实现、冗余清理、验证和本轮综合结果见 [RTL 说明](../rtl/README.md)。下面保留统一 BTB 改造阶段的历史记录。
+
+## 此前的 RTL 实现与综合记录（统一 BTB）
 
 核心默认采用 **Bimodal[16]、1 组 4 路 RR、P=10/T=16**，配置集中在 [`riscv_core_pkg.sv`](../rtl/core/riscv_core_pkg.sv)。P10 不在当前批量扫描的默认网格内；单独回放同一 microbench train 轨迹得到 MPKI **73.024917**，按扫描统一格式计费为 150 位。此前 P12 单组配置为 158 位、MPKI 72.756013。[`branch_predictor.sv`](../rtl/core/units/branch_predictor.sv) 管理 BTB、RR 指针和 BHT；IF 负责采纳并锁存预测，当前临时旁路 IF/ID 缓冲，快照随取指回应直达 ID，再经 ID/EX 送到 EX；EX 负责执行、纠错和筛选训练事件。
 

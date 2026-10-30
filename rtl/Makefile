@@ -48,9 +48,6 @@ SLANG_FLAGS := $(ISA_FLAGS) -D SYNTHESIS --single-unit --top $(TOP)
 check:
 	$(YOSYS) -p 'plugin -i slang; read_slang $(SLANG_FLAGS) $(HDL_SRCS)'
 
-# slang 与工艺映射在同一 Yosys 进程中执行，避免导出 Verilog 后重新解析。
-# 上游映射脚本传入空源文件列表，直接使用当前进程已加载的设计。
-# 面积预算按讲义使用 nangate45；可覆盖 PDK=icsprout55 做对照。
 perf:
 	mkdir -p "$(PERF_DIR)"
 	$(YOSYS) -Q -l "$(PERF_DIR)/yosys.log" -p 'plugin -i slang; read_slang $(SLANG_FLAGS) $(SLANG_PARAMS) --ignore-assertions $(HDL_SRCS); proc; bwmuxmap; tcl $(YOSYS_STA_HOME)/scripts/yosys.tcl $(TOP) $(PDK) "" $(PERF_NETLIST)'

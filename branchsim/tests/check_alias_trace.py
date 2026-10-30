@@ -17,19 +17,21 @@ def jal(offset):
             ((value >> 11) & 1) << 20 | ((value >> 12) & 0xff) << 12 | 0x6f)
 
 
-def replay(binary, directory, records, pc_bits=8, target_bits=16, ways=1):
+def replay(binary, directory, records, pc_bits=8, target_bits=16, ways=1, extra=()):
     trace = directory / "trace.bin"
     header = struct.pack("<4sHHHBBIQ", b"ITRC", 1, 24, 26, 32, 4, 16, 0)
     trace.write_bytes(header + b"".join(struct.pack("<QIIIIBB", i, *record)
                                       for i, record in enumerate(records, 1)))
     result = subprocess.run([str(binary), "--trace", str(trace), "--btb-sets", "1",
                              "--btb-ways", str(ways), "--pc-bits", str(pc_bits),
-                             "--target-bits", str(target_bits)],
+                             "--target-bits", str(target_bits), *extra],
                             check=True, text=True, stdout=subprocess.PIPE)
     lines = {}
     for line in result.stdout.splitlines():
         cells = line.split()
-        if cells and cells[0] in ("total", "control_flow", "non_control_flow", "direction"):
+        if cells and cells[0] in ("total", "control_flow", "non_control_flow", "direction",
+                                  "ras", "returns", "other_jalr", "redirects", "return_table",
+                                  "btb_layout", "branches", "jals"):
             lines[cells[0]] = dict(cell.split("=", 1) for cell in cells[1:])
     lines["instructions"] = re.search(r"instructions=(\d+) mpki=(\S+)", result.stdout).groups()
     return lines

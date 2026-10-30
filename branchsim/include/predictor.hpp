@@ -5,15 +5,22 @@
 #include "bht.hpp"
 #include "branch.hpp"
 #include "btb.hpp"
+#include "ras.hpp"
 
 struct Prediction {
   bool taken = false;
   std::uint32_t target = 0;
+  bool ras = false;
+  bool btb_conflict = false;
+  bool btb_hit = false;
 };
 
 // 预测只接收 PC；指令类型和真实结果只能进入训练，结果也用于统计。
-Prediction Predict(std::uint32_t pc, const Bht &bht, const Btb &btb);
-void Update(const BranchRecord &record, Bht &bht, Btb &btb);
+Prediction Predict(std::uint32_t pc, const Bht &bht, const Btb &btb,
+                   const Ras *ras = nullptr, const Btb *jump_btb = nullptr,
+                   bool jump_first = true);
+void Update(const BranchRecord &record, Bht &bht, Btb &btb,
+            Ras *ras = nullptr, bool train_returns = true, Btb *jump_btb = nullptr);
 
 struct Accuracy {
   std::uint64_t accesses = 0;

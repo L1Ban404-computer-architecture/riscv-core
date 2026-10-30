@@ -195,6 +195,144 @@ void BimodalLearningAndAliasing() {
   }
 }
 
+std::uint32_t Jalr(unsigned rd, unsigned rs1, unsigned imm = 0) {
+  return (imm << 20) | (rs1 << 15) | (rd << 7) | 0x67u;
+}
+
+void RasHints() {
+  for (unsigned rd : {0u, 1u, 5u, 6u}) {
+    for (unsigned rs1 : {0u, 1u, 5u, 6u}) {
+      const auto action = DecodeRasAction(Jalr(rd, rs1));
+      const bool dst = rd == 1 || rd == 5, src = rs1 == 1 || rs1 == 5;
+      Check(action.push == dst && action.pop == (src && (!dst || rd != rs1)),
+            "JALR hint table must cover x1/x5, same-link fusion and coroutine exchange");
+    }
+  }
+  Check(DecodeRasAction(0xef).push && DecodeRasAction(0x2ef).push &&
+        !DecodeRasAction(0x6f).push && !DecodeRasAction(0x13).push,
+        "only JAL x1/x5 push, tail calls and ordinary instructions do not");
+  Check(IsRasReturn(Jalr(0, 1)) && IsRasReturn(Jalr(1, 5)) &&
+        !IsRasReturn(Jalr(0, 1, 4)) && DecodeRasAction(Jalr(0, 1, 4)).pop,
+        "nonzero JALR immediate keeps its pop hint but is not classified as a plain return");
+}
+
+void RasBoundedStack() {
+  Ras ras(2, 16);
+  const auto push = [&](std::uint32_t pc) { ras.Update({pc, 0xef}); };
+  const auto pop = [&]() { ras.Update({0x1000, Jalr(0, 1)}); };
+  Check(ras.Empty() && ras.StorageBits() == 31, "2-entry low16 RAS costs 28+1+2 bits");
+  push(0x1000); push(0x2000); push(0x3000);
+  Check(ras.Top(0xabcd0000) == 0xabcd3004 && ras.overflows == 1,
+        "overflow must retain newest return and reconstruct high bits from query PC");
+  pop();
+  Check(ras.Top(0) == 0x2004, "ring overflow must keep the next newest return");
+  ras.Update({0x4000, Jalr(1, 5)});
+  Check(ras.Top(0) == 0x4004 && ras.overflows == 1,
+        "pop+push must replace top without another overflow");
+  pop(); pop();
+  Check(ras.Empty() && ras.underflows == 1,
+        "discarded oldest entry must not reappear after overflow and drain");
+  Ras single(1, 32);
+  single.Update({0xfffffffcu, 0xef});
+  Check(single.Top(0x12340000) == 0 && single.StorageBits() == 31,
+        "full32 supports PC+4 wraparound and one entry needs only a valid count");
+  single.Clear();
+  Check(single.Empty(), "clear invalidates stack without resetting data");
+  Check(Ras().StorageBits() == 0, "disabled RAS costs zero");
+  for (const auto size : {3u, 65u}) {
+    bool rejected = false;
+    try { Ras invalid(size); } catch (const std::invalid_argument &) { rejected = true; }
+    Check(rejected, "RAS rejects unsupported sizes");
+  }
+}
+
+void RasPredictionAndPollution() {
+  auto bht = MakeBht("bimodal", 16);
+  Btb btb(Config(1, 2, "rr", 10, 16));
+  Ras ras(2);
+  const BranchRecord call = {{0x1000, 0xef}, {0x2000, true}};
+  const BranchRecord ret = {{0x2100, Jalr(0, 1)}, {0x1004, true}};
+  Update(call, *bht, btb, &ras);
+  Check(!Predict(ret.input.pc, *bht, btb, &ras).taken,
+        "cold return cannot be recognized using current instruction as an oracle");
+  Update(ret, *bht, btb, &ras);
+  Check(!Predict(ret.input.pc, *bht, btb, &ras).taken,
+        "empty RAS must fall through even with a learned return BTB entry");
+  Update(call, *bht, btb, &ras);
+  const auto prediction = Predict(ret.input.pc, *bht, btb, &ras);
+  Check(prediction.ras && prediction.target == 0x1004 && ras.Top(0) == 0x1004,
+        "query selects return target and never pops speculatively");
+  const auto alias = Predict(ret.input.pc + 0x1000, *bht, btb, &ras);
+  BranchStats stats;
+  stats.Observe(alias, {0, false}, false);
+  Check(alias.ras && stats.non_control_flow.hits == 0,
+        "return tag aliases on ordinary instructions must count as false redirects");
+  Update({{0x2200, 0x6f}, {0x2300, true}}, *bht, btb, &ras);
+  Update({{0x2300, 0x6f}, {0x2400, true}}, *bht, btb, &ras);
+  Check(!btb.Lookup(ret.input.pc).hit, "returns must compete for real BTB capacity");
+  Check(ras.Top(0) == 0x1004, "tail JALs must not change RAS");
+}
+
+void ReturnTableCapacityAndAliases() {
+  ReturnTable table(2, 10);
+  Check(table.StorageBits() == 23 && !table.Lookup(0x1000),
+        "2 return tags cost 22 bits plus a one-bit RR pointer and start invalid");
+  table.Update(0x1000); table.Update(0x1004);
+  table.Update(0x2000);
+  Check(table.Lookup(0x1000) && table.Lookup(0x1004),
+        "truncated return alias must share its entry without advancing replacement");
+  table.Update(0x1008);
+  Check(!table.Lookup(0x1000) && table.Lookup(0x1004) && table.Lookup(0x1008),
+        "new return site evicts oldest RR tag, not the aliased hit's neighbor");
+  Check(ReturnTable(1, 10).StorageBits() == 11 && ReturnTable(0, 10).StorageBits() == 0,
+        "one return tag needs no replacement bits; disabled detector costs zero");
+}
+
+void SplitBtbTrainingAndIsolation() {
+  auto bht = MakeBht("bimodal", 16);
+  Btb branches(Config(1, 1, "rr", 10));
+  Btb jumps(Config(1, 2, "rr", 10));
+  Ras ras(2);
+  const BranchRecord branch = {{0x1000, 0x63}, {0x0ffc, true}};
+  const BranchRecord call = {{0x1100, 0xef}, {0x2000, true}};
+  const BranchRecord ret = {{0x2200, Jalr(0, 1)}, {0x1104, true}};
+  Update(branch, *bht, branches, &ras, true, &jumps);
+  Check(branches.Lookup(0x1000).hit && !jumps.Lookup(0x1000).hit,
+        "conditional branch trains only branch BTB");
+  Update(call, *bht, branches, &ras, true, &jumps);
+  Update(ret, *bht, branches, &ras, true, &jumps);
+  Check(branches.Lookup(0x1000).hit && !branches.Lookup(0x1100).hit &&
+        jumps.Lookup(0x1100).type == BtbType::kJal &&
+        jumps.Lookup(0x2200).type == BtbType::kReturn,
+        "JAL and RET share jump BTB without evicting the branch BTB");
+  Update({{0x2100, Jalr(0, 1)}, {0x1104, true}}, *bht, branches, &ras, true, &jumps);
+  Check(jumps.Lookup(0x1100).type == BtbType::kReturn,
+        "same-table JAL/RET aliases merge exactly like the original BTB");
+}
+
+void SplitBtbLookupArbitration() {
+  auto bht = MakeBht("bimodal", 16);
+  Btb branches(Config(1, 2, "rr", 10));
+  Btb jumps(Config(1, 2, "rr", 10));
+  Ras ras(2);
+  branches.Update(0x1000, 0x0800, BtbType::kBranch);
+  jumps.Update(0x2000, 0x2400, BtbType::kJal);
+  auto prediction = Predict(0x1000, *bht, branches, &ras, &jumps);
+  Check(prediction.btb_conflict && prediction.taken && prediction.target == 0x2400,
+        "jump priority resolves two matching tags using historical state only");
+  prediction = Predict(0x1000, *bht, branches, &ras, &jumps, false);
+  Check(prediction.btb_hit && prediction.btb_conflict && !prediction.taken,
+        "branch hit predicted not-taken must still win branch-priority arbitration");
+  jumps.Update(0x2000, 0, BtbType::kReturn);
+  prediction = Predict(0x1000, *bht, branches, &ras, &jumps);
+  Check(prediction.btb_conflict && !prediction.taken,
+        "empty RAS suppresses jump prediction without falling back to the other table");
+  ras.Update({0x3000, 0xef});
+  prediction = Predict(0x1000, *bht, branches, &ras, &jumps);
+  Check(prediction.ras && prediction.target == 0x3004 && ras.Top(0) == 0x3004,
+        "split return uses non-speculative RAS target");
+}
+
 }  // namespace
 
 int main() {
@@ -206,6 +344,12 @@ int main() {
   WidthBoundariesAndValidation();
   NonPowerOfTwoReplacement();
   BimodalLearningAndAliasing();
-  std::puts("PASS: 8 branchsim model regression groups");
+  RasHints();
+  RasBoundedStack();
+  RasPredictionAndPollution();
+  ReturnTableCapacityAndAliases();
+  SplitBtbTrainingAndIsolation();
+  SplitBtbLookupArbitration();
+  std::puts("PASS: 14 branchsim model regression groups");
   return 0;
 }

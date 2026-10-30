@@ -31,7 +31,7 @@ module riscv_core_impl
 
   // 各级计算输出与寄存后的流水边界。
   if_id_if fetch_result ();
-  id_ex_if decode_result ();
+  decode_forward_if decode_result ();
   id_ex_if id_ex ();
   ex_mem_if execute_result ();
   ex_mem_if ex_mem ();

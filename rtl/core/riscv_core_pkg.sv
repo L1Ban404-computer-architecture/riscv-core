@@ -27,16 +27,20 @@ package riscv_core_pkg;
   typedef logic [XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
-  // 分支预测器：RR BTB + PC 索引的两位饱和计数器 BHT。
+  // BRANCH4 / JAL2 / RET 标签4 三表，Bimodal16 与两项 RAS，均使用 P10 标签。
 
-  typedef enum logic {
+  typedef enum logic [1:0] {
+    BTB_NONE,
     BTB_BRANCH,
-    BTB_JAL
+    BTB_JAL,
+    BTB_RET
   } btb_entry_type_e;
 
   parameter bit BtbEnable = 1'b1;
-  parameter int unsigned BtbSetCount = 1;
-  parameter int unsigned BtbWayCount = 4;
+  parameter int unsigned BranchBtbEntries = 4;
+  parameter int unsigned JalBtbEntries = 2;
+  parameter int unsigned RetBtbEntries = 4;
+  parameter int unsigned RasEntryCount = 2;
   parameter int unsigned BtbPcWidth = 10;
   parameter int unsigned BtbTargetWidth = 16;
   parameter int unsigned BhtEntryCount = 16;
@@ -44,6 +48,8 @@ package riscv_core_pkg;
   typedef logic [BtbPcWidth-1:0] btb_tag_t;
   // B/J 编码目标的 bit 0 恒为零；保留 bit 1，以覆盖未跳转的非对齐分支。
   typedef logic [BtbTargetWidth-1:1] btb_target_t;
+  // RAS 保存 PC+4，IALIGN=32 的低两位恒零。
+  typedef logic [BtbTargetWidth-1:2] ras_link_t;
   typedef struct packed {
     logic taken;
     btb_target_t target;
@@ -230,12 +236,15 @@ package riscv_core_pkg;
     logic imem_invalidate;
   } redirect_payload_t;
 
-  // EX 筛选合法条件分支/JAL，仅传训练需要的低位；BHT 用实际 taken 更新。
+  // EX 的一次性训练事件。kind=NONE 时只更新 RAS；JAL 可同时更新表与栈。
   typedef struct packed {
     btb_tag_t tag;
     btb_target_t target;
     btb_entry_type_e kind;
     logic taken;
+    logic ras_push;
+    logic ras_pop;
+    ras_link_t link;
   } branch_update_payload_t;
 
   // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
@@ -263,6 +272,8 @@ package riscv_core_pkg;
     mem_cmd_e mem_cmd;
     mem_size_e mem_size;
     logic mem_sign_ext;
+    logic ras_push;
+    logic ras_pop;
   } execute_ctrl_payload_t;
 
   // 随指令传播的精确异常；后续流水级不得覆盖已记录的异常。
@@ -384,7 +395,6 @@ package riscv_core_pkg;
 
   typedef struct packed {
     pc_t pc;
-    reg_addr_payload_t reg_addr;
     gpr_dest_t gpr;
     branch_prediction_payload_t prediction;
     exec_data_payload_t exec_data;
@@ -392,6 +402,12 @@ package riscv_core_pkg;
     commit_ctrl_payload_t commit;
     exception_payload_t exception;
   } id_ex_payload_t;
+
+  // 源寄存器编号只在 ID 前递选择中使用，不进入 ID/EX 寄存器。
+  typedef struct packed {
+    reg_addr_payload_t reg_addr;
+    id_ex_payload_t instruction;
+  } decode_forward_payload_t;
 
   typedef struct packed {
     commit_context_payload_t commit_ctx;

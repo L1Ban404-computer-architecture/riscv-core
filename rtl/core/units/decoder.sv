@@ -167,6 +167,12 @@ module decoder
       default: ;
     endcase
 
+    // x1/x5 的 RAS 提示在 ID 归一化，只把两位动作送到 EX。
+    decode_o.ctrl.ras_push = (opcode inside {OPC_JAL, OPC_JALR}) &&
+        (instr_i[11:7] inside {5'd1, 5'd5});
+    decode_o.ctrl.ras_pop = (opcode == OPC_JALR) &&
+        (instr_i[19:15] inside {5'd1, 5'd5}) && (instr_i[11:7] != instr_i[19:15]);
+
     // store 的 rs2 用于写数据，即使 B 选择立即数，也必须参与前递。
     decode_o.reg_addr.rs1_used = (opcode inside
         {OPC_JALR, OPC_BRANCH, OPC_LOAD, OPC_STORE, OPC_OP_IMM, OPC_OP}) ||

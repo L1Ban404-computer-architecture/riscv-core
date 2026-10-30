@@ -82,11 +82,12 @@ endinterface
 `RISCV_CORE_VALID_IF(redirect_if, riscv_core_pkg::redirect_payload_t)
 
 // 已确认合法的训练结果；valid 在上升沿采样，复位/失效优先。
-// 条件分支无论实际 taken 如何都提供编码目标；JAL 不更新 BHT。
+// 条件分支/JAL 提供编码目标；RAS 动作携带 PC+4，kind=NONE 允许单独更新栈。
 `RISCV_CORE_VALID_IF(branch_update_if, riscv_core_pkg::branch_update_payload_t)
 
 // 各级计算输出与寄存后的流水边界共享相同的 stream 协议。
 `RISCV_CORE_STREAM_IF(if_id_if, riscv_core_pkg::if_id_payload_t)
+`RISCV_CORE_STREAM_IF(decode_forward_if, riscv_core_pkg::decode_forward_payload_t)
 `RISCV_CORE_STREAM_IF(id_ex_if, riscv_core_pkg::id_ex_payload_t)
 `RISCV_CORE_STREAM_IF(ex_mem_if, riscv_core_pkg::ex_mem_payload_t)
 `RISCV_CORE_STREAM_IF(mem_wb_if, riscv_core_pkg::mem_wb_payload_t)

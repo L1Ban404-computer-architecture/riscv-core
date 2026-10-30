@@ -19,6 +19,8 @@ module ex_stage
   word_t alu_result, address, execution_value;
   logic branch_taken, branch_target_match;
   pc_t branch_target, pc_plus4, predicted_target_pc;
+  logic is_branch, is_jal;
+  logic ras_push, ras_pop, is_return;
 
   assign id_ex.ready = result.ready;
   assign result.valid = id_ex.valid;
@@ -45,6 +47,7 @@ module ex_stage
     .rs1_value_i(id_ex.payload.exec_data.rs1_value),
     .rs2_value_i(id_ex.payload.exec_data.rs2_value),
     .predicted_target_i(predicted_target_pc),
+    .is_return_i(is_return),
     .taken_o(branch_taken),
     .target_pc_o(branch_target),
     .target_match_o(branch_target_match)
@@ -80,16 +83,25 @@ module ex_stage
     imem_invalidate: 1'b0
   };
 
-  // 训练仅接受 B/J，只检查上游异常及直接目标对齐，保持与访存异常路径独立。
-  assign branch_update.valid = id_ex.fire && !id_ex.payload.exception.valid &&
-      !(branch_taken && (id_ex.payload.exec_data.direct_target[1:0] != 2'b00)) &&
-      (id_ex.payload.ctrl.branch_op inside
-          {BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU, BR_JAL});
+  // ID 已归一化 x1/x5 提示；EX 只按最终异常和握手发出一次训练事件。
+  assign is_branch = id_ex.payload.ctrl.branch_op inside
+      {BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU};
+  assign is_jal = id_ex.payload.ctrl.branch_op == BR_JAL;
+  assign ras_push = id_ex.payload.ctrl.ras_push;
+  assign ras_pop = id_ex.payload.ctrl.ras_pop;
+  assign is_return = ras_pop && (id_ex.payload.exec_data.imm == '0);
+
+  // 最终异常统一屏蔽训练；握手才发事件，停顿期间不重复 push/pop。
+  assign branch_update.valid = id_ex.fire && !result.payload.commit_ctx.exception.valid &&
+      (is_branch || is_jal || ras_push || ras_pop);
   assign branch_update.payload = '{
     tag: btb_tag_t'(id_ex.payload.pc >> 2),
     target: id_ex.payload.exec_data.direct_target[BtbTargetWidth-1:1],
-    kind: (id_ex.payload.ctrl.branch_op == BR_JAL) ? BTB_JAL : BTB_BRANCH,
-    taken: branch_taken
+    kind: is_branch ? BTB_BRANCH : is_jal ? BTB_JAL :
+          is_return ? BTB_RET : BTB_NONE,
+    taken: branch_taken,
+    ras_push: ras_push, ras_pop: ras_pop,
+    link: pc_plus4[BtbTargetWidth-1:2]
   };
 
 `ifndef SYNTHESIS
