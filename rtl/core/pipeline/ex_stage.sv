@@ -18,6 +18,8 @@ module ex_stage
   word_t operand_b;
   word_t alu_result, address, execution_value;
   logic branch_taken, branch_target_match;
+  logic data_misaligned;
+  exception_payload_t exception;
   pc_t branch_target, pc_plus4, predicted_target_pc;
 
   assign id_ex.ready = result.ready;
@@ -60,18 +62,47 @@ module ex_stage
     endcase
   end
 
-  execute_result_unit u_execute_result_unit (
-    .instruction_i(id_ex.payload),
-    .execution_value_i(execution_value),
-    .address_i(address),
-    .branch_taken_i(branch_taken),
-    .branch_target_i(branch_target),
-    .result_o(result.payload)
-  );
+  // 先归并异常，再组装 EX/MEM 事务；异常关闭 GPR 与访存副作用。
+  always_comb begin
+    case (id_ex.payload.ctrl.mem_size)
+      MEM_SIZE_BYTE: data_misaligned = 1'b0;
+      MEM_SIZE_HALF: data_misaligned = address[0];
+      MEM_SIZE_WORD: data_misaligned = |address[1:0];
+      default: data_misaligned = 1'b1;
+    endcase
+
+    // 上游异常优先；仅实际跳转时检查指令目标对齐。
+    exception = id_ex.payload.exception;
+    if (branch_taken && (branch_target[1:0] != 2'b00))
+      exception = raise_exception(exception, EXC_INST_ADDR_MISALIGNED, branch_target);
+    else if ((id_ex.payload.ctrl.mem_cmd != MEM_NONE) && data_misaligned)
+      exception = raise_exception(exception,
+          (id_ex.payload.ctrl.mem_cmd == MEM_STORE) ?
+              EXC_STORE_ADDR_MISALIGNED : EXC_LOAD_ADDR_MISALIGNED, address);
+
+    result.payload = '{
+      commit_ctx: '{
+        pc: id_ex.payload.pc,
+        gpr: id_ex.payload.gpr,
+        value: execution_value,
+        exception: exception,
+        commit: id_ex.payload.commit
+      },
+      // value 共用为 GPR 结果、访存地址或 CSR 源；store 数据独立保存。
+      mem_req: '{
+        valid: (id_ex.payload.ctrl.mem_cmd != MEM_NONE) && !exception.valid,
+        write: id_ex.payload.ctrl.mem_cmd == MEM_STORE,
+        size: id_ex.payload.ctrl.mem_size,
+        sign_ext: id_ex.payload.ctrl.mem_sign_ext,
+        wdata: id_ex.payload.exec_data.rs2_value
+      }
+    };
+    if (exception.valid) result.payload.commit_ctx.gpr = '0;
+  end
 
   // 分支计算与异常归并完成后，在 EX 统一生成一次性事件。
   // FENCE.I 的改道和失效由 WB 提交处理。
-  assign redirect.valid = id_ex.fire && !result.payload.commit_ctx.exception.valid &&
+  assign redirect.valid = id_ex.fire && !exception.valid &&
       !id_ex.payload.commit.fence_i &&
       ((id_ex.payload.prediction.taken != branch_taken) ||
        (branch_taken && !branch_target_match));
@@ -96,7 +127,7 @@ module ex_stage
   assign debug_o = '{
     valid: result.valid, ready: result.ready,
     redirect: redirect.valid,
-    branch: '{valid: id_ex.fire && branch_taken && !result.payload.commit_ctx.exception.valid &&
+    branch: '{valid: id_ex.fire && branch_taken && !exception.valid &&
                       (branch_target != pc_plus4),
               target_pc: branch_target}
   };

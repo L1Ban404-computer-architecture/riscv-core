@@ -65,6 +65,11 @@ module riscv_core_sim
   core_bus_if imem_bus ();
   core_bus_if dmem_bus ();
 
+  // IF 和取指观察器各只有一个元数据槽，存储器不能提前接受第二笔请求。
+  initial begin
+    if (ImemMaxOutstanding != 1) $fatal(1, "IF requires ImemMaxOutstanding=1");
+  end
+
   logic unused_imem_invalidate;
   logic imem_flush;
 

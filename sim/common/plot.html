@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>参数扫描</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: #f8fafc; color: #172033; font: 14px/1.5 system-ui, sans-serif; }
+  main { max-width: 1280px; margin: auto; padding: 24px; }
+  h1 { margin: 0 0 8px; font-size: 24px; }
+  p { color: #526079; }
+  .controls, #filters { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 14px 0; }
+  label { display: inline-flex; align-items: center; gap: 6px; }
+  select, button { font: inherit; border: 1px solid #cbd5e1; border-radius: 5px; background: white; padding: 4px 8px; }
+  button { cursor: pointer; }
+  .frame { background: white; border: 1px solid #dbe2ec; border-radius: 8px; padding: 12px; }
+  #plot { display: block; width: 100%; height: auto; }
+  #plot text { font: 12px system-ui, sans-serif; }
+  .point { cursor: pointer; }
+  #empty { text-align: center; }
+  #legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 12px 0; }
+  #legend span { display: inline-flex; align-items: center; gap: 6px; }
+  #legend svg { width: 14px; height: 14px; }
+  .scroll { overflow: auto; max-height: 600px; }
+  table { width: 100%; border-collapse: collapse; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
+  th { position: sticky; top: 0; background: #f1f5f9; cursor: pointer; }
+  tr.front { background: #ecfdf5; }
+  #tip { display: none; position: fixed; pointer-events: none; z-index: 1; max-width: 430px;
+    padding: 10px 12px; background: #172033; color: white; border-radius: 6px; font-size: 12px; }
+  #tip hr { border: 0; border-top: 1px solid #64748b; }
+  @media (max-width: 640px) { main { padding: 12px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title"></h1>
+  <p>每个点对应一个 JSON 配置及其结果。可更换坐标、筛选参数、比较前沿并导出当前表格。</p>
+  <noscript><p>交互图需要 JavaScript。原始配置、结果及 report.csv 可独立阅读。</p></noscript>
+  <div class="controls">
+    <label>横轴 <select id="x-field"></select></label>
+    <label>目标 <select id="x-goal"><option value="min">越小越好</option><option value="max">越大越好</option></select></label>
+    <label>纵轴 <select id="y-field"></select></label>
+    <label>目标 <select id="y-goal"><option value="min">越小越好</option><option value="max">越大越好</option></select></label>
+    <label>颜色 <select id="color-field"></select></label>
+    <label>形状 <select id="shape-field"></select></label>
+  </div>
+  <div id="filters"></div>
+  <div class="controls">
+    <label><input type="checkbox" id="only-front">仅看 Pareto 前沿</label>
+    <button id="reset" type="button">重置</button>
+    <button id="download" type="button">导出当前 CSV</button>
+    <span id="count" aria-live="polite"></span>
+  </div>
+  <div class="frame">
+    <svg id="plot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" role="img" aria-label="参数扫描散点图"></svg>
+    <p id="empty" hidden>当前条件下没有可绘制的数据。</p>
+  </div>
+  <div id="legend"></div>
+  <div class="scroll frame"><table><thead id="columns"></thead><tbody id="results"></tbody></table></div>
+</main>
+<div id="tip"></div>
+<script id="scan-data" type="application/json">__DATA__</script>
+<script>__SCRIPT__</script>
+</body>
+</html>

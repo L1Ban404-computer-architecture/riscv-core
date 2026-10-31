@@ -318,7 +318,7 @@ package riscv_core_pkg;
     csr_op_payload_t csr;
   } commit_ctrl_payload_t;
 
-  // WB 提交与 MEM 入口屏障共用事件分类；异常覆盖普通串行化指令。
+  // WB 统一分类提交事件；异常覆盖普通串行化指令。
   function automatic commit_kind_e classify_commit(
       input logic exception_valid, input commit_ctrl_payload_t control);
     if (exception_valid) return COMMIT_TRAP;

@@ -1,0 +1,13 @@
+{
+  "trace": "../../build/sim/shared/runner-insttrace.bin",
+  "parameters": {
+    "bht": "bimodal",
+    "bht_entries": 16,
+    "btb": "table",
+    "sets": 1,
+    "ways": 4,
+    "policy": "rr",
+    "pc_bits": 10,
+    "target_bits": 16
+  }
+}

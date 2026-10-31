@@ -129,12 +129,10 @@ module riscv_core_impl
     .data_o(ex_mem.payload)
   );
 
-  // WB 串行化事件阻断 MEM 入口；寄存器冲刷负责清除年轻事务。
-  pipeline_control u_pipeline_control (
-    .ex_mem(ex_mem),
-    .mem_wb(mem_wb),
-    .result(memory_input)
-  );
+  // WB 统一决定 trap/MRET/FENCE.I 改道；当拍阻止年轻事务进入 MEM。
+  assign memory_input.payload = ex_mem.payload;
+  assign memory_input.valid = ex_mem.valid && !wb_redirect.valid;
+  assign ex_mem.ready = memory_input.ready && !wb_redirect.valid;
 
   mem_stage u_mem_stage (
     .clk_i,

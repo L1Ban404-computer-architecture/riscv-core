@@ -1,0 +1,11 @@
+{
+  "trace": "../../build/sim/shared/runner-insttrace.bin",
+  "parameters": {
+    "sets": 4,
+    "ways": 2,
+    "block_bytes": 16,
+    "policy": "rr",
+    "miss_head_cycles": 68,
+    "miss_beat_cycles": 43
+  }
+}

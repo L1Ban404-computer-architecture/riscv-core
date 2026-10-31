@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 SHELL := /bin/bash
+.DEFAULT_GOAL := check
+CORE_DIR := $(abspath ..)
 
 # Standalone builds default to RV32E; SoC builds derive this from the contract.
 RVE ?= 1
@@ -25,8 +27,8 @@ endif
 CLK_FREQ_MHZ ?= 1000
 export CLK_PORT_NAME CLK_FREQ_MHZ
 PDK ?= nangate45
-# 本次综合产物目录。不传时仍是 build/perf；DSE 为每个几何传入独立路径。
-PERF_OUT ?= build/perf
+# 综合产物统一放在项目根 build/；离线扫描为每个点传入独立路径。
+PERF_OUT ?= $(CORE_DIR)/build/rtl/perf
 # 顶层参数覆盖，原样交给 read_slang。例如 -GSetCount=8 -GWayCount=2。
 # ReplacementPolicy 要写 icache_pkg 的枚举名，整数不能隐式转成该枚举。
 SLANG_PARAMS ?=
@@ -34,10 +36,10 @@ SLANG_PARAMS ?=
 PERF_DIR := $(abspath $(PERF_OUT))/$(TOP)-$(CLK_FREQ_MHZ)MHz
 PERF_NETLIST := $(PERF_DIR)/$(TOP).netlist.v
 
-.PHONY: check perf clean
+.PHONY: check perf
 
-# 本目录下全部 SystemVerilog，排除 build/ 中的产物。新增子目录会被自动纳入。
-HDL_SRCS := $(shell find . \( -path ./build -prune \) -o -type f \( -name '*.sv' -o -name '*.svh' \) -print | LC_ALL=C sort)
+# 本目录下全部 SystemVerilog；生成文件位于项目根 build/，不参与源文件搜索。
+HDL_SRCS := $(shell find . -type f \( -name '*.sv' -o -name '*.svh' \) -print | LC_ALL=C sort)
 ifeq ($(strip $(HDL_SRCS)),)
 $(error 未找到 SystemVerilog 源文件)
 endif
@@ -57,6 +59,3 @@ perf:
 	set -o pipefail; "$(YOSYS_STA_HOME)/bin/iEDA" -script \
 		"$(YOSYS_STA_HOME)/scripts/sta.tcl" "$(YOSYS_STA_HOME)/scripts/default.sdc" \
 		"$(PERF_NETLIST)" $(TOP) $(PDK) 2>&1 | tee "$(PERF_DIR)/sta.log"
-
-clean:
-	rm -rf build

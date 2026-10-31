@@ -1,25 +1,22 @@
 # Copyright (c) 2026
 # SPDX-License-Identifier: Apache-2.0
 
-# 综合检查、面积分析、I-cache 形式化与离线仿真分别在组件目录里。
-.PHONY: check perf formal-icache cachesim branchsim \
-        cachesim-sim cachesim-run branchsim-sim branchsim-run sim run clean
+ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 check perf:
-	$(MAKE) -C rtl $@
+	$(MAKE) -C rtl $@ $(if $(PERF_OUT),PERF_OUT="$(abspath $(PERF_OUT))")
 
 formal-icache:
 	$(MAKE) -C formal/icache formal-icache
 
-cachesim-sim cachesim-run:
-	$(MAKE) -C cachesim $(patsubst cachesim-%,%,$@)
-
-branchsim-sim branchsim-run:
-	$(MAKE) -C branchsim $(patsubst branchsim-%,%,$@)
+run scan:
+	$(MAKE) -C sim $@ \
+	  $(if $(CONFIG),CONFIG="$(abspath $(CONFIG))") \
+	  $(if $(RESULT),RESULT="$(abspath $(RESULT))") \
+	  $(if $(TRACE),TRACE="$(abspath $(TRACE))") \
+	  $(if $(SCAN_DIR),SCAN_DIR="$(abspath $(SCAN_DIR))")
 
 clean:
-	$(MAKE) -C rtl clean
-	$(MAKE) -C formal/icache clean
-	$(MAKE) -C cachesim clean
-	$(MAKE) -C branchsim clean
-	rm -rf build
+	rm -rf $(ROOT_DIR)/build
+
+.PHONY: check perf formal-icache run scan clean
