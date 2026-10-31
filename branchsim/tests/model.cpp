@@ -333,6 +333,43 @@ void SplitBtbLookupArbitration() {
         "split return uses non-speculative RAS target");
 }
 
+void CompletePredictorArbitration() {
+  PredictorConfig config;
+  config.bht = "bimodal";
+  config.btb = Config(1, 1, "rr", 10);
+  config.btb_layout = "split";
+  config.jump_btb_ways = 1;
+  config.ras_entries = 2;
+  config.ras_mode = "filter";
+  config.ras_filter_entries = 1;
+  const BranchRecord call = {{0x1000, 0xef}, {0x2000, true}};
+  const BranchRecord ret = {{0x2000, Jalr(0, 1)}, {0x1004, true}};
+  for (const char *priority : {"ret", "btb"}) {
+    config.ret_priority = priority;
+    Predictor model(config);
+    model.Update(call);
+    model.Update(ret);
+    model.Update(call);
+    const auto prediction = model.Predict(ret.input.pc);
+    Check(prediction.return_conflict && prediction.btb_hit && prediction.taken,
+          "complete model arbitrates aliased RET/JAL hits without CLI assistance");
+    Check(prediction.ras == (priority[0] == 'r') &&
+          prediction.target == (priority[0] == 'r' ? 0x1004u : 0x2000u),
+          "complete model owns return priority and target selection");
+    if (priority[0] == 'r') {
+      model.Update(ret);
+      Check(!model.Predict(ret.input.pc).taken,
+            "RET hit with empty RAS must suppress JAL fallback");
+    }
+  }
+  config.btb_layout = "unified";
+  config.ras_mode = "ideal";
+  Predictor ideal(config);
+  ideal.Update(call);
+  Check(ideal.PredictIdeal(ret.input.pc, true).ras && !ideal.Predict(ret.input.pc).ras,
+        "ideal instruction oracle is explicit and separate from PC-only lookup");
+}
+
 }  // namespace
 
 int main() {
@@ -350,6 +387,7 @@ int main() {
   ReturnTableCapacityAndAliases();
   SplitBtbTrainingAndIsolation();
   SplitBtbLookupArbitration();
-  std::puts("PASS: 14 branchsim model regression groups");
+  CompletePredictorArbitration();
+  std::puts("PASS: 15 branchsim model regression groups");
   return 0;
 }

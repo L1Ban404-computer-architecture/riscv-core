@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -15,19 +14,7 @@ namespace {
 
 struct Options {
   std::string trace;
-  std::string bht = "btfn";
-  std::uint32_t bht_entries = 32;
-  BtbConfig btb;
-  std::uint32_t ras_entries = 0;
-  std::uint32_t ras_target_bits = 16;
-  std::string ras_mode = "btb";
-  std::uint32_t ras_filter_entries = 2;
-  std::string btb_layout = "unified";
-  std::uint32_t jump_btb_sets = 1;
-  std::uint32_t jump_btb_ways = 2;
-  std::string split_priority = "jump";
-  std::string ret_priority = "ret";
-  std::uint32_t ras_filter_pc_bits = 0;
+  PredictorConfig predictor;
 };
 
 void Usage(const char *prog) {
@@ -70,6 +57,7 @@ std::uint32_t Number(const std::string &text) {
 
 Options ReadArgs(int argc, char **argv) {
   Options options;
+  auto &config = options.predictor;
   for (int i = 1; i < argc; ++i) {
     std::string name = argv[i];
     const auto eq = name.find('=');
@@ -82,43 +70,27 @@ Options ReadArgs(int argc, char **argv) {
       value = argv[++i];
     }
     if (name == "--trace") options.trace = value;
-    else if (name == "--bht") options.bht = value;
-    else if (name == "--bht-entries") options.bht_entries = Number(value);
-    else if (name == "--btb") options.btb.method = value;
-    else if (name == "--btb-sets") options.btb.sets = Number(value);
-    else if (name == "--btb-ways") options.btb.ways = Number(value);
-    else if (name == "--btb-policy") options.btb.policy = value;
-    else if (name == "--pc-bits") options.btb.pc_bits = Number(value);
-    else if (name == "--target-bits") options.btb.target_bits = Number(value);
-    else if (name == "--ras-entries") options.ras_entries = Number(value);
-    else if (name == "--ras-target-bits") options.ras_target_bits = Number(value);
-    else if (name == "--ras-mode") options.ras_mode = value;
-    else if (name == "--ras-filter-entries") options.ras_filter_entries = Number(value);
-    else if (name == "--btb-layout") options.btb_layout = value;
-    else if (name == "--jump-btb-sets") options.jump_btb_sets = Number(value);
-    else if (name == "--jump-btb-ways") options.jump_btb_ways = Number(value);
-    else if (name == "--split-priority") options.split_priority = value;
-    else if (name == "--ret-priority") options.ret_priority = value;
-    else if (name == "--ras-filter-pc-bits") options.ras_filter_pc_bits = Number(value);
+    else if (name == "--bht") config.bht = value;
+    else if (name == "--bht-entries") config.bht_entries = Number(value);
+    else if (name == "--btb") config.btb.method = value;
+    else if (name == "--btb-sets") config.btb.sets = Number(value);
+    else if (name == "--btb-ways") config.btb.ways = Number(value);
+    else if (name == "--btb-policy") config.btb.policy = value;
+    else if (name == "--pc-bits") config.btb.pc_bits = Number(value);
+    else if (name == "--target-bits") config.btb.target_bits = Number(value);
+    else if (name == "--ras-entries") config.ras_entries = Number(value);
+    else if (name == "--ras-target-bits") config.ras_target_bits = Number(value);
+    else if (name == "--ras-mode") config.ras_mode = value;
+    else if (name == "--ras-filter-entries") config.ras_filter_entries = Number(value);
+    else if (name == "--btb-layout") config.btb_layout = value;
+    else if (name == "--jump-btb-sets") config.jump_btb_sets = Number(value);
+    else if (name == "--jump-btb-ways") config.jump_btb_ways = Number(value);
+    else if (name == "--split-priority") config.split_priority = value;
+    else if (name == "--ret-priority") config.ret_priority = value;
+    else if (name == "--ras-filter-pc-bits") config.ras_filter_pc_bits = Number(value);
     else throw std::invalid_argument("unknown argument: " + name);
   }
   if (options.trace.empty()) throw std::invalid_argument("missing --trace");
-  if (options.ras_mode != "btb" && options.ras_mode != "filter" && options.ras_mode != "ideal")
-    throw std::invalid_argument("ras-mode must be btb, filter or ideal");
-  if (options.ras_mode == "filter" && options.ras_filter_entries == 0)
-    throw std::invalid_argument("filter mode requires positive ras-filter-entries");
-  if (options.ras_entries && options.ras_mode == "btb" && options.btb.method == "none")
-    throw std::invalid_argument("BTB-classified RAS requires --btb table");
-  if (options.btb_layout != "unified" && options.btb_layout != "split")
-    throw std::invalid_argument("btb-layout must be unified or split");
-  if (options.split_priority != "jump" && options.split_priority != "branch")
-    throw std::invalid_argument("split-priority must be jump or branch");
-  if (options.ret_priority != "ret" && options.ret_priority != "btb")
-    throw std::invalid_argument("ret-priority must be ret or btb");
-  if (options.ras_filter_pc_bits > 30)
-    throw std::invalid_argument("ras-filter-pc-bits must be in [0, 30]");
-  if (options.btb_layout == "split" && (options.btb.method != "table" || options.ras_mode == "ideal"))
-    throw std::invalid_argument("split layout requires --btb table and --ras-mode btb or filter");
   return options;
 }
 
@@ -171,19 +143,11 @@ int main(int argc, char **argv) {
   }
   try {
     const Options options = ReadArgs(argc, argv);
-    auto bht = MakeBht(options.bht, options.bht_entries);
-    Btb btb(options.btb);
-    std::unique_ptr<Btb> jump_btb;
-    if (options.btb_layout == "split") {
-      auto jump_config = options.btb;
-      jump_config.sets = options.jump_btb_sets;
-      jump_config.ways = options.jump_btb_ways;
-      jump_btb = std::make_unique<Btb>(jump_config);
-    }
-    Ras ras(options.ras_entries, options.ras_target_bits);
-    const auto return_tag_bits = options.ras_filter_pc_bits ? options.ras_filter_pc_bits : options.btb.pc_bits;
-    ReturnTable return_table(ras.Enabled() && options.ras_mode == "filter" ?
-                             options.ras_filter_entries : 0, return_tag_bits);
+    const auto &config = options.predictor;
+    Predictor predictor(config);
+    const auto &ras = predictor.ras();
+    const auto &return_table = predictor.return_table();
+    const auto return_tag_bits = config.ras_filter_pc_bits ? config.ras_filter_pc_bits : config.btb.pc_bits;
     TraceReader reader;
     reader.Open(options.trace.c_str());
     BranchStats stats;
@@ -198,19 +162,12 @@ int main(int argc, char **argv) {
       ++instructions;
       const BranchRecord record = {{instruction.pc, instruction.instr},
                                    {instruction.target, instruction.taken}};
-      Prediction prediction = Predict(record.input.pc, *bht, btb, &ras, jump_btb.get(),
-                                      options.split_priority == "jump");
-      btb_conflicts += prediction.btb_conflict;
       const bool is_return = instruction.kind == RV_INSTTRACE_KIND_JALR &&
                              IsRasReturn(instruction.instr);
-      if (return_table.Lookup(instruction.pc)) {
-        return_conflicts += prediction.btb_hit;
-        // 仅按历史标签命中仲裁；BHT 预测不跳转也不能冒充表未命中。
-        if (options.ret_priority == "ret" || !prediction.btb_hit)
-          prediction = ras.Empty() ? Prediction{} : Prediction{true, ras.Top(instruction.pc), true};
-      }
-      if (ras.Enabled() && options.ras_mode == "ideal" && is_return && !ras.Empty())
-        prediction = {true, ras.Top(instruction.pc), true};
+      const Prediction prediction = config.ras_mode == "ideal" ?
+          predictor.PredictIdeal(record.input.pc, is_return) : predictor.Predict(record.input.pc);
+      btb_conflicts += prediction.btb_conflict;
+      return_conflicts += prediction.return_conflict;
       const bool correct = prediction.taken == record.outcome.taken &&
                            (!record.outcome.taken || prediction.target == record.outcome.target);
       const auto action = instruction.kind == RV_INSTTRACE_KIND_NONE ? RasAction{} :
@@ -229,31 +186,30 @@ int main(int argc, char **argv) {
       redirects += !correct || (instruction.kind == RV_INSTTRACE_KIND_JALR && !prediction.ras);
       stats.Observe(prediction, record.outcome, instruction.kind != RV_INSTTRACE_KIND_NONE);
       if (instruction.kind != RV_INSTTRACE_KIND_NONE)
-        Update(record, *bht, btb, &ras, options.ras_mode == "btb", jump_btb.get());
-      if (is_return) return_table.Update(instruction.pc);
+        predictor.Update(record);
     }
-    const bool dynamic = options.bht == "bimodal" && options.btb.method != "none";
-    std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s pc_bits=%u target_bits=%u bht_entries=%u bht_ff=%" PRIu64 "\n", options.bht.c_str(),
-                options.btb.method.c_str(), options.btb.sets, options.btb.ways,
-                options.btb.policy.c_str(), options.btb.pc_bits, options.btb.target_bits,
-                dynamic ? options.bht_entries : 0u, dynamic ? bht->StorageBits() : 0u);
+    const bool dynamic = config.bht == "bimodal" && config.btb.method != "none";
+    std::printf("config bht=%s btb=%s btb_sets=%u btb_ways=%u btb_policy=%s pc_bits=%u target_bits=%u bht_entries=%u bht_ff=%" PRIu64 "\n", config.bht.c_str(),
+                config.btb.method.c_str(), config.btb.sets, config.btb.ways,
+                config.btb.policy.c_str(), config.btb.pc_bits, config.btb.target_bits,
+                dynamic ? config.bht_entries : 0u, dynamic ? predictor.bht().StorageBits() : 0u);
     PrintStats(stats, instructions);
     std::printf("btb_layout mode=%s jump_sets=%u jump_ways=%u priority=%s conflicts=%" PRIu64 "\n",
-                options.btb_layout.c_str(), jump_btb ? options.jump_btb_sets : 0,
-                jump_btb ? options.jump_btb_ways : 0, options.split_priority.c_str(), btb_conflicts);
+                config.btb_layout.c_str(), config.btb_layout == "split" ? config.jump_btb_sets : 0,
+                config.btb_layout == "split" ? config.jump_btb_ways : 0, config.split_priority.c_str(), btb_conflicts);
     std::printf("ras entries=%u target_bits=%u mode=%s storage_bits=%" PRIu64
                 " pushes=%" PRIu64 " pops=%" PRIu64 " eligible=%" PRIu64
                 " available=%" PRIu64 " predictions=%" PRIu64 " correct=%" PRIu64
                 " overflows=%" PRIu64 " underflows=%" PRIu64 "\n",
-                options.ras_entries, options.ras_target_bits, options.ras_mode.c_str(),
+                config.ras_entries, config.ras_target_bits, config.ras_mode.c_str(),
                 ras.StorageBits(), pushes, pops, eligible, available, ras_predictions,
                 ras_correct, ras.overflows, ras.underflows);
     std::printf("returns accesses=%" PRIu64 " hits=%" PRIu64 " misses=%" PRIu64 "\n",
                 returns.accesses, returns.hits, returns.accesses - returns.hits);
     std::printf("return_table entries=%u storage_bits=%" PRIu64 " priority=%s conflicts=%" PRIu64 " tag_bits=%u\n",
-                ras.Enabled() && options.ras_mode == "filter" ? options.ras_filter_entries : 0,
-                return_table.StorageBits(), options.ret_priority.c_str(), return_conflicts,
-                ras.Enabled() && options.ras_mode == "filter" ? return_tag_bits : 0);
+                ras.Enabled() && config.ras_mode == "filter" ? config.ras_filter_entries : 0,
+                return_table.StorageBits(), config.ret_priority.c_str(), return_conflicts,
+                ras.Enabled() && config.ras_mode == "filter" ? return_tag_bits : 0);
     std::printf("other_jalr accesses=%" PRIu64 " hits=%" PRIu64 " misses=%" PRIu64 "\n",
                 other_jalr.accesses, other_jalr.hits, other_jalr.accesses - other_jalr.hits);
     std::printf("branches accesses=%" PRIu64 " hits=%" PRIu64 " misses=%" PRIu64 "\n",

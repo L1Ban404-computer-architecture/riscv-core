@@ -23,6 +23,17 @@ module mem_axi4
   axi4_if.master axi
 );
 
+  // 当前核心及写字节 lane 语义固定为 32 位；拒绝不完整的位宽扩展。
+  initial begin
+    MemAxiDataWidth: assert (DataWidth == 32)
+    else $fatal(1, "mem_axi4 requires 32-bit CoreBus and AXI data");
+`ifndef SYNTHESIS
+    MemAxiInterfaceWidth: assert (
+        $bits(core_bus.req_payload.wdata) == 32 && $bits(axi.w_payload.data) == 32)
+    else $fatal(1, "mem_axi4 requires 32-bit CoreBus and AXI data");
+`endif
+  end
+
   // 事务状态与握手事件
 
   typedef enum logic [2:0] {

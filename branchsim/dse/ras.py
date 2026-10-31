@@ -5,20 +5,11 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
-import hashlib
 import json
 from pathlib import Path
-import subprocess
 
-from dse.__main__ import parse_output
-
-
-def fingerprint(path):
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(4 * 1024 * 1024), b""):
-            digest.update(block)
-    return {"path": str(path), "bytes": path.stat().st_size, "sha256": digest.hexdigest()}
+from dse.results import fingerprint, replay
+from dse.cost import predictor_bits
 
 
 def configurations(depths, filters):
@@ -50,92 +41,6 @@ def configurations(depths, filters):
     return points
 
 
-def replay(binary, trace, output, point):
-    name, config = point
-    config = {"layout": "unified", "jump_sets": 0, "jump_ways": 0, "priority": "jump", **config}
-    command = [str(binary), "--trace", str(trace), "--bht", "bimodal",
-               "--bht-entries", str(config["bht_entries"]), "--btb-sets", str(config["sets"]),
-               "--btb-ways", str(config["ways"]), "--pc-bits", str(config["pc_bits"]),
-               "--target-bits", "16", "--ras-entries", str(config["depth"]),
-               "--ras-target-bits", str(config["width"]), "--ras-mode", config["mode"]]
-    command += ["--btb-layout", config["layout"], "--split-priority", config["priority"]]
-    command += ["--ret-priority", config.get("ret_priority", "ret")]
-    if config["layout"] == "split":
-        command += ["--jump-btb-sets", str(config["jump_sets"]), "--jump-btb-ways", str(config["jump_ways"])]
-    if config["mode"] == "filter":
-        command += ["--ras-filter-entries", str(config["filters"])]
-        command += ["--ras-filter-pc-bits", str(config.get("ret_tag_bits", 0))]
-    result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    (output / f"{name}.log").write_text(result.stdout, encoding="utf-8")
-    if result.returncode:
-        raise RuntimeError(f"{name}: exit {result.returncode}; see log")
-    return read_result(result.stdout, point)
-
-
-def read_result(output, point):
-    """回读原始日志，校验实际参数；供网格扫描安全复用同一输入的结果。"""
-    name, config = point
-    config = {"layout": "unified", "jump_sets": 0, "jump_ways": 0, "priority": "jump", **config}
-    headers = [dict(cell.split("=", 1) for cell in line.split()[1:])
-               for line in output.splitlines() if line.startswith("config ")]
-    expected_header = {"bht": "bimodal", "btb": "table", "btb_sets": str(config["sets"]),
-                       "btb_ways": str(config["ways"]), "pc_bits": str(config["pc_bits"]),
-                       "target_bits": "16", "btb_policy": "rr", "bht_entries": str(config["bht_entries"])}
-    if len(headers) != 1 or any(headers[0].get(key) != value for key, value in expected_header.items()):
-        raise ValueError(f"{name}: wrong predictor config")
-    stats = parse_output(output)
-    extra = {}
-    for line in output.splitlines():
-        cells = line.split()
-        if cells and cells[0] in ("ras", "return_table", "returns", "other_jalr", "branches", "jals", "redirects", "btb_layout"):
-            extra[cells[0]] = dict(cell.split("=", 1) for cell in cells[1:])
-    expected = {"entries": str(config["depth"]), "target_bits": str(config["width"]), "mode": config["mode"]}
-    if any(extra["ras"][key] != value for key, value in expected.items()):
-        raise ValueError(f"{name}: wrong RAS config")
-    layout = extra["btb_layout"]
-    expected_layout = {"mode": config["layout"], "jump_sets": str(config["jump_sets"]),
-                       "jump_ways": str(config["jump_ways"]), "priority": config["priority"]}
-    if any(layout[key] != value for key, value in expected_layout.items()):
-        raise ValueError(f"{name}: wrong BTB layout")
-    stats["btb_conflicts"] = int(layout["conflicts"])
-    for group in ("returns", "other_jalr", "branches", "jals"):
-        counts = {key: int(value) for key, value in extra[group].items()}
-        if min(counts.values()) < 0 or counts["hits"] + counts["misses"] != counts["accesses"]:
-            raise ValueError(f"{name}: inconsistent {group}")
-        stats.update({f"{group}_{key}": value for key, value in counts.items()})
-    for key in ("accesses", "hits", "misses"):
-        if sum(stats[f"{group}_{key}"] for group in ("returns", "other_jalr", "branches", "jals")) != stats[f"control_flow_{key}"]:
-            raise ValueError(f"{name}: control flow partition mismatch")
-    stats.update({f"ras_{key}": int(value) for key, value in extra["ras"].items() if key not in ("mode",)})
-    stats["return_table_bits"] = int(extra["return_table"]["storage_bits"])
-    if extra["return_table"]["priority"] != config.get("ret_priority", "ret"):
-        raise ValueError(f"{name}: wrong RET priority")
-    stats["return_conflicts"] = int(extra["return_table"]["conflicts"])
-    stats["return_tag_bits"] = int(extra["return_table"]["tag_bits"])
-    expected_tag_bits = (config.get("ret_tag_bits", 0) or config["pc_bits"]) if config["mode"] == "filter" and config["depth"] else 0
-    if stats["return_tag_bits"] != expected_tag_bits:
-        raise ValueError(f"{name}: wrong RET tag width")
-    stats["redirects"] = int(extra["redirects"]["count"])
-    entries = config["sets"] * config["ways"]
-    # 当前 RTL 紧凑字段：valid + tag + target[15:1] + kind；共享 return 扩大 kind 一位。
-    kind_bits = 2 if config["depth"] and config["mode"] == "btb" else 1
-    stats["rtl_storage_bits"] = (entries * (1 + config["pc_bits"] + 15 + kind_bits)
-                                 + config["sets"] * (config["ways"] - 1).bit_length()
-                                 + 2 * config["bht_entries"] + stats["ras_storage_bits"]
-                                 + stats["return_table_bits"])
-    if config["layout"] == "split":
-        jumps = config["jump_sets"] * config["jump_ways"]
-        # BRANCH 表不存类型，JAL/RET 表只需 1 位；无 RAS 时 JAL-only 表也不存类型。
-        stats["rtl_storage_bits"] = (entries * (1 + config["pc_bits"] + 15)
-                                     + config["sets"] * (config["ways"] - 1).bit_length()
-                                     + jumps * (1 + config["pc_bits"] + 15 +
-                                                bool(config["depth"] and config["mode"] == "btb"))
-                                     + config["jump_sets"] * (config["jump_ways"] - 1).bit_length()
-                                     + 2 * config["bht_entries"] + stats["ras_storage_bits"]
-                                     + stats["return_table_bits"])
-    return {"name": name, **config, **stats}
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trace", type=Path, required=True)
@@ -153,9 +58,10 @@ def main():
     points = configurations(list(dict.fromkeys(args.depths)), list(dict.fromkeys(args.filters)))
     results = {}
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = {pool.submit(replay, binary, trace, args.output, point): point[0] for point in points}
+        futures = {pool.submit(replay, binary, trace, args.output, point): point[1] for point in points}
         for future in as_completed(futures):
             row = future.result()
+            row["rtl_storage_bits"] = predictor_bits(futures[future])
             results[row["name"]] = row
             print(f"{len(results)}/{len(points)} {row['name']}: {row['rtl_storage_bits']} bits, MPKI {row['mpki']:.6f}", flush=True)
     if provenance != {"trace": fingerprint(trace), "branchsim": fingerprint(binary)}:

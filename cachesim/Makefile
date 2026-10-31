@@ -25,7 +25,7 @@ WAYS ?= 2
 BLOCK_BYTES ?= 16
 POLICY ?= rr
 
-SRCS := src/cache.cpp src/trace_reader.cpp src/main.cpp
+SRCS := src/cache.cpp src/main.cpp
 OBJS := $(SRCS:%.cpp=$(OBJ_DIR)/%.o)
 DEPS := $(OBJS:.o=.d)
 

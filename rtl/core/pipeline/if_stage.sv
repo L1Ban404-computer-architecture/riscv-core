@@ -48,7 +48,9 @@ module if_stage
   assign imem_invalidate_o = (select_wb && wb_redirect.payload.imem_invalidate) ||
       (select_ex && ex_redirect.payload.imem_invalidate);
 
-  assign imem.req_valid = rst_ni;
+  // IF 自己限制单笔元数据容量，不依赖存储侧的在途深度来保证请求归属。
+  // 改道当拍的旧请求由下一拍 flush 取消，不占用元数据。
+  assign imem.req_valid = rst_ni && (meta_ready || redirect_valid);
   assign imem.req_payload = '{
       addr: pc_q, write: 1'b0, size: CORE_BUS_SIZE_WORD, wdata: '0
   };

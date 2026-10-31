@@ -33,6 +33,9 @@ std::string ValidateCacheConfig(const CacheConfig &config) {
   if (!IsPowerOfTwo(config.ways)) {
     return "ways must be a positive power of two";
   }
+  if (config.policy == ReplacementPolicy::kTreePlru && config.ways > 32) {
+    return "plru supports at most 32 ways";
+  }
   const unsigned block_offset_w = FloorLog2(config.block_bytes);
   const unsigned set_index_bits = config.sets > 1 ? FloorLog2(config.sets) : 0;
   if (block_offset_w + set_index_bits >= 32) {

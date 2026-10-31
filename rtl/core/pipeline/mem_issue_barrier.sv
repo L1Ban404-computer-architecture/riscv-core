@@ -3,7 +3,7 @@
 
 // MEM 入口的组合屏障：WB 串行化事件存在时，阻止年轻事务继续执行。
 // 这里只阻断握手；年轻事务由顶层的 WB 改道冲刷，提交行为仍由 WB 决定。
-module pipeline_control (
+module mem_issue_barrier (
   ex_mem_if.consumer ex_mem,
   mem_wb_if.monitor mem_wb,
   ex_mem_if.producer result

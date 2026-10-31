@@ -30,6 +30,14 @@ def main():
         assert int(baseline["total"]["misses"]) == 4
         assert int(baseline["ras"]["storage_bits"]) == 0
 
+        # RV32E rejects rd=x16. The ideal oracle must honor the validated kind,
+        # even though the raw JALR encoding contains a return hint.
+        illegal_return = (0x2200, 0x8867, 0x2204, 0, 0, 0)
+        result = replay(binary, directory, [call, illegal_return], pc_bits=10, ways=4,
+                        extra=["--ras-entries", "2", "--ras-mode", "ideal"])
+        assert int(result["non_control_flow"]["hits"]) == 1
+        assert int(result["ras"]["predictions"]) == 0
+
         alias = (0x3100, 0x13, 0x3104, 0, 0, 0)
         for mode in ("btb", "filter"):
             result = replay(binary, directory, [call, ret, nop, call, alias], pc_bits=10,

@@ -14,8 +14,8 @@ from typing import Dict, Sequence
 
 from dse import FF_BUDGET
 
-GROUPS = ("total", "control_flow", "non_control_flow", "actual_taken", "actual_not_taken",
-          "predicted_taken", "predicted_not_taken")
+from dse.results import GROUPS
+
 CSV_FIELDS = ("bht", "btb", "btb_sets", "btb_ways", "btb_policy", "entries", "pc_bits", "target_bits",
               "bht_entries", "entry_bits", "replacement_bits", "btb_ff", "bht_ff", "total_ff", "instructions",
               *(f"{group}_{metric}" for group in GROUPS

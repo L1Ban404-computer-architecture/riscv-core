@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import os
 import re
 import subprocess
@@ -17,7 +16,9 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 from dse import BHT_ENTRIES, FF_BUDGET, PC_WIDTHS, TARGET_WIDTHS
-from dse.report import CSV_FIELDS, GROUPS, sort_key, write_csv, write_plot, write_summary
+from dse.cost import generic_btb_bits as storage_bits
+from dse.results import fingerprint, parse_output
+from dse.report import CSV_FIELDS, sort_key, write_csv, write_plot, write_summary
 
 BRANCHSIM_DIR = Path(__file__).resolve().parents[1]
 Point = Tuple[str, str, int, int, str, int, int, int]
@@ -73,67 +74,6 @@ def point_name(point: Point) -> str:
     size = point[7] if len(point) == 8 else 0
     suffix = f"_h{size}" if size else ""
     return f"{bht}_{btb}_s{sets}_w{ways}_{policy}_p{pc_bits}_t{target_bits}{suffix}"
-
-
-def storage_bits(point: Point) -> Dict[str, int]:
-    """设计声明的触发器位数；软件容器大小不参与硬件成本。"""
-    bht, btb, sets, ways, policy, pc_bits, target_bits = point[:7]
-    if btb == "none":
-        return {"entry_bits": 0, "replacement_bits": 0, "btb_ff": 0, "bht_ff": 0, "total_ff": 0}
-    if bht == "bimodal" and (len(point) != 8 or point[7] < 1 or (point[7] & (point[7] - 1)) != 0):
-        raise ValueError("bimodal point requires a positive power-of-two BHT size")
-    entries = sets * ways
-    # 每项除两个 PC 字段外，还有 valid、分支类型和原始前后向各一位。
-    entry_bits = pc_bits + target_bits + 3
-    replacement_bits = (sets if policy == "rr" else entries) * (ways - 1).bit_length()
-    btb_ff = entries * entry_bits + replacement_bits
-    bht_ff = 2 * point[7] if bht == "bimodal" else 0
-    return {"entry_bits": entry_bits, "replacement_bits": replacement_bits,
-            "btb_ff": btb_ff, "bht_ff": bht_ff, "total_ff": btb_ff + bht_ff}
-
-
-def parse_output(output: str) -> Dict[str, object]:
-    """用整数计数重算比率，避免把模拟器打印的六位小数当作原始精度。"""
-    lines = {}
-    instructions = None
-    for line in output.splitlines():
-        cells = line.split()
-        if not cells:
-            continue
-        if cells[0].startswith("instructions="):
-            instructions = int(cells[0].split("=", 1)[1])
-        elif cells[0] in (*GROUPS, "direction"):
-            if cells[0] in lines:
-                raise ValueError(f"duplicate statistics: {cells[0]}")
-            lines[cells[0]] = dict(cell.split("=", 1) for cell in cells[1:])
-    if instructions is None or instructions < 0:
-        raise ValueError("missing/invalid instruction count")
-    row: Dict[str, object] = {"instructions": instructions}
-    for group in GROUPS:
-        counts = lines[group]
-        accesses, hits, misses = (int(counts[key]) for key in ("accesses", "hits", "misses"))
-        if min(accesses, hits, misses) < 0 or hits + misses != accesses:
-            raise ValueError(f"inconsistent {group} counts")
-        row.update({f"{group}_accesses": accesses, f"{group}_hits": hits,
-                    f"{group}_misses": misses,
-                    f"{group}_hit_rate": hits / accesses if accesses else "-"})
-    accesses = int(row["total_accesses"])
-    hits = int(row["total_hits"])
-    if accesses != instructions:
-        raise ValueError("total observations must include every retired instruction")
-    for pair in (("actual_taken", "actual_not_taken"),
-                 ("predicted_taken", "predicted_not_taken"),
-                 ("control_flow", "non_control_flow")):
-        for metric in ("accesses", "hits", "misses"):
-            if sum(int(row[f"{group}_{metric}"]) for group in pair) != row[f"total_{metric}"]:
-                raise ValueError(f"inconsistent {pair} partition")
-    direction_hits = int(lines["direction"]["hits"])
-    if not hits <= direction_hits <= accesses:
-        raise ValueError("inconsistent direction hits")
-    row["direction_hits"] = direction_hits
-    row["direction_hit_rate"] = direction_hits / accesses if accesses else "-"
-    row["mpki"] = 1000 * int(row["total_misses"]) / instructions if instructions else "-"
-    return row
 
 
 def replay(branchsim: Path, trace: Path, log_dir: Path, point: Point) -> Dict[str, object]:
@@ -208,17 +148,6 @@ def verified_report_rows(build_dir: Path, points: Sequence[Point], provenance: d
     if remaining:
         raise RuntimeError(f"report-only CSV is missing {len(remaining)} configurations")
     return rows
-
-
-def fingerprint(path: Path) -> dict:
-    before = path.stat()
-    with path.open("rb") as handle:
-        digest = hashlib.file_digest(handle, "sha256").hexdigest()
-    after = path.stat()
-    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-        raise RuntimeError(f"input changed while hashing: {path}")
-    return {"path": str(path), "bytes": after.st_size, "mtime_ns": after.st_mtime_ns,
-            "sha256": digest}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

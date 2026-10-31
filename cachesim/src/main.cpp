@@ -6,7 +6,7 @@
 #include <stdexcept>
 
 #include "cache.hpp"
-#include "trace_reader.hpp"
+#include "insttrace_reader.hpp"
 
 namespace {
 
@@ -97,10 +97,10 @@ int main(int argc, char **argv) {
 
   Cache cache = MakeCache(config);
   try {
-    TraceReader reader;
+    insttrace::Reader reader;
     reader.Open(trace_path);
-    std::uint32_t pc = 0;
-    while (reader.Next(&pc)) cache.Access(pc);
+    insttrace::Record record;
+    while (reader.Next(&record)) cache.Access(record.pc);
   } catch (const std::exception &error) {
     std::fprintf(stderr, "%s\n", error.what());
     return 1;

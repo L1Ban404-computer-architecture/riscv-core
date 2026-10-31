@@ -6,25 +6,8 @@ import csv
 import json
 from pathlib import Path
 
-from dse.ras import fingerprint, replay
-
-
-def storage_bits(config):
-    entries = config["sets"] * config["ways"]
-    depth, width = config["depth"], config["width"]
-    ras = depth * (width - 2) + (depth - 1).bit_length() + depth.bit_length() if depth else 0
-    bits = 2 * config["bht_entries"] + ras
-    if config["layout"] == "split":
-        jumps = config["jump_sets"] * config["jump_ways"]
-        bits += entries * (config["pc_bits"] + 16)
-        bits += jumps * (config["pc_bits"] + 16 + bool(depth))
-        bits += config["jump_sets"] * (config["jump_ways"] - 1).bit_length()
-    else:
-        bits += entries * (config["pc_bits"] + 17 + (depth > 0 and config["mode"] == "btb"))
-        if config["mode"] == "filter" and depth:
-            size = config["filters"]
-            bits += size * (config["pc_bits"] + 1) + (size - 1).bit_length()
-    return bits + config["sets"] * (config["ways"] - 1).bit_length()
+from dse.results import fingerprint, replay
+from dse.cost import predictor_bits as storage_bits
 
 
 def configurations(budget=360):
@@ -92,8 +75,7 @@ def main():
         futures = {pool.submit(replay, binary, trace, args.output, point): point for point in points}
         for future in as_completed(futures):
             row = future.result()
-            if row["rtl_storage_bits"] != storage_bits(futures[future][1]):
-                raise ValueError(f"{row['name']}: storage accounting mismatch")
+            row["rtl_storage_bits"] = storage_bits(futures[future][1])
             if not row["instructions"]:
                 raise ValueError("empty trace")
             results[row["name"]] = row

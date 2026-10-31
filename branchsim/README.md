@@ -1,5 +1,11 @@
 # Branchsim：分支方向预测与存储预算扫描
 
+`Predictor` 统一拥有 BTB/BHT、RAS、RET 表及其查询仲裁和训练；普通预测只接收 PC，
+`PredictIdeal` 显式接收已经校验的返回类型，供理想识别对照使用。CLI 负责参数、回放和统计。
+二进制轨迹帧由本目录的 `include/insttrace_reader.hpp` 读取，分支语义校验保留在 `src/trace_reader.cpp`。branchsim 与 cachesim 各自维护读取实现，独立构建。
+DSE 的回放与结果校验位于 `dse/results.py`，存储公式位于 `dse/cost.py`，分别保留通用、历史紧凑和当前紧凑格式。
+模型及扫描回归使用 `make -C branchsim check-model check-dse`。
+
 可选的小容量 RAS 默认关闭，支持共享 BTB、独立 return 标签和理想识别对照。以拆分改造前的 P10/T16、4 项 BTB、BHT16 为基线，实测和成本见 [RAS 研究](ras-study.md)：microbench 上增加 1 项 RAS＋1 项标签共 26 位，误预测减少 7.75%；已有 RT-Thread 轨迹的同配置收益接近零。原 DSE 默认网格保持不变。
 
 进一步支持 BRANCH 独立 BTB、JAL/RET 共享 BTB，见 [双 BTB 研究](split-study.md)。保留 4 项 BRANCH、增加 2 项 JAL/RET 和 1 项 RAS 时，microbench MPKI 为 65.397565，总存储 208 位；直接将原 4 项平分会退化。RT-Thread 的结果依赖 JAL/RET 表的组路组织。

@@ -130,7 +130,7 @@ module riscv_core_impl
   );
 
   // WB 串行化事件阻断 MEM 入口；寄存器冲刷负责清除年轻事务。
-  pipeline_control u_pipeline_control (
+  mem_issue_barrier u_mem_issue_barrier (
     .ex_mem(ex_mem),
     .mem_wb(mem_wb),
     .result(memory_input)

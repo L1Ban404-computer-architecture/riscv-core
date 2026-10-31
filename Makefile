@@ -3,10 +3,13 @@
 
 # 综合检查、面积分析、I-cache 形式化与离线仿真分别在组件目录里。
 .PHONY: check perf formal-icache cachesim branchsim \
-        cachesim-sim cachesim-run branchsim-sim branchsim-run sim run clean
+        cachesim-sim cachesim-run branchsim-sim branchsim-run clean
 
 check perf:
 	$(MAKE) -C rtl $@
+
+cachesim branchsim:
+	$(MAKE) -C $@
 
 formal-icache:
 	$(MAKE) -C formal/icache formal-icache

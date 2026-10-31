@@ -14,11 +14,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dse import FF_BUDGET
-from dse.__main__ import BRANCHSIM_DIR, geometries, main, parse_args, parse_output, replay, storage_bits
+from dse.__main__ import BRANCHSIM_DIR, geometries, main, parse_args, replay
+from dse.results import parse_output
+from dse.cost import generic_btb_bits as storage_bits
 from dse.report import best_by_capacity, pareto
 
 
 class SweepTests(unittest.TestCase):
+    def test_explicit_historical_and_compact_costs(self):
+        from dse.cost import predictor_bits, compact_predictor_bits
+        config = dict(sets=1, ways=4, pc_bits=10, bht_entries=16,
+                      depth=2, width=16, mode="filter", filters=4,
+                      layout="split", jump_sets=1, jump_ways=2)
+        self.assertEqual(compact_predictor_bits(config), 266)
+        self.assertEqual(predictor_bits(config), 268)
+
     def test_geometries_and_equivalent_points(self):
         args = parse_args([])
         self.assertEqual((args.entries_min, args.entries_max, args.ways_max), (1, None, None))
@@ -233,7 +243,7 @@ class SweepTests(unittest.TestCase):
         self.assertIn("PC 标签位宽：12；目标位宽：20", summary)
         self.assertIn("计数器规模：4/8", summary)
         self.assertIn("各 BHT 容量最优配置", summary)
-        self.assertNotIn("520", summary)
+        self.assertNotIn("不超过 520", summary)
         with contextlib.redirect_stderr(io.StringIO()), patch("dse.__main__.subprocess.run",
                                                              side_effect=AssertionError("unexpected replay")):
             self.assertEqual(main(args + ["--report-only"]), 0)

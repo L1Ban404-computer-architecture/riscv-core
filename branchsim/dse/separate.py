@@ -7,31 +7,8 @@ import json
 from itertools import product
 from pathlib import Path
 
-from dse.ras import fingerprint, read_result, replay
-
-
-def storage_bits(config):
-    """紧凑 RTL 可实现格式：BRANCH 保留 target bit1，JAL/RET 省掉 bit1。"""
-    depth = config["depth"]
-    ras = depth * (config["width"] - 2) + (depth - 1).bit_length() + depth.bit_length() if depth else 0
-    bits = ras + 2 * config["bht_entries"]
-    bits += config["sets"] * (config["ways"] - 1).bit_length()
-    count = config["sets"] * config["ways"]
-    tag = config["pc_bits"]
-    if config["layout"] == "unified":
-        kind = 2 if depth and config["mode"] == "btb" else 1
-        bits += count * (1 + tag + 15 + kind)
-    else:
-        bits += count * (1 + tag + 15)
-        jumps = config["jump_sets"] * config["jump_ways"]
-        kind = int(bool(depth and config["mode"] == "btb"))
-        bits += jumps * (1 + tag + 14 + kind)
-        bits += config["jump_sets"] * (config["jump_ways"] - 1).bit_length()
-    if depth and config["mode"] == "filter":
-        size = config["filters"]
-        ret_tag = config.get("ret_tag_bits", 0) or tag
-        bits += size * (1 + ret_tag) + (size - 1).bit_length()
-    return bits
+from dse.results import fingerprint, read_result, replay
+from dse.cost import compact_predictor_bits as storage_bits, predictor_bits
 
 
 def configurations(budget=360):
@@ -181,9 +158,8 @@ def main():
             if not row["instructions"]:
                 raise ValueError("empty trace")
             row["compact_bits"] = storage_bits(futures[future][1])
-            if args.grid:
-                # 网页与 CSV 只保留当前紧凑成本，避免旧通用格式的位数混入横轴。
-                row.pop("rtl_storage_bits")
+            if not args.grid:
+                row["rtl_storage_bits"] = predictor_bits(futures[future][1])
             row["family"] = "triple" if row["layout"] == "split" and row["mode"] == "filter" else "control"
             # 三表的 RET 识别存储必须与真实 CLI 成本一致，不存在目标字段。
             if row["mode"] == "filter" and row["depth"]:
