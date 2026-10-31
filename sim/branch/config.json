@@ -4,10 +4,12 @@
     "bht": "bimodal",
     "bht_entries": 16,
     "btb": "table",
-    "sets": 1,
-    "ways": 4,
+    "jal_btb": true,
+    "jal_btb_entries": 1,
+    "sets": 2,
+    "ways": 2,
     "policy": "rr",
-    "pc_bits": 10,
+    "pc_bits": 8,
     "target_bits": 16
   }
 }

@@ -14,6 +14,9 @@ struct BtbConfig {
   std::string policy = "rr";
   std::uint32_t pc_bits = 8;
   std::uint32_t target_bits = 16;
+  bool jal_btb = false;
+  // 独立 JAL 表为全相联，沿用 policy、pc_bits 和 target_bits。
+  std::uint32_t jal_btb_entries = 4;
 };
 
 struct BtbPrediction {
@@ -39,9 +42,18 @@ class Btb {
     bool backward = false;
   };
 
-  std::size_t SetBegin(std::uint32_t pc) const;
+  struct Table {
+    std::uint32_t sets = 1;
+    std::uint32_t ways = 1;
+    std::vector<Entry> entries;
+    std::vector<std::uint32_t> rr_next;
+  };
+
+  Table MakeTable(std::uint32_t sets, std::uint32_t ways) const;
+  BtbPrediction LookupTable(std::uint32_t pc, const Table &table) const;
+  std::size_t SetBegin(std::uint32_t pc, const Table &table) const;
   std::uint32_t Tag(std::uint32_t pc) const;
   BtbConfig config_;
-  std::vector<Entry> entries_;
-  std::vector<std::uint32_t> rr_next_;
+  Table table_;
+  Table jal_table_;
 };

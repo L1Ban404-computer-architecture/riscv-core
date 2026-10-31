@@ -119,7 +119,7 @@ module ex_stage
   assign branch_update.payload = '{
     tag: btb_tag_t'(id_ex.payload.pc >> 2),
     target: id_ex.payload.exec_data.direct_target[BtbTargetWidth-1:1],
-    kind: (id_ex.payload.ctrl.branch_op == BR_JAL) ? BTB_JAL : BTB_BRANCH,
+    is_jal: id_ex.payload.ctrl.branch_op == BR_JAL,
     taken: branch_taken
   };
 

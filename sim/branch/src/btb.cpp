@@ -29,19 +29,40 @@ Btb::Btb(const BtbConfig &config) : config_(config) {
   if (config.target_bits < 2 || config.target_bits > 32) {
     throw std::invalid_argument("target-bits must be in [2, 32]");
   }
+  if (config.jal_btb && config.jal_btb_entries == 0) {
+    throw std::invalid_argument("jal-btb-entries must be positive when jal-btb is enabled");
+  }
   if (config.method == "none") return;
-  if (config.ways > entries_.max_size() / config.sets) {
+  table_ = MakeTable(config.sets, config.ways);
+  if (config.jal_btb) jal_table_ = MakeTable(1, config.jal_btb_entries);
+}
+
+Btb::Table Btb::MakeTable(std::uint32_t sets, std::uint32_t ways) const {
+  Table table;
+  table.sets = sets;
+  table.ways = ways;
+  if (ways > table.entries.max_size() / sets) {
     throw std::invalid_argument("BTB geometry is too large");
   }
-  entries_.resize(static_cast<std::size_t>(config.sets) * config.ways);
-  if (config.policy == "rr") rr_next_.resize(config.sets, 0);
+  table.entries.resize(static_cast<std::size_t>(sets) * ways);
+  if (config_.policy == "rr") table.rr_next.resize(sets, 0);
+  return table;
 }
 
 BtbPrediction Btb::Lookup(std::uint32_t pc) const {
   if (config_.method == "none") return {};
-  const std::size_t begin = SetBegin(pc);
-  for (std::uint32_t way = 0; way < config_.ways; ++way) {
-    const Entry &entry = entries_[begin + way];
+  // 两张表都只按 PC 查询；标签截断导致同时命中时，JAL 表优先。
+  if (config_.jal_btb) {
+    const auto jal = LookupTable(pc, jal_table_);
+    if (jal.hit) return jal;
+  }
+  return LookupTable(pc, table_);
+}
+
+BtbPrediction Btb::LookupTable(std::uint32_t pc, const Table &table) const {
+  const std::size_t begin = SetBegin(pc, table);
+  for (std::uint32_t way = 0; way < table.ways; ++way) {
+    const Entry &entry = table.entries[begin + way];
     if (entry.valid && entry.pc == Tag(pc)) {
       const std::uint32_t target = (pc & ~LowMask(config_.target_bits)) | entry.target;
       return {true, target, entry.type, entry.backward};
@@ -52,55 +73,56 @@ BtbPrediction Btb::Lookup(std::uint32_t pc) const {
 
 void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
   if (config_.method == "none") return;
-  const std::size_t begin = SetBegin(pc);
-  const std::uint32_t set = (pc >> 2) & (config_.sets - 1u);
-  std::uint32_t selected = config_.ways;
+  Table &table = config_.jal_btb && type == BtbType::kJal ? jal_table_ : table_;
+  const std::size_t begin = SetBegin(pc, table);
+  const std::uint32_t set = (pc >> 2) & (table.sets - 1u);
+  std::uint32_t selected = table.ways;
   // 先找已有项；未命中时优先选编号最小的空路。
-  for (std::uint32_t way = 0; way < config_.ways; ++way) {
-    const Entry &entry = entries_[begin + way];
+  for (std::uint32_t way = 0; way < table.ways; ++way) {
+    const Entry &entry = table.entries[begin + way];
     if (entry.valid && entry.pc == Tag(pc)) {
       selected = way;
       break;
     }
   }
-  const bool hit = selected != config_.ways;
+  const bool hit = selected != table.ways;
   if (!hit) {
-    for (std::uint32_t way = 0; way < config_.ways; ++way) {
-      if (!entries_[begin + way].valid) {
+    for (std::uint32_t way = 0; way < table.ways; ++way) {
+      if (!table.entries[begin + way].valid) {
         selected = way;
         break;
       }
     }
   }
-  if (selected == config_.ways) {
-    if (config_.policy == "rr") selected = rr_next_[set];
+  if (selected == table.ways) {
+    if (config_.policy == "rr") selected = table.rr_next[set];
     else {
       selected = 0;
-      for (std::uint32_t way = 1; way < config_.ways; ++way) {
-        if (entries_[begin + way].age > entries_[begin + selected].age) {
+      for (std::uint32_t way = 1; way < table.ways; ++way) {
+        if (table.entries[begin + way].age > table.entries[begin + selected].age) {
           selected = way;
         }
       }
     }
   }
 
-  Entry &entry = entries_[begin + selected];
+  Entry &entry = table.entries[begin + selected];
   if (config_.policy == "lru") {
     // age 是组内名次，0 表示最新。名次有界，不依赖会溢出的时间戳。
-    const std::uint32_t old_age = hit ? entry.age : config_.ways;
-    for (std::uint32_t way = 0; way < config_.ways; ++way) {
-      Entry &other = entries_[begin + way];
+    const std::uint32_t old_age = hit ? entry.age : table.ways;
+    for (std::uint32_t way = 0; way < table.ways; ++way) {
+      Entry &other = table.entries[begin + way];
       if (other.valid && other.age < old_age) ++other.age;
     }
   } else if (!hit) {
-    rr_next_[set] = (selected + 1u) % config_.ways;
+    table.rr_next[set] = (selected + 1u) % table.ways;
   }
   const bool backward = ((target - pc) & 0x80000000u) != 0;
   entry = {true, Tag(pc), target & LowMask(config_.target_bits), type, 0, backward};
 }
 
-std::size_t Btb::SetBegin(std::uint32_t pc) const {
-  return static_cast<std::size_t>((pc >> 2) & (config_.sets - 1u)) * config_.ways;
+std::size_t Btb::SetBegin(std::uint32_t pc, const Table &table) const {
+  return static_cast<std::size_t>((pc >> 2) & (table.sets - 1u)) * table.ways;
 }
 
 std::uint32_t Btb::Tag(std::uint32_t pc) const {

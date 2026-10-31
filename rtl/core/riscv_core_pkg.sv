@@ -27,19 +27,14 @@ package riscv_core_pkg;
   typedef logic [XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
-  // 分支预测器：RR BTB + PC 索引的两位饱和计数器 BHT。
+  // 分支预测器：条件分支 RR BTB、独立全相联 JAL BTB、两位 Bimodal BHT。
 
-  typedef enum logic {
-    BTB_BRANCH,
-    BTB_JAL
-  } btb_entry_type_e;
-
-  parameter bit BtbEnable = 1'b1;
-  parameter int unsigned BtbSetCount = 1;
-  parameter int unsigned BtbWayCount = 4;
-  parameter int unsigned BtbPcWidth = 10;
+  parameter int unsigned BtbSetCount = 2;
+  parameter int unsigned BtbWayCount = 2;
+  parameter int unsigned BtbPcWidth = 8;
   parameter int unsigned BtbTargetWidth = 16;
   parameter int unsigned BhtEntryCount = 16;
+  parameter int unsigned JalBtbEntryCount = 1;
 
   typedef logic [BtbPcWidth-1:0] btb_tag_t;
   // B/J 编码目标的 bit 0 恒为零；保留 bit 1，以覆盖未跳转的非对齐分支。
@@ -234,7 +229,7 @@ package riscv_core_pkg;
   typedef struct packed {
     btb_tag_t tag;
     btb_target_t target;
-    btb_entry_type_e kind;
+    logic is_jal;
     logic taken;
   } branch_update_payload_t;
 
