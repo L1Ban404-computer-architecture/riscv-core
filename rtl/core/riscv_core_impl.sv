@@ -50,11 +50,9 @@ module riscv_core_impl
   gpr_write_if wb ();
 
   // 普通 EX 指令即使因后端访存背压而停留，也允许提前启动取指 miss。
-  // 分支/跳转、截断标签误预测及串行化/异常仍等待 EX 排空，避免错误路径访问。
+  // 分支/跳转及截断标签误预测仍等待 EX 排空，减少错误路径访问。
   assign imem_miss_allowed_o = rst_ni && (!id_ex.valid ||
-      ((id_ex.payload.ctrl.branch_op == BR_NONE) && !id_ex.payload.prediction.taken &&
-       !id_ex.payload.exception.valid && !id_ex.payload.commit.fence_i &&
-       !id_ex.payload.commit.is_mret));
+      ((id_ex.payload.ctrl.branch_op == BR_NONE) && !id_ex.payload.prediction.taken));
 
   // 流水级与输出寄存器按 IF → ID → EX → MEM → WB 排列。
 
