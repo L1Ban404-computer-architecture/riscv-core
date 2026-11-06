@@ -17,5 +17,6 @@ void RequireKeys(const json::object &object, std::initializer_list<const char *>
 std::uint32_t Uint32(const json::object &object, const char *key);
 double NonnegativeNumber(const json::object &object, const char *key);
 std::string String(const json::object &object, const char *key);
-json::value Ratio(std::uint64_t numerator, std::uint64_t denominator);
+// 无样本时返回 null；scale 将比值换算为 MPKI、平均周期等指标。
+json::value Ratio(std::uint64_t numerator, std::uint64_t denominator, double scale = 1.0);
 }  // namespace sim

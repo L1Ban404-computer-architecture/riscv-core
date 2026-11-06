@@ -75,8 +75,8 @@ BtbPrediction Btb::LookupTable(std::uint32_t pc, const Table &table) const {
 void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
   if (config_.method == "none") return;
   Table &table = config_.jal_btb && type == BtbType::kJal ? jal_table_ : table_;
-  const std::size_t begin = SetBegin(pc, table);
   const std::uint32_t set = (pc >> 2) & (table.sets - 1u);
+  const std::size_t begin = static_cast<std::size_t>(set) * table.ways;
   const std::uint32_t tag = Tag(pc);
   std::uint32_t selected = table.ways;
   bool hit = false;

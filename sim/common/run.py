@@ -21,13 +21,15 @@ def run(scan_path, workers):
     scan = read_json(scan_path)
     binary = (directory / scan["simulator"]).resolve()
     jobs = scan["jobs"]
-    configs = [(directory / job["config"]).resolve() for job in jobs]
-    results = [(directory / job["result"]).resolve() for job in jobs]
-    if not jobs or len(set(results)) != len(results) or set(configs) & set(results):
+    paths = [((directory / job["config"]).resolve(), (directory / job["result"]).resolve())
+             for job in jobs]
+    configs = {config for config, _ in paths}
+    results = {result for _, result in paths}
+    if not jobs or len(results) != len(jobs) or configs & results:
         raise ValueError("jobs must be nonempty and have unique results separate from configs")
     traces = {(config.parent / read_json(config)["trace"]).resolve() for config in configs}
     sources = {binary, *configs, *traces}
-    if set(results) & (sources | {scan_path, directory / "run.json"}):
+    if results & (sources | {scan_path, directory / "run.json"}):
         raise ValueError("results must not overwrite scan inputs")
     completed = directory / "run.json"
     completed.unlink(missing_ok=True)
@@ -39,7 +41,7 @@ def run(scan_path, workers):
     timestamps = {path: (path.stat().st_size, path.stat().st_mtime_ns) for path in sources}
 
     def execute(index):
-        config, result = configs[index], results[index]
+        config, result = paths[index]
         log = directory / "logs" / f"{index:04d}.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("w", encoding="utf-8") as output:
@@ -64,7 +66,7 @@ def run(scan_path, workers):
         if (path.stat().st_size, path.stat().st_mtime_ns) != stamp:
             raise ValueError(f"input changed during scan: {path}")
     write_json(completed, {"plan": execution_plan(scan), "sources": source_hashes,
-                           "results": {job["result"]: fingerprint(path) for job, path in zip(jobs, results)}})
+                           "results": {job["result"]: fingerprint(directory / job["result"]) for job in jobs}})
     return completed
 
 

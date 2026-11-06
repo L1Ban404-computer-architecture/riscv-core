@@ -8,6 +8,7 @@ module id_stage
   // 流水事务
   if_id_if.consumer if_id,
   id_ex_if.producer result,
+  output reg_addr_payload_t source_regs_o,
   gpr_read_if.requester gpr_read
 `ifndef SYNTHESIS
   , output riscv_debug_pkg::stage_debug_payload_t debug_o
@@ -15,7 +16,7 @@ module id_stage
 );
 
   decode_result_t decoded;
-  word_t immediate, pc_offset;
+  word_t immediate;
 
   // 译码、立即数与寄存器读取
   decoder u_decoder (
@@ -25,24 +26,23 @@ module id_stage
 
   imm_gen u_imm_gen (
     .instr_i(if_id.payload.meta.instr),
-    .imm_o(immediate),
-    .pc_offset_o(pc_offset)
+    .imm_o(immediate)
   );
 
   assign gpr_read.rs1_addr = decoded.reg_addr.rs1_addr;
   assign gpr_read.rs2_addr = decoded.reg_addr.rs2_addr;
+  assign source_regs_o = decoded.reg_addr;
 
   // 异常归并与 ID/EX 事务生成
   always_comb begin
     result.payload = '0;
     result.payload.pc = if_id.payload.meta.pc;
-    result.payload.reg_addr = decoded.reg_addr;
     result.payload.gpr = decoded.gpr;
     result.payload.prediction = if_id.payload.meta.prediction;
     result.payload.exec_data = '{
       rs1_value: gpr_read.rs1_value, rs2_value: gpr_read.rs2_value, imm: immediate,
-      // B/J 的目标只依赖 PC 和立即数；锁存后 EX 无需重新相加。
-      direct_target: if_id.payload.meta.pc + pc_offset
+      // AUIPC/B/J 共用立即数计算 PC 相对结果；锁存后 EX 无需重新相加。
+      direct_target: if_id.payload.meta.pc + immediate
     };
     result.payload.ctrl = decoded.ctrl;
     result.payload.commit = decoded.commit;

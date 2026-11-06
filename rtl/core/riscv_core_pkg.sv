@@ -27,14 +27,13 @@ package riscv_core_pkg;
   typedef logic [XLen-1:0] pc_t;
   typedef logic [RegAddrW-1:0] reg_addr_t;
 
-  // 分支预测器：条件分支 RR BTB、独立全相联 JAL BTB、两位 Bimodal BHT。
+  // 分支预测器：条件分支与 JAL 共用 RR BTB，条件分支使用两位 Bimodal BHT。
 
   parameter int unsigned BtbSetCount = 2;
-  parameter int unsigned BtbWayCount = 2;
-  parameter int unsigned BtbPcWidth = 8;
+  parameter int unsigned BtbWayCount = 4;
+  parameter int unsigned BtbPcWidth = 10;
   parameter int unsigned BtbTargetWidth = 16;
-  parameter int unsigned BhtEntryCount = 16;
-  parameter int unsigned JalBtbEntryCount = 1;
+  parameter int unsigned BhtEntryCount = 24;
 
   typedef logic [BtbPcWidth-1:0] btb_tag_t;
   // B/J 编码目标的 bit 0 恒为零；保留 bit 1，以覆盖未跳转的非对齐分支。
@@ -233,7 +232,7 @@ package riscv_core_pkg;
     logic taken;
   } branch_update_payload_t;
 
-  // 译码得到的寄存器地址，独立于寄存器值保存，便于后级执行相关性比较。
+  // ID 内的源寄存器地址与使用标志；前递完成后不再进入流水事务。
   typedef struct packed {
     reg_addr_t rs1_addr;
     reg_addr_t rs2_addr;
@@ -374,7 +373,6 @@ package riscv_core_pkg;
 
   typedef struct packed {
     pc_t pc;
-    reg_addr_payload_t reg_addr;
     gpr_dest_t gpr;
     branch_prediction_payload_t prediction;
     exec_data_payload_t exec_data;

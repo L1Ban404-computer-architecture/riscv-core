@@ -7,9 +7,12 @@ Bht::Bht(const std::string &method, std::uint32_t entries) {
   else if (method == "btfn") method_ = Method::kBtfn;
   else if (method == "bimodal") {
     method_ = Method::kBimodal;
-    if (entries == 0 || (entries & (entries - 1u)) != 0) {
-      throw std::invalid_argument("bht-entries must be a positive power of two");
+    if (entries == 0) {
+      throw std::invalid_argument("bht-entries must be positive");
     }
+    // 与 RTL 一致，先截取 ceil(log2(entries)) 位，再折回超出表长的索引。
+    for (std::uint32_t bits = entries - 1u; bits != 0; bits >>= 1)
+      index_mask_ = (index_mask_ << 1) | 1u;
     // 00/01 预测不跳转，10/11 预测跳转；冷启动为弱不跳转。
     counters_.assign(entries, 1);
   } else throw std::invalid_argument("bht must be not-taken, btfn or bimodal");
@@ -32,5 +35,6 @@ std::uint64_t Bht::StorageBits() const {
 }
 
 std::size_t Bht::Index(std::uint32_t pc) const {
-  return (pc >> 2) & (counters_.size() - 1u);
+  const std::size_t index = (pc >> 2) & index_mask_;
+  return index < counters_.size() ? index : index - counters_.size();
 }

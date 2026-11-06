@@ -2,12 +2,11 @@
   "trace": "../../build/sim/shared/runner-insttrace.bin",
   "parameters": {
     "bht": "bimodal",
-    "bht_entries": 16,
+    "bht_entries": 24,
     "btb": "table",
-    "jal_btb": true,
-    "jal_btb_entries": 1,
+    "jal_btb": false,
     "sets": 2,
-    "ways": 2,
+    "ways": 4,
     "policy": "rr",
     "pc_bits": 8,
     "target_bits": 16

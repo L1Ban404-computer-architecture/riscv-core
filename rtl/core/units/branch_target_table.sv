@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 仅保存 valid、截断 PC 标签和目标低位；指令类别由训练端分流，不写入表项。
+// 条件分支与 JAL 共用表项；保存 valid、截断 PC 标签、目标低位和 JAL 标志。
 // 组合查询、同步写入，无写入旁路；RR 只在插入新项时推进。
 module branch_target_table
   import riscv_core_pkg::*;
@@ -15,9 +15,11 @@ module branch_target_table
   input btb_tag_t predict_tag_i,
   output logic predict_hit_o,
   output btb_target_t predict_target_o,
+  output logic predict_is_jal_o,
   input logic update_valid_i,
   input btb_tag_t update_tag_i,
-  input btb_target_t update_target_i
+  input btb_target_t update_target_i,
+  input logic update_is_jal_i
 );
 
   localparam int unsigned SetIndexWidth = (SetCount > 1) ? $clog2(SetCount) : 1;
@@ -28,12 +30,13 @@ module branch_target_table
     logic valid;
     btb_tag_t tag;
     btb_target_t target;
+    logic is_jal;
   } entry_t;
 
   entry_t entries_q [SetCount][WayCount];
   set_index_t predict_set, update_set;
   way_index_t replacement_way, update_way;
-  logic update_hit, way_found;
+  logic update_hit;
 
   initial begin
     if (SetCount == 0 || ((SetCount & (SetCount - 1)) != 0))
@@ -53,31 +56,33 @@ module branch_target_table
   always_comb begin
     predict_hit_o = 1'b0;
     predict_target_o = '0;
+    predict_is_jal_o = 1'b0;
     for (int unsigned way = 0; way < WayCount; way++) begin
       if (!invalidate_i && entries_q[predict_set][way].valid &&
           entries_q[predict_set][way].tag == predict_tag_i) begin
         predict_hit_o = 1'b1;
         predict_target_o |= entries_q[predict_set][way].target;
+        predict_is_jal_o |= entries_q[predict_set][way].is_jal;
       end
     end
   end
 
   // 写入位置：命中项、编号最小的空路、RR 指针，依次优先。
   always_comb begin
+    logic empty_found;
+
     update_way = replacement_way;
     update_hit = 1'b0;
+    empty_found = 1'b0;
     for (int unsigned way = 0; way < WayCount; way++) begin
       if (!update_hit && entries_q[update_set][way].valid &&
           entries_q[update_set][way].tag == update_tag_i) begin
         update_way = way_index_t'(way);
         update_hit = 1'b1;
-      end
-    end
-    way_found = update_hit;
-    for (int unsigned way = 0; way < WayCount; way++) begin
-      if (!way_found && !entries_q[update_set][way].valid) begin
+      end else if (!update_hit && !empty_found && !entries_q[update_set][way].valid) begin
+        // 先记住首个空路；后续命中仍覆盖它，复用已有表项。
         update_way = way_index_t'(way);
-        way_found = 1'b1;
+        empty_found = 1'b1;
       end
     end
   end
@@ -106,7 +111,7 @@ module branch_target_table
           entries_q[set_idx][way].valid <= 1'b0;
     end else if (update_valid_i) begin
       entries_q[update_set][update_way] <= '{
-        valid: 1'b1, tag: update_tag_i, target: update_target_i
+        valid: 1'b1, tag: update_tag_i, target: update_target_i, is_jal: update_is_jal_i
       };
     end
   end

@@ -80,14 +80,17 @@ function frontier(source) {
   const x = selectors.x.value, y = selectors.y.value;
   const xSign = byId("x-goal").value === "min" ? 1 : -1;
   const ySign = byId("y-goal").value === "min" ? 1 : -1;
-  const ordered = source.filter(row => Number.isFinite(row[x]) && Number.isFinite(row[y])).slice();
+  const ordered = source.filter(row => Number.isFinite(row[x]) && Number.isFinite(row[y]));
   ordered.sort((a, b) => xSign * (a[x] - b[x]) || ySign * (a[y] - b[y]));
   const result = [];
-  let best = Infinity;
+  let bestX, bestY = Infinity;
   for (const row of ordered) {
-    if (ySign * row[y] < best) {
+    const yValue = ySign * row[y];
+    // 同一前沿坐标上的配置全部保留，表格和散点可直接按行判断归属。
+    if (yValue < bestY || (row[x] === bestX && yValue === bestY)) {
       result.push(row);
-      best = ySign * row[y];
+      bestX = row[x];
+      bestY = yValue;
     }
   }
   return result;
@@ -122,7 +125,11 @@ function ticks(lo, hi) {
 }
 
 function extent(values) {
-  const lo = Math.min(...values), hi = Math.max(...values);
+  let lo = Infinity, hi = -Infinity;
+  for (const value of values) {
+    lo = Math.min(lo, value);
+    hi = Math.max(hi, value);
+  }
   const pad = (hi - lo) * 0.08 || Math.max(Math.abs(lo) * 0.08, 1);
   return [lo - pad, hi + pad];
 }
@@ -184,9 +191,8 @@ function paint() {
   visible = rows.filter(row => Object.entries(filters).every(([field, select]) =>
     select.value === "" || String(row[field]) === select.value));
   const front = frontier(visible);
-  const x = selectors.x.value, y = selectors.y.value;
-  const coordinates = new Set(front.map(row => JSON.stringify([row[x], row[y]])));
-  if (byId("only-front").checked) visible = visible.filter(row => coordinates.has(JSON.stringify([row[x], row[y]])));
+  const frontRows = new Set(front);
+  if (byId("only-front").checked) visible = visible.filter(row => frontRows.has(row));
   visible.sort((a, b) => (ascending ? 1 : -1) * compare(a[sortField], b[sortField]));
   drawPlot(front);
   drawLegend();
@@ -194,7 +200,7 @@ function paint() {
   body.replaceChildren();
   for (const row of visible) {
     const line = element("tr");
-    line.classList.toggle("front", coordinates.has(JSON.stringify([row[x], row[y]])));
+    line.classList.toggle("front", frontRows.has(row));
     for (const field of fields) line.appendChild(element("td", {}, format(row[field])));
     body.appendChild(line);
   }

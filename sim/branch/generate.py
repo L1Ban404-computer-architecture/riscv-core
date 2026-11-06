@@ -9,8 +9,9 @@ from sim.common.scan import argument_parser, powers_of_two, write_scan
 def storage_bits(point):
     entries = point["sets"] * point["ways"]
     replacement = point["sets"] if point["policy"] == "rr" else entries
-    # 独立表不保存 kind；Bimodal 无需 backward 位。
-    entry_bits = point["pc_bits"] + point["target_bits"]
+    # 每项含 valid、PC 标签和省去 bit 0 的目标；独立表不保存 kind。
+    target_bits = point["target_bits"] - 1
+    entry_bits = 1 + point["pc_bits"] + target_bits
     bits = (entries * (entry_bits + (not point["jal_btb"]))
             + replacement * (point["ways"] - 1).bit_length() + 2 * point["bht_entries"])
     if point["jal_btb"]:
@@ -22,31 +23,32 @@ def storage_bits(point):
 
 def configurations(args):
     limit = args.ff_max // (min(args.pc_bits) + min(args.target_bits))
+    jal_tables = [(bool(separate), count)
+                  for separate in args.jal_btb
+                  for count in (args.jal_btb_entries if separate else [0])]
     for sets in powers_of_two(limit):
         for ways in powers_of_two(min(limit // sets, args.ways_max)):
             if ways < 2:
                 continue
-            for size in powers_of_two(args.ff_max // 2):
-                if size < 2:
+            for bht_entries in powers_of_two(args.ff_max // 2):
+                if bht_entries < 2:
                     continue
                 # RTL 的 PC 标签必须同时覆盖 BTB 组索引和 BHT 索引。
-                pc_min = max((sets - 1).bit_length(), (size - 1).bit_length())
-                for policy, pc_bits, target_bits in product(
-                        args.policies, args.pc_bits, args.target_bits):
+                pc_min = max((sets - 1).bit_length(), (bht_entries - 1).bit_length())
+                for policy, pc_bits, target_bits, (jal_btb, jal_entries) in product(
+                        args.policies, args.pc_bits, args.target_bits, jal_tables):
                     if pc_bits < pc_min:
                         continue
-                    for jal_btb in args.jal_btb:
-                        for jal_entries in args.jal_btb_entries if jal_btb else [0]:
-                            point = dict(bht="bimodal", bht_entries=size, btb="table", sets=sets, ways=ways,
-                                         policy=policy, pc_bits=pc_bits, target_bits=target_bits,
-                                         jal_btb=bool(jal_btb), jal_btb_entries=jal_entries)
-                            if args.ff_min <= storage_bits(point) <= args.ff_max:
-                                yield point
+                    point = dict(bht="bimodal", bht_entries=bht_entries, btb="table", sets=sets, ways=ways,
+                                 policy=policy, pc_bits=pc_bits, target_bits=target_bits,
+                                 jal_btb=jal_btb, jal_btb_entries=jal_entries)
+                    if args.ff_min <= storage_bits(point) <= args.ff_max:
+                        yield point
 
 
 def main(argv=None):
     parser = argument_parser(Path(__file__).parent, __doc__)
-    # RTL 默认：4 * 24 位分支项 + 2 位 RR + 1 * 24 位 JAL 项 + 16 * 2 位 BHT = 154 位。
+    # 预算含 BTB 表项、替换状态和两位 BHT 计数器，由 storage_bits 统一计算。
     parser.add_argument("--ff-min", type=int, default=96, help="总触发器位数下限（含 BTB、替换状态和 BHT）")
     parser.add_argument("--ff-max", type=int, default=192, help="总触发器位数上限")
     parser.add_argument("--ways-max", type=int, default=16)

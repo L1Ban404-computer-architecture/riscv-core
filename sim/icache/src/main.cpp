@@ -25,7 +25,7 @@ json::object Simulate(const json::object &parameters, insttrace::Reader &reader,
           {"hit_rate", sim::Ratio(stats.hits, stats.accesses)},
           {"bytes", std::uint64_t(config.sets) * config.ways * config.block_bytes},
           {"miss_penalty_cycles", penalty},
-          {"amt", stats.accesses ? json::value(double(stats.misses) / stats.accesses * penalty) : json::value(nullptr)}};
+          {"amt", sim::Ratio(stats.misses, stats.accesses, penalty)}};
   for (const auto &entry : Synthesize(config, output.parent_path() / "synth" / output.stem()))
     metrics[entry.key()] = entry.value();
   return metrics;

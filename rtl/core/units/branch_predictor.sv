@@ -1,15 +1,14 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 条件分支 BTB + Bimodal BHT，JAL 使用独立全相联 BTB。
+// 条件分支与 JAL 共用 RR BTB；条件分支方向使用 Bimodal BHT。
 // 只按 PC 组合查询，同步训练；EX 负责筛选合法训练事件和预测纠错。
 module branch_predictor
   import riscv_core_pkg::*;
 #(
   parameter int unsigned SetCount = BtbSetCount,
   parameter int unsigned WayCount = BtbWayCount,
-  parameter int unsigned BhtEntries = BhtEntryCount,
-  parameter int unsigned JalEntries = JalBtbEntryCount
+  parameter int unsigned BhtEntries = BhtEntryCount
 )(
   input logic clk_i,
   input logic rst_ni,
@@ -19,33 +18,23 @@ module branch_predictor
   branch_update_if.consumer update
 );
 
-  logic branch_hit, jal_hit, branch_taken, update_branch;
-  btb_target_t branch_target, jal_target;
+  logic btb_hit, btb_is_jal, branch_taken, update_branch;
+  btb_target_t btb_target;
 
   assign update_branch = update.valid && !update.payload.is_jal;
 
   branch_target_table #(
     .SetCount(SetCount), .WayCount(WayCount)
-  ) u_branch_btb (
+  ) u_btb (
     .clk_i, .rst_ni, .invalidate_i,
     .predict_tag_i(predict.tag),
-    .predict_hit_o(branch_hit),
-    .predict_target_o(branch_target),
-    .update_valid_i(update_branch),
+    .predict_hit_o(btb_hit),
+    .predict_target_o(btb_target),
+    .predict_is_jal_o(btb_is_jal),
+    .update_valid_i(update.valid),
     .update_tag_i(update.payload.tag),
-    .update_target_i(update.payload.target)
-  );
-
-  branch_target_table #(
-    .SetCount(1), .WayCount(JalEntries)
-  ) u_jal_btb (
-    .clk_i, .rst_ni, .invalidate_i,
-    .predict_tag_i(predict.tag),
-    .predict_hit_o(jal_hit),
-    .predict_target_o(jal_target),
-    .update_valid_i(update.valid && update.payload.is_jal),
-    .update_tag_i(update.payload.tag),
-    .update_target_i(update.payload.target)
+    .update_target_i(update.payload.target),
+    .update_is_jal_i(update.payload.is_jal)
   );
 
   branch_bht #(.EntryCount(BhtEntries)) u_bht (
@@ -57,11 +46,10 @@ module branch_predictor
     .update_taken_i(update.payload.taken)
   );
 
-  // 截断标签可能使两张表同时命中；与仿真模型一致，JAL 表优先。
+  // JAL 命中即跳转；条件分支命中后由 BHT 决定方向。
   always_comb begin
     predict.payload = '0;
-    if (jal_hit) predict.payload = '{taken: 1'b1, target: jal_target};
-    else if (branch_hit && branch_taken)
-      predict.payload = '{taken: 1'b1, target: branch_target};
+    if (btb_hit && (btb_is_jal || branch_taken))
+      predict.payload = '{taken: 1'b1, target: btb_target};
   end
 endmodule

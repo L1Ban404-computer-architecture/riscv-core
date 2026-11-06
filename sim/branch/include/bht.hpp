@@ -18,5 +18,6 @@ class Bht {
   std::size_t Index(std::uint32_t pc) const;
 
   Method method_;
+  std::uint32_t index_mask_ = 0;
   std::vector<std::uint8_t> counters_;
 };

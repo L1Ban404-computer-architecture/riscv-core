@@ -6,8 +6,10 @@
 module forwarding_unit
   import riscv_core_pkg::*;
 (
-  // 监视 EX/MEM 的输入和输出，区分“生产者存在”和“结果有效”。
+  // 源寄存器信息只在 ID 内用于相关性比较，不写入 ID/EX。
+  input reg_addr_payload_t source_regs_i,
   id_ex_if.consumer decoded,
+  // 监视 EX/MEM 的输入和输出，区分“生产者存在”和“结果有效”。
   id_ex_if.monitor id_ex,
   ex_mem_if.monitor ex_result,
   ex_mem_if.monitor ex_mem,
@@ -37,7 +39,6 @@ module forwarding_unit
   always_comb begin
     // ID/EX 始终标识生产者；结果未就绪时不能绕过它选择更老的值。
     // CSR 直到 WB 才返回旧值，EX/MEM 的 value 只是源操作数。
-    ex_candidate = '0;
     ex_candidate.valid = id_ex.valid && !id_ex.payload.exception.valid &&
         id_ex.payload.gpr.write;
     ex_candidate.addr = id_ex.payload.gpr.addr;
@@ -86,11 +87,11 @@ module forwarding_unit
     return result;
   endfunction
 
-  assign rs1_result = resolve_source(decoded.payload.reg_addr.rs1_used,
-      decoded.payload.reg_addr.rs1_addr, decoded.payload.exec_data.rs1_value,
+  assign rs1_result = resolve_source(source_regs_i.rs1_used,
+      source_regs_i.rs1_addr, decoded.payload.exec_data.rs1_value,
       ex_candidate, mem_candidate, wb_candidate);
-  assign rs2_result = resolve_source(decoded.payload.reg_addr.rs2_used,
-      decoded.payload.reg_addr.rs2_addr, decoded.payload.exec_data.rs2_value,
+  assign rs2_result = resolve_source(source_regs_i.rs2_used,
+      source_regs_i.rs2_addr, decoded.payload.exec_data.rs2_value,
       ex_candidate, mem_candidate, wb_candidate);
 
   // 仅改写两路源值，其余事务字段组合透传，不增加流水级。

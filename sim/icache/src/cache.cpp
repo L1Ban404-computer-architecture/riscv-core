@@ -69,23 +69,32 @@ Cache::Cache(const CacheConfig &config) : config_(config) {
 bool Cache::Access(std::uint32_t addr) {
   const std::uint32_t set = SetIndex(addr);
   const std::uint32_t tag = Tag(addr);
+  std::uint32_t empty_way = config_.ways;
 
   ++stats_.accesses;
   for (std::uint32_t way = 0; way < config_.ways; ++way) {
     const auto &line = lines_[LineIndex(set, way)];
     if (line.valid && line.tag == tag) {
       ++stats_.hits;
-      if (config_.ways > 1 && config_.policy == ReplacementPolicy::kTreePlru) {
-        UpdatePlru(set, way);
-      }
+      if (config_.policy == ReplacementPolicy::kTreePlru) UpdatePlru(set, way);
       return true;
     }
+    if (!line.valid && empty_way == config_.ways) empty_way = way;
   }
 
   ++stats_.misses;
-  const std::uint32_t victim = SelectVictim(set);
+  // 查询时已记住首个空路，满组才需要替换策略；单路自然选择第 0 路。
+  std::uint32_t victim = empty_way;
+  if (victim == config_.ways) {
+    victim = config_.policy == ReplacementPolicy::kRoundRobin ? rr_next_[set] : SelectPlruWay(set);
+  }
   lines_[LineIndex(set, victim)] = {true, tag};
-  NoteFill(set, victim);
+  // 轮转只在填入时推进；PLRU 把填入也记成一次访问。
+  if (config_.policy == ReplacementPolicy::kRoundRobin) {
+    rr_next_[set] = (victim == config_.ways - 1u) ? 0u : victim + 1u;
+  } else {
+    UpdatePlru(set, victim);
+  }
   return false;
 }
 
@@ -100,31 +109,6 @@ std::uint32_t Cache::Tag(std::uint32_t addr) const {
 
 std::size_t Cache::LineIndex(std::uint32_t set, std::uint32_t way) const {
   return static_cast<std::size_t>(set) * config_.ways + way;
-}
-
-// 还有空路时用编号最小的无效路，组满时使用轮转或 Tree-PLRU。
-// 一路时没有替换状态，满组牺牲路保持 0。
-std::uint32_t Cache::SelectVictim(std::uint32_t set) const {
-  for (std::uint32_t way = 0; way < config_.ways; ++way) {
-    if (!lines_[LineIndex(set, way)].valid) return way;
-  }
-  if (config_.ways == 1) return 0;
-
-  switch (config_.policy) {
-    case ReplacementPolicy::kRoundRobin: return rr_next_[set];
-    case ReplacementPolicy::kTreePlru: return SelectPlruWay(set);
-  }
-  return 0;
-}
-
-// 轮转从实际占用的那一路推进，命中不改它。PLRU 把这次填入也记成一次访问。
-void Cache::NoteFill(std::uint32_t set, std::uint32_t way) {
-  if (config_.ways == 1) return;
-  if (config_.policy == ReplacementPolicy::kRoundRobin) {
-    rr_next_[set] = (way == config_.ways - 1u) ? 0u : way + 1u;
-  } else if (config_.policy == ReplacementPolicy::kTreePlru) {
-    UpdatePlru(set, way);
-  }
 }
 
 // 从根沿“更久未用”下降。每一层的 0/1 拼进牺牲路编号。

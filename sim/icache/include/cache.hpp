@@ -45,8 +45,6 @@ class Cache {
   std::uint32_t Tag(std::uint32_t addr) const;
   std::size_t LineIndex(std::uint32_t set, std::uint32_t way) const;
 
-  std::uint32_t SelectVictim(std::uint32_t set) const;
-  void NoteFill(std::uint32_t set, std::uint32_t way);
   std::uint32_t SelectPlruWay(std::uint32_t set) const;
   void UpdatePlru(std::uint32_t set, std::uint32_t way);
 

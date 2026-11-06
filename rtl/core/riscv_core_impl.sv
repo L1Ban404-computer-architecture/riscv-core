@@ -31,6 +31,7 @@ module riscv_core_impl
 
   // 各级计算输出与寄存后的流水边界。
   if_id_if fetch_result ();
+  reg_addr_payload_t decoded_sources;
   id_ex_if decode_result ();
   id_ex_if id_ex ();
   ex_mem_if execute_result ();
@@ -76,6 +77,7 @@ module riscv_core_impl
   id_stage u_id_stage (
     .if_id(fetch_result),
     .result(decode_result),
+    .source_regs_o(decoded_sources),
     .gpr_read
 `ifndef SYNTHESIS
     , .debug_o(gen_debug.bus.decode)
@@ -84,6 +86,7 @@ module riscv_core_impl
 
   // 各阶段组合结果直接前递到 ID；最新生产者尚未就绪时反压 ID。
   forwarding_unit u_forwarding_unit (
+    .source_regs_i(decoded_sources),
     .decoded(decode_result),
     .id_ex(id_ex),
     .ex_result(execute_result),

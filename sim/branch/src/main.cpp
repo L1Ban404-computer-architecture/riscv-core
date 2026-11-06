@@ -70,8 +70,7 @@ json::object Simulate(const json::object &input_parameters, insttrace::Reader &r
     metrics[prefix + "misses"] = counts.accesses - counts.hits;
     metrics[prefix + "hit_rate"] = sim::Ratio(counts.hits, counts.accesses);
   }
-  metrics["mpki"] = stats.total.accesses ?
-      json::value(1000.0 * (stats.total.accesses - stats.total.hits) / stats.total.accesses) : json::value(nullptr);
+  metrics["mpki"] = sim::Ratio(stats.total.accesses - stats.total.hits, stats.total.accesses, 1000.0);
   return metrics;
 }
 }  // namespace

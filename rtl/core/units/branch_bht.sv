@@ -23,14 +23,22 @@ module branch_bht
   index_t predict_index, update_index;
 
   initial begin
-    if (EntryCount < 2 || ((EntryCount & (EntryCount - 1)) != 0))
-      $fatal(1, "BHT entries must be a power of two, at least two");
+    if (EntryCount < 2)
+      $fatal(1, "BHT must have at least two entries");
     if (BtbPcWidth < $clog2(EntryCount))
       $fatal(1, "BTB tag must cover BHT index");
   end
 
-  assign predict_index = index_t'(predict_tag_i);
-  assign update_index = index_t'(update_tag_i);
+  // 先取低 IndexWidth 位，再将超出表长的索引折回；2 的幂容量直接使用低位。
+  // 24 项时只需将 24..31 减去 24，不对整个 PC 标签做取模。
+  function automatic index_t index_from_tag(input btb_tag_t tag);
+    index_t index;
+    index = index_t'(tag);
+    return (int'(index) < EntryCount) ? index : index_t'(int'(index) - EntryCount);
+  endfunction
+
+  assign predict_index = index_from_tag(predict_tag_i);
+  assign update_index = index_from_tag(update_tag_i);
   assign predict_taken_o = counters_q[predict_index][1];
 
   // 01 弱不跳转冷启动；失效时一并重置方向历史。

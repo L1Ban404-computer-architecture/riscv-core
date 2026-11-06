@@ -43,9 +43,9 @@ std::string String(const json::object &object, const char *key) {
   return std::string(object.at(key).as_string());
 }
 
-json::value Ratio(std::uint64_t numerator, std::uint64_t denominator) {
+json::value Ratio(std::uint64_t numerator, std::uint64_t denominator, double scale) {
   if (denominator == 0) return nullptr;
-  return static_cast<double>(numerator) / denominator;
+  return static_cast<double>(numerator) / denominator * scale;
 }
 
 int Run(int argc, char **argv, Model model) {
