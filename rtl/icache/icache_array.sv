@@ -1,7 +1,7 @@
 // Copyright (c) 2026
 // SPDX-License-Identifier: Apache-2.0
 
-// 组合查询 tag/data，lookup 保存查询快照。回填时逐字写入，无错误末拍置 valid。
+// 组合查询 tag/data，lookup 保存查询快照。回填字写入后即可查询，无错误末拍置整行 valid。
 module icache_array
   import icache_pkg::*;
 #(
@@ -55,6 +55,8 @@ module icache_array
   logic lookup_stream_ready;
   logic lookup_push;
   logic refill_line_conflict;
+  logic lookup_refill_line;
+  logic lookup_refill_hit;
 
   set_index_t refill_set;
   tag_t refill_tag;
@@ -65,6 +67,7 @@ module icache_array
   logic refill_way_locked_q;
   logic refill_start;
   logic refill_done;
+  logic [WordCount-1:0] refill_word_valid_q;
 
   // 地址布局为 {tag, set, line offset}，data 阵列按 {set, word} 线性编址。
   function automatic set_index_t set_from_addr(input logic [AddrWidth-1:0] address);
@@ -91,8 +94,9 @@ module icache_array
   always_comb begin
     lookup_rdata = '0;
     for (int unsigned way = 0; way < WayCount; way++) begin
-      lookup_hit_oh[way] = core_bus.req_valid && valid_q[way][lookup_set] &&
-          (tag_rdata[way] == lookup_tag);
+      lookup_hit_oh[way] = core_bus.req_valid &&
+          ((valid_q[way][lookup_set] && (tag_rdata[way] == lookup_tag)) ||
+           (lookup_refill_hit && (refill_way_q == way_index_t'(way))));
       lookup_rdata |= {DataWidth{lookup_hit_oh[way]}} & data_rdata[way];
     end
   end
@@ -100,9 +104,13 @@ module icache_array
   assign lookup_hit = |lookup_hit_oh;
   assign lookup_push_payload = '{addr: core_bus.req_payload.addr,
       rdata: lookup_rdata, hit: lookup_hit};
-  // 回填目标 line 完成前禁止查询；分配当拍仍能读取牺牲路的旧内容。
-  assign refill_line_conflict = refill.valid &&
+  // 在途回填只记录已成功写入的字，复用 data 阵列，不额外缓存整行。
+  // 未到达的字继续背压；写入沿后才可读，避免同址读写取得旧数据。
+  assign lookup_refill_line = refill.valid &&
       ((core_bus.req_payload.addr >> BlockOffsetW) == (refill.addr >> BlockOffsetW));
+  assign lookup_refill_hit = lookup_refill_line && refill_way_locked_q &&
+      refill_word_valid_q[lookup_word];
+  assign refill_line_conflict = lookup_refill_line && !lookup_refill_hit;
   assign core_bus.req_ready = lookup_stream_ready && !refill_line_conflict;
   assign lookup_push = core_bus.req_valid && core_bus.req_ready;
 
@@ -199,12 +207,19 @@ module icache_array
     end
   end
 
+  // flush 只取消请求，保留背景回填。失效在回填排空后提交；错误后不再提供部分命中。
+  always_ff @(posedge clk_i) begin
+    if (!rst_ni || invalidate_apply_i || refill_start || refill_done)
+      refill_word_valid_q <= '0;
+    else if (refill.beat_valid) begin
+      if (refill.payload.error) refill_word_valid_q <= '0;
+      else refill_word_valid_q[refill_addr_word] <= 1'b1;
+    end
+  end
+
   // 分配时清 valid，只有完整且无错误的回填才重新置位。
   always_ff @(posedge clk_i) begin
-    if (!rst_ni) begin
-      for (int unsigned way = 0; way < WayCount; way++)
-        for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
-    end else if (invalidate_apply_i) begin
+    if (!rst_ni || invalidate_apply_i) begin
       for (int unsigned way = 0; way < WayCount; way++)
         for (int unsigned set = 0; set < SetCount; set++) valid_q[way][set] <= 1'b0;
     end else if (refill_start) begin
@@ -215,10 +230,16 @@ module icache_array
   end
 
 `ifndef SYNTHESIS
+  logic lookup_refill_line_valid;
+  assign lookup_refill_line_valid = valid_q[refill_way_q][lookup_set];
+
   ICacheArrayBeatAfterAllocation: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       !refill.beat_valid || (refill.valid && refill_way_locked_q)));
   ICacheArrayHitUnique: assert property (@(posedge clk_i) disable iff (!rst_ni) (
       (lookup_hit_oh & (lookup_hit_oh - WayCount'(1))) == '0));
+  ICacheArrayPartialHitIsWritten: assert property (@(posedge clk_i) disable iff (!rst_ni) (
+      !lookup_refill_hit || (refill.valid && refill_way_locked_q &&
+      refill_word_valid_q[lookup_word] && !lookup_refill_line_valid)));
 `endif
 
 endmodule

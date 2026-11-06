@@ -23,16 +23,16 @@ json::object Simulate(const json::object &input_parameters, insttrace::Reader &r
   config.jal_btb = parameters.at("jal_btb").as_bool();
   config.jal_btb_entries = sim::Uint32(parameters, "jal_btb_entries");
   const auto method = sim::String(parameters, "bht");
-  auto bht = MakeBht(method, sim::Uint32(parameters, "bht_entries"));
+  Bht bht(method, sim::Uint32(parameters, "bht_entries"));
   Btb btb(config);
 
   BranchStats stats;
   insttrace::Record instruction;
   while (reader.Next(&instruction)) {
     ValidateTraceRecord(instruction, reader.gpr_count());
-    const Prediction prediction = Predict(instruction.pc, *bht, btb);
+    const Prediction prediction = Predict(instruction.pc, bht, btb);
     stats.Observe(prediction, instruction);
-    Update(instruction, *bht, btb);
+    Update(instruction, bht, btb);
   }
 
   const std::uint64_t entries = config.method == "none" ? 0 : std::uint64_t(config.sets) * config.ways;
@@ -49,7 +49,7 @@ json::object Simulate(const json::object &input_parameters, insttrace::Reader &r
   const auto jal_replacement_bits = jal_entries ? replacement(1, config.jal_btb_entries) : 0;
   const auto jal_btb_ff = jal_entries * jal_entry_bits + jal_replacement_bits;
   const auto btb_ff = entries * entry_bits + replacement_bits + jal_btb_ff;
-  const auto bht_ff = entries ? bht->StorageBits() : 0;
+  const auto bht_ff = entries ? bht.StorageBits() : 0;
   json::object metrics = {{"instructions", stats.total.accesses}, {"entries", entries},
                           {"entry_bits", entry_bits}, {"replacement_bits", replacement_bits},
                           {"jal_entries", jal_entries}, {"jal_entry_bits", jal_entry_bits},

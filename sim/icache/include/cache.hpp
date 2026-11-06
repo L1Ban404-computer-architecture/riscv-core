@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -35,9 +36,14 @@ class Cache {
   const CacheStats &stats() const { return stats_; }
 
  private:
+  struct Line {
+    bool valid = false;
+    std::uint32_t tag = 0;
+  };
+
   std::uint32_t SetIndex(std::uint32_t addr) const;
   std::uint32_t Tag(std::uint32_t addr) const;
-  std::uint32_t LineIndex(std::uint32_t set, std::uint32_t way) const;
+  std::size_t LineIndex(std::uint32_t set, std::uint32_t way) const;
 
   std::uint32_t SelectVictim(std::uint32_t set) const;
   void NoteFill(std::uint32_t set, std::uint32_t way);
@@ -45,13 +51,12 @@ class Cache {
   void UpdatePlru(std::uint32_t set, std::uint32_t way);
 
   CacheConfig config_;
-  std::uint32_t block_offset_w_ = 0;
+  std::uint32_t block_offset_bits_ = 0;
   std::uint32_t set_index_bits_ = 0;
   std::uint32_t tree_levels_ = 0;
 
-  // 下标是 set * ways + way。valid 为 0 时 tag 不可见。
-  std::vector<std::uint8_t> valid_;
-  std::vector<std::uint32_t> tag_;
+  // 下标是 set * ways + way。无效行的 tag 不参与匹配。
+  std::vector<Line> lines_;
   // 每组一份。rr_next_ 是下一次轮转候选；plru_tree_ 的每一位指向更久未用的子树。
   std::vector<std::uint32_t> rr_next_;
   std::vector<std::uint32_t> plru_tree_;

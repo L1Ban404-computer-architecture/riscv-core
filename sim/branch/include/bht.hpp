@@ -1,16 +1,22 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <string>
+#include <vector>
 
-// 仅统一方向预测操作；各算法自行决定是否需要表、历史或其他状态。
+// 静态策略不保存状态；只有 Bimodal 分配两位饱和计数器。
 class Bht {
  public:
-  virtual ~Bht() = default;
-  virtual bool Predict(std::uint32_t pc, bool backward) const = 0;
-  virtual void Update(std::uint32_t pc, bool taken) = 0;
-  virtual std::uint64_t StorageBits() const { return 0; }
-};
+  Bht(const std::string &method, std::uint32_t entries);
+  bool Predict(std::uint32_t pc, bool backward) const;
+  void Update(std::uint32_t pc, bool taken);
+  std::uint64_t StorageBits() const;
 
-std::unique_ptr<Bht> MakeBht(const std::string &method, std::uint32_t entries);
+ private:
+  enum class Method { kNotTaken, kBtfn, kBimodal };
+  std::size_t Index(std::uint32_t pc) const;
+
+  Method method_;
+  std::vector<std::uint8_t> counters_;
+};

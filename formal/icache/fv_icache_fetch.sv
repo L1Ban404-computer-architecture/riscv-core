@@ -15,8 +15,8 @@ module fv_icache_fetch
   parameter int unsigned DataWidth = ICacheDataWidth,
   parameter int unsigned IdWidth = 4,
   parameter int unsigned AxiId = ICACHE_AXI_ID,
-  // 8 字节行，在数据总线上按两拍 WRAP 回填。
-  parameter int unsigned BlockBytes = 8,
+  // 与集成配置一致的四拍 WRAP，覆盖整行完成前读取后续字。
+  parameter int unsigned BlockBytes = ICacheBlockBytes,
   parameter int unsigned SetCount = ICacheSetCount,
   parameter int unsigned WayCount = ICacheWayCount,
   parameter icache_replacement_policy_e ReplacementPolicy = ICacheReplacementPolicy,
@@ -37,6 +37,8 @@ module fv_icache_fetch
   logic deferred_q;
   logic canceled_deferred_q;
   logic canceled_miss_drained_q;
+  logic partial_lookup_q;
+  logic [AddrWidth-1:0] refill_request_addr_q;
 
   logic [WordAddrW-1:0] axi_word_addr;
   logic [DataWidth-1:0] axi_instr;
@@ -176,5 +178,21 @@ module fv_icache_fetch
       u_dut.miss.rsp_fire && !core_bus.rsp_ready);
   DrainedMissMakesProgress:
   cover property (@(posedge clk_i) rst_ni && canceled_miss_drained_q && core_bus.rsp_fire);
+
+  always_ff @(posedge clk_i) begin
+    if (!rst_ni || flush_i) partial_lookup_q <= 1'b0;
+    else if (core_bus.req_fire) partial_lookup_q <= u_dut.u_array.lookup_refill_hit;
+    else if (core_bus.rsp_fire) partial_lookup_q <= 1'b0;
+  end
+
+  always_ff @(posedge clk_i) begin
+    if (!rst_ni) refill_request_addr_q <= '0;
+    else if (u_dut.miss.req_fire) refill_request_addr_q <= u_dut.miss.req_payload.addr;
+  end
+
+  PartialRefillRespondsBeforeLastBeat:
+  cover property (@(posedge clk_i) rst_ni && partial_lookup_q && core_bus.rsp_fire &&
+      u_dut.refill.valid && !u_dut.refill.payload.last &&
+      (u_scoreboard.scoreboard_addr_q != refill_request_addr_q));
 
 endmodule

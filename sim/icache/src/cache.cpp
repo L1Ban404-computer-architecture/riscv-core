@@ -36,9 +36,9 @@ void ValidateCacheConfig(const CacheConfig &config) {
   if (config.policy == ReplacementPolicy::kTreePlru && config.ways > 32) {
     throw std::invalid_argument("plru supports at most 32 ways");
   }
-  const unsigned block_offset_w = FloorLog2(config.block_bytes);
+  const unsigned block_offset_bits = FloorLog2(config.block_bytes);
   const unsigned set_index_bits = FloorLog2(config.sets);
-  if (block_offset_w + set_index_bits >= 32) {
+  if (block_offset_bits + set_index_bits >= 32) {
     throw std::invalid_argument("tag width must be positive");
   }
 }
@@ -54,13 +54,12 @@ ReplacementPolicy ParseReplacementPolicy(const std::string &text) {
 Cache::Cache(const CacheConfig &config) : config_(config) {
   ValidateCacheConfig(config_);
 
-  block_offset_w_ = FloorLog2(config_.block_bytes);
+  block_offset_bits_ = FloorLog2(config_.block_bytes);
   set_index_bits_ = FloorLog2(config_.sets);
   tree_levels_ = FloorLog2(config_.ways);
 
   const std::size_t lines = static_cast<std::size_t>(config_.sets) * config_.ways;
-  valid_.assign(lines, 0);
-  tag_.assign(lines, 0);
+  lines_.resize(lines);
   if (config_.policy == ReplacementPolicy::kRoundRobin) rr_next_.assign(config_.sets, 0);
   else if (config_.policy == ReplacementPolicy::kTreePlru) plru_tree_.assign(config_.sets, 0);
 }
@@ -73,8 +72,8 @@ bool Cache::Access(std::uint32_t addr) {
 
   ++stats_.accesses;
   for (std::uint32_t way = 0; way < config_.ways; ++way) {
-    const std::uint32_t index = LineIndex(set, way);
-    if (valid_[index] != 0 && tag_[index] == tag) {
+    const auto &line = lines_[LineIndex(set, way)];
+    if (line.valid && line.tag == tag) {
       ++stats_.hits;
       if (config_.ways > 1 && config_.policy == ReplacementPolicy::kTreePlru) {
         UpdatePlru(set, way);
@@ -85,31 +84,29 @@ bool Cache::Access(std::uint32_t addr) {
 
   ++stats_.misses;
   const std::uint32_t victim = SelectVictim(set);
-  const std::uint32_t index = LineIndex(set, victim);
-  valid_[index] = 1;
-  tag_[index] = tag;
+  lines_[LineIndex(set, victim)] = {true, tag};
   NoteFill(set, victim);
   return false;
 }
 
 // 块内偏移不参与比较。同一块里的连续 PC 共用一个 tag。
 std::uint32_t Cache::SetIndex(std::uint32_t addr) const {
-  return (addr >> block_offset_w_) & (config_.sets - 1u);
+  return (addr >> block_offset_bits_) & (config_.sets - 1u);
 }
 
 std::uint32_t Cache::Tag(std::uint32_t addr) const {
-  return addr >> (block_offset_w_ + set_index_bits_);
+  return addr >> (block_offset_bits_ + set_index_bits_);
 }
 
-std::uint32_t Cache::LineIndex(std::uint32_t set, std::uint32_t way) const {
-  return set * config_.ways + way;
+std::size_t Cache::LineIndex(std::uint32_t set, std::uint32_t way) const {
+  return static_cast<std::size_t>(set) * config_.ways + way;
 }
 
 // 还有空路时用编号最小的无效路，组满时使用轮转或 Tree-PLRU。
 // 一路时没有替换状态，满组牺牲路保持 0。
 std::uint32_t Cache::SelectVictim(std::uint32_t set) const {
   for (std::uint32_t way = 0; way < config_.ways; ++way) {
-    if (valid_[LineIndex(set, way)] == 0) return way;
+    if (!lines_[LineIndex(set, way)].valid) return way;
   }
   if (config_.ways == 1) return 0;
 

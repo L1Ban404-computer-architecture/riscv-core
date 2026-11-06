@@ -40,7 +40,7 @@ module retire_debug
 
   logic [63:0] instid_q;
   fetch_meta_t fetch_meta;
-  instruction_trace_t fetched, decoded, executing;
+  instruction_trace_t fetched, executing;
   ex_trace_t executed;
   mem_trace_t completed;
   retire_debug_payload_t retired;
@@ -78,8 +78,6 @@ module retire_debug
     perf_class: classify_opcode(debug.fetch.instr[6:0], debug.fetch.access_fault)
   };
 
-  // 与功能通路一致，取指退休元数据直接送到 ID。
-  assign decoded = fetched;
   // flush 时取指输出和 ID/EX 的 valid 已屏蔽，两路入口 fire 都为零，影子队列直接清空。
   retire_inflight_queue #(
     .T(instruction_trace_t)
@@ -88,7 +86,7 @@ module retire_debug
     .rst_ni,
     .flush_i(debug.writeback.redirect.valid),
     .in_fire_i(decode_fire),
-    .in_data_i(decoded),
+    .in_data_i(fetched),
     .out_fire_i(execute_fire),
     .out_data_o(executing)
   );
@@ -121,7 +119,7 @@ module retire_debug
   );
 
   assign classes_o = '{
-    id_class: decoded.perf_class,
+    id_class: fetched.perf_class,
     ex_class: executing.perf_class,
     mem_class: executed.instruction.perf_class,
     wb_class: completed.executed.instruction.perf_class

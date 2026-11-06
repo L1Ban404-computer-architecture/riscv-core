@@ -94,17 +94,12 @@ module mem_axi4
   assign axi.ar_payload.burst = AXI4_BURST_INCR;
   assign axi.rready = active_read_response && core_bus.rsp_ready;
 
+  assign core_bus.req_ready = write_request_complete ||
+      ((state_q == StateIdle) && !core_bus.req_payload.write && axi.arready);
+
   always_comb begin
-    core_bus.req_ready = 1'b0;
     core_bus.rsp_valid = 1'b0;
     core_bus.rsp_payload = '0;
-    if (write_request) begin
-      core_bus.req_ready = write_request_complete;
-    end else if (state_q == StateIdle) begin
-      core_bus.req_ready =
-          !core_bus.req_payload.write && axi.arready;
-    end
-
     if (active_read_response) begin
       core_bus.rsp_valid = axi.rvalid;
       core_bus.rsp_payload.rdata = axi.r_payload.data;

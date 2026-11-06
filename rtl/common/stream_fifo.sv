@@ -46,6 +46,8 @@ module stream_fifo #(
   logic push;
   logic pop;
   logic bypass_pop;
+  logic store_push;
+  logic store_pop;
 
   function automatic ptr_t next_ptr(input ptr_t ptr);
     if (ptr == ptr_t'(Depth - 1)) return '0;
@@ -60,13 +62,16 @@ module stream_fifo #(
       ((count_q < count_t'(Depth)) || (SameCycleRW && stored_valid && ready_i));
   assign push = valid_i && ready_o;
   assign bypass_pop = FallThrough && !stored_valid && push && pop;
+  // 空队列旁路只完成接口握手，不写存储，也不移动指针或占用计数。
+  assign store_push = push && !bypass_pop;
+  assign store_pop = pop && stored_valid;
   assign usage_o = count_q;
 
   // 数据写入与队列状态更新
 
   always_ff @(posedge clk_i) begin
     // flush 取消所有旧槽位，新输入从首槽位重新入队；当拍禁止组合旁路出队。
-    if (rst_ni && push && !bypass_pop) mem_q[flush_i ? '0 : write_ptr_q] <= data_i;
+    if (rst_ni && store_push) mem_q[flush_i ? '0 : write_ptr_q] <= data_i;
   end
 
   always_ff @(posedge clk_i) begin
@@ -79,11 +84,9 @@ module stream_fifo #(
       write_ptr_q <= push ? next_ptr('0) : '0;
       count_q <= count_t'(push);
     end else begin
-      if (pop && stored_valid) read_ptr_q <= next_ptr(read_ptr_q);
-      if (push && !bypass_pop) write_ptr_q <= next_ptr(write_ptr_q);
-      unique case ({
-        push && !bypass_pop, pop && stored_valid
-      })
+      if (store_pop) read_ptr_q <= next_ptr(read_ptr_q);
+      if (store_push) write_ptr_q <= next_ptr(write_ptr_q);
+      unique case ({store_push, store_pop})
         2'b10: count_q <= count_q + count_t'(1);
         2'b01: count_q <= count_q - count_t'(1);
         default: ;

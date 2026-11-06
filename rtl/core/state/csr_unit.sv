@@ -21,11 +21,11 @@ module csr_unit
 
   // 当前核心只运行于 M-mode。mstatus 仅实现异常进入/返回所需的
   // MIE、MPIE 和 MPP 字段；MPP 固定为唯一支持的 M-mode，其他位读零。
-  localparam word_t MstatusMie = word_t'(1 << 3);
-  localparam word_t MstatusMpie = word_t'(1 << 7);
-  localparam word_t MstatusMpp = word_t'(3 << 11);
   localparam int unsigned MieBit = 3;
   localparam int unsigned MpieBit = 7;
+  localparam word_t MstatusMie = word_t'(1) << MieBit;
+  localparam word_t MstatusMpie = word_t'(1) << MpieBit;
+  localparam word_t MstatusMpp = word_t'(3 << 11);
 
   csr_state_payload_t state_q, state_d;
 
@@ -55,12 +55,10 @@ module csr_unit
         state_d.mtval = commit.payload.trap_tval;
         state_d.mstatus[MpieBit] = state_q.mstatus[MieBit];
         state_d.mstatus[MieBit] = 1'b0;
-        state_d.mstatus[12:11] = 2'b11;
       end
       CSR_COMMIT_MRET: begin
         state_d.mstatus[MieBit] = state_q.mstatus[MpieBit];
         state_d.mstatus[MpieBit] = 1'b1;
-        state_d.mstatus[12:11] = 2'b11;
       end
       CSR_COMMIT_WRITE: begin
         unique case (commit.payload.index)

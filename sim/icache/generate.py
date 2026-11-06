@@ -7,14 +7,13 @@ from sim.common.scan import argument_parser, powers_of_two, write_scan
 
 
 def configurations(args):
-    largest = args.bytes_max // 4
     for block_bytes in powers_of_two(min(args.bytes_max, 64)):
         if block_bytes < 4:
             continue
-        for sets in powers_of_two(largest):
+        for sets in powers_of_two(args.bytes_max // block_bytes):
             if (sets.bit_length() - 1) + (block_bytes.bit_length() - 1) >= 32:
                 continue
-            for ways in powers_of_two(args.ways_max):
+            for ways in powers_of_two(min(args.ways_max, args.bytes_max // (sets * block_bytes))):
                 if args.bytes_min <= sets * ways * block_bytes <= args.bytes_max:
                     for policy in args.policies:
                         yield dict(sets=sets, ways=ways, block_bytes=block_bytes, policy=policy,

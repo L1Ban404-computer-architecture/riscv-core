@@ -270,13 +270,8 @@ package riscv_core_pkg;
   // 先检测出的异常优先。existing.valid 时保持原样，否则记录新异常。
   function automatic exception_payload_t raise_exception(
       input exception_payload_t existing, input exception_cause_e cause, input word_t tval);
-    exception_payload_t result;
     if (existing.valid) return existing;
-    result = '0;
-    result.valid = 1'b1;
-    result.cause = cause;
-    result.tval = tval;
-    return result;
+    return '{valid: 1'b1, cause: cause, tval: tval};
   endfunction
 
   // EX 生成、MEM 消费的访存属性；地址在 commit_ctx.value 中。

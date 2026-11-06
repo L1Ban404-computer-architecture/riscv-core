@@ -25,7 +25,6 @@ module mem_stage
   word_t memory_address;
   logic inflight_q;
   logic memory_access;
-  mem_wb_payload_t next_payload;
 
   // 事务转换与数据整理
 
@@ -81,25 +80,22 @@ module mem_stage
   assign result.valid = ex_mem.valid && (!memory_access || dmem.rsp_valid);
 
   always_comb begin
-    next_payload = ex_mem.payload.commit_ctx;
+    result.payload = ex_mem.payload.commit_ctx;
     if (memory_access) begin
       if (dmem.rsp_payload.error) begin
-        next_payload.exception = raise_exception(next_payload.exception,
+        result.payload.exception = raise_exception(result.payload.exception,
             ex_mem.payload.mem_req.write ? EXC_STORE_ACCESS_FAULT : EXC_LOAD_ACCESS_FAULT,
             memory_address);
       end
-      if (next_payload.exception.valid) begin
-        next_payload.gpr = '0;
-        next_payload.value = '0;
-      end else if (!ex_mem.payload.mem_req.write && next_payload.gpr.write) begin
-        next_payload.gpr.ready = 1'b1;
-        next_payload.value = load_result;
+      if (result.payload.exception.valid) begin
+        result.payload.gpr = '0;
+        result.payload.value = '0;
+      end else if (!ex_mem.payload.mem_req.write && result.payload.gpr.write) begin
+        result.payload.gpr.ready = 1'b1;
+        result.payload.value = load_result;
       end
     end
   end
-
-  // 本级输出送入顶层 MEM/WB 寄存器。
-  assign result.payload = next_payload;
 
   // 响应优先，同拍请求和响应不留下在途事务；在途请求必须保留 EX/MEM 元数据。
   always_ff @(posedge clk_i) begin
@@ -118,7 +114,7 @@ module mem_stage
            mem_size: ex_mem.payload.mem_req.size,
            mem_addr: memory_address,
            mem_data: ex_mem.payload.mem_req.valid && !ex_mem.payload.mem_req.write ?
-                         (next_payload.exception.valid ? '0 : load_result) :
+                         (result.payload.exception.valid ? '0 : load_result) :
                          ex_mem.payload.mem_req.wdata},
     bus: '{req_valid: dmem.req_valid, req_ready: dmem.req_ready,
            rsp_valid: dmem.rsp_valid, rsp_ready: dmem.rsp_ready}

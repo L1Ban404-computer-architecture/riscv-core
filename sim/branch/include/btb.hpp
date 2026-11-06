@@ -35,7 +35,7 @@ class Btb {
  private:
   struct Entry {
     bool valid = false;
-    std::uint32_t pc = 0;
+    std::uint32_t tag = 0;
     std::uint32_t target = 0;
     BtbType type = BtbType::kBranch;
     std::uint32_t age = 0;

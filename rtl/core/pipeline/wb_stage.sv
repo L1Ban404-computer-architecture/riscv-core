@@ -53,28 +53,32 @@ module wb_stage
       trap_tval: mem_wb.payload.exception.tval
     };
 
-    // 按 trap、MRET、FENCE.I、普通写回的优先级生成互斥提交副作用。
+    // classify_commit 已确定优先级；这里按提交类别生成互斥副作用。
     if (mem_wb.fire) begin
-      if (commit_kind == COMMIT_TRAP) begin
-        csr_commit.payload.op = CSR_COMMIT_TRAP;
-        redirect.valid = 1'b1;
-        redirect.payload.target_pc = csr_status.mtvec;
-      end else if (commit_kind == COMMIT_MRET) begin
-        csr_commit.payload.op = CSR_COMMIT_MRET;
-        redirect.valid = 1'b1;
-        // csr_unit 保证 mepc[1:0] 为零，读取的是提交前的状态。
-        redirect.payload.target_pc = csr_status.mepc;
-      end else if (commit_kind == COMMIT_FENCE_I) begin
-        // 更老访存已完成；WB 改道与流水屏障取消年轻访存。
-        redirect.valid = 1'b1;
-        redirect.payload = '{target_pc: mem_wb.payload.pc + pc_t'(4), imem_invalidate: 1'b1};
-      end else begin
-        wb.valid = mem_wb.payload.gpr.write && (mem_wb.payload.gpr.ready || is_csr);
-        wb.payload = '{rd_addr: mem_wb.payload.gpr.addr,
-                       wdata: writeback_value};
-        if (is_csr && mem_wb.payload.commit.csr.write)
-          csr_commit.payload.op = CSR_COMMIT_WRITE;
-      end
+      case (commit_kind)
+        COMMIT_TRAP: begin
+          csr_commit.payload.op = CSR_COMMIT_TRAP;
+          redirect.valid = 1'b1;
+          redirect.payload.target_pc = csr_status.mtvec;
+        end
+        COMMIT_MRET: begin
+          csr_commit.payload.op = CSR_COMMIT_MRET;
+          redirect.valid = 1'b1;
+          // csr_unit 保证 mepc[1:0] 为零，读取的是提交前的状态。
+          redirect.payload.target_pc = csr_status.mepc;
+        end
+        COMMIT_FENCE_I: begin
+          // 更老访存已完成；WB 改道与流水屏障取消年轻访存。
+          redirect.valid = 1'b1;
+          redirect.payload = '{target_pc: mem_wb.payload.pc + pc_t'(4), imem_invalidate: 1'b1};
+        end
+        default: begin
+          wb.valid = mem_wb.payload.gpr.write && (mem_wb.payload.gpr.ready || is_csr);
+          wb.payload = '{rd_addr: mem_wb.payload.gpr.addr, wdata: writeback_value};
+          if (is_csr && mem_wb.payload.commit.csr.write)
+            csr_commit.payload.op = CSR_COMMIT_WRITE;
+        end
+      endcase
     end
   end
 

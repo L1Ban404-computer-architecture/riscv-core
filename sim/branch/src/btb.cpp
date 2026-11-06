@@ -61,9 +61,10 @@ BtbPrediction Btb::Lookup(std::uint32_t pc) const {
 
 BtbPrediction Btb::LookupTable(std::uint32_t pc, const Table &table) const {
   const std::size_t begin = SetBegin(pc, table);
+  const std::uint32_t tag = Tag(pc);
   for (std::uint32_t way = 0; way < table.ways; ++way) {
     const Entry &entry = table.entries[begin + way];
-    if (entry.valid && entry.pc == Tag(pc)) {
+    if (entry.valid && entry.tag == tag) {
       const std::uint32_t target = (pc & ~LowMask(config_.target_bits)) | entry.target;
       return {true, target, entry.type, entry.backward};
     }
@@ -76,23 +77,18 @@ void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
   Table &table = config_.jal_btb && type == BtbType::kJal ? jal_table_ : table_;
   const std::size_t begin = SetBegin(pc, table);
   const std::uint32_t set = (pc >> 2) & (table.sets - 1u);
+  const std::uint32_t tag = Tag(pc);
   std::uint32_t selected = table.ways;
-  // 先找已有项；未命中时优先选编号最小的空路。
+  bool hit = false;
+  // 扫描时记住首个空路；后续命中仍优先复用已有项。
   for (std::uint32_t way = 0; way < table.ways; ++way) {
     const Entry &entry = table.entries[begin + way];
-    if (entry.valid && entry.pc == Tag(pc)) {
+    if (entry.valid && entry.tag == tag) {
       selected = way;
+      hit = true;
       break;
     }
-  }
-  const bool hit = selected != table.ways;
-  if (!hit) {
-    for (std::uint32_t way = 0; way < table.ways; ++way) {
-      if (!table.entries[begin + way].valid) {
-        selected = way;
-        break;
-      }
-    }
+    if (!entry.valid && selected == table.ways) selected = way;
   }
   if (selected == table.ways) {
     if (config_.policy == "rr") selected = table.rr_next[set];
@@ -118,7 +114,7 @@ void Btb::Update(std::uint32_t pc, std::uint32_t target, BtbType type) {
     table.rr_next[set] = (selected + 1u) % table.ways;
   }
   const bool backward = ((target - pc) & 0x80000000u) != 0;
-  entry = {true, Tag(pc), target & LowMask(config_.target_bits), type, 0, backward};
+  entry = {true, tag, target & LowMask(config_.target_bits), type, 0, backward};
 }
 
 std::size_t Btb::SetBegin(std::uint32_t pc, const Table &table) const {

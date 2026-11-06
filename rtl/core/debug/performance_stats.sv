@@ -115,17 +115,16 @@ module performance_stats
     end else begin
       stats_q.cycle_count <= stats_q.cycle_count + 64'd1;
       // 沿用调试提交口径，包括异常；并非排除异常的架构 minstret。
-      if (retire_fire)
+      if (retire_fire) begin
         stats_q.instret_count <= stats_q.instret_count + 64'd1;
+        stats_q.classes[classes_i.wb_class].instret_count <=
+            stats_q.classes[classes_i.wb_class].instret_count + 64'd1;
+      end
 
       // redirect 是无背压的单周期事件。统计仲裁后实际送到 IF 的事件：EX 与
       // WB 同拍改道只计一次；包含 EX 分支纠错和 WB 的 trap/MRET/FENCE.I。
       if (redirect)
         stats_q.redirect_count <= stats_q.redirect_count + 64'd1;
-
-      if (retire_fire)
-        stats_q.classes[classes_i.wb_class].instret_count <=
-            stats_q.classes[classes_i.wb_class].instret_count + 64'd1;
 
       if (if_local_stall)
         stats_q.if_local_stall_cycle_count <=

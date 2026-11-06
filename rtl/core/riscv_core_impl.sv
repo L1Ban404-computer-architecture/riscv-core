@@ -49,8 +49,12 @@ module riscv_core_impl
   id_ex_if forwarded ();
   gpr_write_if wb ();
 
-  // miss 等待时 IF/ID 没有新指令，已有 EX 可继续排空，无需记录分支确认状态。
-  assign imem_miss_allowed_o = rst_ni && !id_ex.valid;
+  // 普通 EX 指令即使因后端访存背压而停留，也允许提前启动取指 miss。
+  // 分支/跳转、截断标签误预测及串行化/异常仍等待 EX 排空，避免错误路径访问。
+  assign imem_miss_allowed_o = rst_ni && (!id_ex.valid ||
+      ((id_ex.payload.ctrl.branch_op == BR_NONE) && !id_ex.payload.prediction.taken &&
+       !id_ex.payload.exception.valid && !id_ex.payload.commit.fence_i &&
+       !id_ex.payload.commit.is_mret));
 
   // 流水级与输出寄存器按 IF → ID → EX → MEM → WB 排列。
 
